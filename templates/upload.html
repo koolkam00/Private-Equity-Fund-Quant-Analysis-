@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Upload Data{% endblock %}
+{% block content %}
+<h3 class="mb-4">Upload Data</h3>
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">Deal Data</h5></div>
+            <div class="card-body">
+                <p class="text-muted">Upload an Excel file with deal-level data: company name, fund, sector, status, operating metrics, MOIC, IRR, etc.</p>
+                <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="deal_file" class="form-label">Excel File (.xlsx)</label>
+                        <input type="file" class="form-control" id="deal_file" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload Deals</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">Cashflow Data</h5></div>
+            <div class="card-body">
+                <p class="text-muted">Upload an Excel file with cashflow data: company name, date, capital called, distributions, fees, NAV.</p>
+                <form method="POST" action="{{ url_for('upload_cashflows') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="cashflow_file" class="form-label">Excel File (.xlsx)</label>
+                        <input type="file" class="form-control" id="cashflow_file" name="file" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload Cashflows</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

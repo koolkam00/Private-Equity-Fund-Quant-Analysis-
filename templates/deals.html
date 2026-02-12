@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Deals{% endblock %}
+{% block content %}
+<h3>Deals ({{ deals|length }})</h3>
+{% if deals %}
+<div class="table-responsive">
+    <table class="table table-striped table-hover table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th>Status</th>
+                <th>Investment Date</th>
+                <th>Exit Date</th>
+                <th>Equity Invested</th>
+                <th>Entry Revenue</th>
+                <th>Entry EBITDA</th>
+                <th>Entry EV</th>
+                <th>Entry Net Debt</th>
+                <th>Exit Revenue</th>
+                <th>Exit EBITDA</th>
+                <th>Exit EV</th>
+                <th>Exit Net Debt</th>
+                <th>MOIC</th>
+                <th>IRR</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for deal in deals %}
+            <tr>
+                <td>{{ deal.company_name }}</td>
+                <td>{{ deal.fund_number or "-" }}</td>
+                <td>{{ deal.sector or "-" }}</td>
+                <td>
+                    {% if deal.status == "Fully Realized" %}
+                    <span class="badge bg-success">{{ deal.status }}</span>
+                    {% elif deal.status == "Partially Realized" %}
+                    <span class="badge bg-warning text-dark">{{ deal.status }}</span>
+                    {% else %}
+                    <span class="badge bg-primary">{{ deal.status or "Unrealized" }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ deal.investment_date or "-" }}</td>
+                <td>{{ deal.exit_date or "-" }}</td>
+                <td>{{ "%.1f"|format(deal.equity_invested) if deal.equity_invested is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.entry_revenue) if deal.entry_revenue is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.entry_ebitda) if deal.entry_ebitda is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.entry_enterprise_value) if deal.entry_enterprise_value is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.entry_net_debt) if deal.entry_net_debt is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.exit_revenue) if deal.exit_revenue is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.exit_ebitda) if deal.exit_ebitda is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.exit_enterprise_value) if deal.exit_enterprise_value is not none else "-" }}</td>
+                <td>{{ "%.1f"|format(deal.exit_net_debt) if deal.exit_net_debt is not none else "-" }}</td>
+                <td>{{ "%.2fx"|format(deal.moic) if deal.moic is not none else "-" }}</td>
+                <td>{{ "%.1f%%"|format(deal.irr * 100) if deal.irr is not none else "-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted">No deals uploaded yet. <a href="{{ url_for('upload') }}">Upload a file</a> to get started.</p>
+{% endif %}
+{% endblock %}
