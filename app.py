@@ -22,6 +22,73 @@ with app.app_context():
     db.create_all()
 
 
+def _compute_deal_metrics(deal):
+    """Compute derived performance metrics for a single deal."""
+    m = {}
+    # Hold Period (years)
+    if deal.investment_date and deal.exit_date:
+        delta = deal.exit_date - deal.investment_date
+        m["hold_period"] = delta.days / 365.25
+    else:
+        m["hold_period"] = None
+
+    # Revenue Growth %
+    if deal.entry_revenue and deal.exit_revenue and deal.entry_revenue != 0:
+        m["revenue_growth"] = (deal.exit_revenue - deal.entry_revenue) / deal.entry_revenue * 100
+    else:
+        m["revenue_growth"] = None
+
+    # Revenue Growth CAGR %
+    if m["revenue_growth"] is not None and m["hold_period"] and m["hold_period"] > 0:
+        m["revenue_cagr"] = ((deal.exit_revenue / deal.entry_revenue) ** (1 / m["hold_period"]) - 1) * 100
+    else:
+        m["revenue_cagr"] = None
+
+    # EBITDA Growth %
+    if deal.entry_ebitda and deal.exit_ebitda and deal.entry_ebitda != 0:
+        m["ebitda_growth"] = (deal.exit_ebitda - deal.entry_ebitda) / deal.entry_ebitda * 100
+    else:
+        m["ebitda_growth"] = None
+
+    # EBITDA Growth CAGR %
+    if m["ebitda_growth"] is not None and m["hold_period"] and m["hold_period"] > 0:
+        m["ebitda_cagr"] = ((deal.exit_ebitda / deal.entry_ebitda) ** (1 / m["hold_period"]) - 1) * 100
+    else:
+        m["ebitda_cagr"] = None
+
+    return m
+
+
+def _compute_portfolio_analytics(deals):
+    """Compute simple averages and equity-weighted averages across deals."""
+    metrics = []
+    for d in deals:
+        m = _compute_deal_metrics(d)
+        m["equity"] = d.equity_invested or 0
+        m["moic"] = d.moic
+        m["irr"] = d.irr if d.irr is not None else None
+        metrics.append(m)
+
+    fields = [
+        "revenue_growth", "revenue_cagr", "ebitda_growth", "ebitda_cagr",
+        "hold_period", "moic", "irr",
+    ]
+    result = {}
+    for f in fields:
+        vals = [(m[f], m["equity"]) for m in metrics if m[f] is not None]
+        if vals:
+            result[f"avg_{f}"] = sum(v for v, _ in vals) / len(vals)
+            total_w = sum(w for _, w in vals)
+            if total_w > 0:
+                result[f"wavg_{f}"] = sum(v * w for v, w in vals) / total_w
+            else:
+                result[f"wavg_{f}"] = result[f"avg_{f}"]
+        else:
+            result[f"avg_{f}"] = None
+            result[f"wavg_{f}"] = None
+    return result
+
+
 def _allowed_file(filename):
     ext = os.path.splitext(filename)[1].lower()
     return ext in app.config["ALLOWED_EXTENSIONS"]
@@ -76,28 +143,74 @@ def index():
 
 @app.route("/dashboard")
 def dashboard():
-    total_deals = Deal.query.count()
-    fully_realized = Deal.query.filter(Deal.status == "Fully Realized").count()
-    partially_realized = Deal.query.filter(Deal.status == "Partially Realized").count()
-    unrealized = Deal.query.filter(Deal.status == "Unrealized").count()
+    # --- Filter dropdown options (always unfiltered) ---
+    funds = [
+        r[0] for r in db.session.query(Deal.fund_number).distinct()
+        if r[0]
+    ]
+    statuses = [
+        r[0] for r in db.session.query(Deal.status).distinct()
+        if r[0]
+    ]
+    sectors = [
+        r[0] for r in db.session.query(Deal.sector).distinct()
+        if r[0]
+    ]
+    funds.sort()
+    statuses.sort()
+    sectors.sort()
 
-    agg = db.session.query(
-        func.sum(Deal.equity_invested),
-        func.avg(Deal.moic),
-        func.avg(Deal.irr),
-    ).first()
-    total_equity = agg[0] or 0
-    avg_moic = agg[1] or 0
-    avg_irr = agg[2] or 0
+    # --- Read current filter values ---
+    current_fund = request.args.get("fund", "")
+    current_status = request.args.get("status", "")
+    current_sector = request.args.get("sector", "")
 
-    cf_agg = db.session.query(
+    # --- Build filtered deal query ---
+    deal_query = Deal.query
+    if current_fund:
+        deal_query = deal_query.filter(Deal.fund_number == current_fund)
+    if current_status:
+        deal_query = deal_query.filter(Deal.status == current_status)
+    if current_sector:
+        deal_query = deal_query.filter(Deal.sector == current_sector)
+
+    filtered_deals = deal_query.all()
+
+    # --- KPIs from filtered deals ---
+    total_deals = len(filtered_deals)
+    fully_realized = sum(1 for d in filtered_deals if d.status == "Fully Realized")
+    partially_realized = sum(1 for d in filtered_deals if d.status == "Partially Realized")
+    unrealized = sum(1 for d in filtered_deals if d.status == "Unrealized")
+
+    total_equity = sum(d.equity_invested or 0 for d in filtered_deals)
+    moic_vals = [d.moic for d in filtered_deals if d.moic is not None]
+    avg_moic = sum(moic_vals) / len(moic_vals) if moic_vals else 0
+    irr_vals = [d.irr for d in filtered_deals if d.irr is not None]
+    avg_irr = sum(irr_vals) / len(irr_vals) if irr_vals else 0
+
+    # --- Cashflow sums (filtered by matching company names / funds) ---
+    cf_query = db.session.query(
         func.sum(Cashflow.capital_called),
         func.sum(Cashflow.distributions),
-    ).first()
+    )
+    if current_fund:
+        cf_query = cf_query.filter(Cashflow.fund_number == current_fund)
+    if current_fund or current_status or current_sector:
+        # Further restrict to companies in the filtered deal set
+        company_names = [d.company_name for d in filtered_deals]
+        if company_names:
+            cf_query = cf_query.filter(Cashflow.company_name.in_(company_names))
+        else:
+            cf_query = cf_query.filter(False)
+    cf_agg = cf_query.first()
     total_capital_called = cf_agg[0] or 0
     total_distributions = cf_agg[1] or 0
 
-    recent_deals = Deal.query.order_by(Deal.created_at.desc()).limit(5).all()
+    # --- Portfolio analytics (simple avg + equity-weighted avg) ---
+    analytics = _compute_portfolio_analytics(filtered_deals)
+
+    # --- Recent deals (filtered) ---
+    recent_deals = deal_query.order_by(Deal.created_at.desc()).limit(5).all()
 
     return render_template(
         "dashboard.html",
@@ -111,6 +224,13 @@ def dashboard():
         total_capital_called=total_capital_called,
         total_distributions=total_distributions,
         recent_deals=recent_deals,
+        analytics=analytics,
+        funds=funds,
+        statuses=statuses,
+        sectors=sectors,
+        current_fund=current_fund,
+        current_status=current_status,
+        current_sector=current_sector,
     )
 
 
@@ -132,7 +252,8 @@ def upload_cashflows():
 @app.route("/deals")
 def deals():
     all_deals = Deal.query.order_by(Deal.created_at.desc()).all()
-    return render_template("deals.html", deals=all_deals)
+    deal_metrics = {d.id: _compute_deal_metrics(d) for d in all_deals}
+    return render_template("deals.html", deals=all_deals, deal_metrics=deal_metrics)
 
 
 @app.route("/cashflows")

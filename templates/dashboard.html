@@ -5,6 +5,40 @@
 
 {% block content %}
 
+<!-- Filter Bar -->
+<form class="filter-bar" method="GET" action="{{ url_for('dashboard') }}">
+    <div class="filter-group">
+        <label>Fund</label>
+        <select name="fund" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Funds</option>
+            {% for f in funds %}
+            <option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>Status</label>
+        <select name="status" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Statuses</option>
+            {% for s in statuses %}
+            <option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>Sector</label>
+        <select name="sector" class="filter-select" onchange="this.form.submit()">
+            <option value="">All Sectors</option>
+            {% for s in sectors %}
+            <option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% if current_fund or current_status or current_sector %}
+    <a href="{{ url_for('dashboard') }}" class="filter-clear">Clear Filters</a>
+    {% endif %}
+</form>
+
 <!-- KPI Cards -->
 <div class="kpi-grid">
     <div class="kpi-card kpi-blue">
@@ -89,6 +123,90 @@
                 <span class="cf-value {% if total_distributions - total_capital_called >= 0 %}value-positive{% else %}value-negative{% endif %}">${{ "%.1f"|format(total_distributions - total_capital_called) }}M</span>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Portfolio Analytics -->
+<div class="panel">
+    <div class="panel-header">
+        <span><i class="bi bi-bar-chart-line"></i> Portfolio Analytics</span>
+        <span class="panel-action">Weighted by Equity Invested</span>
+    </div>
+    <div class="panel-body no-padding">
+        <table class="data-table analytics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th class="text-right">Average</th>
+                    <th class="text-right">Wtd Average</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="metric-label">Revenue Growth</td>
+                    <td class="text-right mono {% if analytics.avg_revenue_growth is not none and analytics.avg_revenue_growth > 0 %}value-positive{% elif analytics.avg_revenue_growth is not none and analytics.avg_revenue_growth < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.avg_revenue_growth) if analytics.avg_revenue_growth is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_revenue_growth is not none and analytics.wavg_revenue_growth > 0 %}value-positive{% elif analytics.wavg_revenue_growth is not none and analytics.wavg_revenue_growth < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.wavg_revenue_growth) if analytics.wavg_revenue_growth is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">Revenue CAGR</td>
+                    <td class="text-right mono {% if analytics.avg_revenue_cagr is not none and analytics.avg_revenue_cagr > 0 %}value-positive{% elif analytics.avg_revenue_cagr is not none and analytics.avg_revenue_cagr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.avg_revenue_cagr) if analytics.avg_revenue_cagr is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_revenue_cagr is not none and analytics.wavg_revenue_cagr > 0 %}value-positive{% elif analytics.wavg_revenue_cagr is not none and analytics.wavg_revenue_cagr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.wavg_revenue_cagr) if analytics.wavg_revenue_cagr is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">EBITDA Growth</td>
+                    <td class="text-right mono {% if analytics.avg_ebitda_growth is not none and analytics.avg_ebitda_growth > 0 %}value-positive{% elif analytics.avg_ebitda_growth is not none and analytics.avg_ebitda_growth < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.avg_ebitda_growth) if analytics.avg_ebitda_growth is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_ebitda_growth is not none and analytics.wavg_ebitda_growth > 0 %}value-positive{% elif analytics.wavg_ebitda_growth is not none and analytics.wavg_ebitda_growth < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.wavg_ebitda_growth) if analytics.wavg_ebitda_growth is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">EBITDA CAGR</td>
+                    <td class="text-right mono {% if analytics.avg_ebitda_cagr is not none and analytics.avg_ebitda_cagr > 0 %}value-positive{% elif analytics.avg_ebitda_cagr is not none and analytics.avg_ebitda_cagr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.avg_ebitda_cagr) if analytics.avg_ebitda_cagr is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_ebitda_cagr is not none and analytics.wavg_ebitda_cagr > 0 %}value-positive{% elif analytics.wavg_ebitda_cagr is not none and analytics.wavg_ebitda_cagr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.wavg_ebitda_cagr) if analytics.wavg_ebitda_cagr is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">Hold Period</td>
+                    <td class="text-right mono">
+                        {{ "%.1f yrs"|format(analytics.avg_hold_period) if analytics.avg_hold_period is not none else "—" }}
+                    </td>
+                    <td class="text-right mono">
+                        {{ "%.1f yrs"|format(analytics.wavg_hold_period) if analytics.wavg_hold_period is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">MOIC</td>
+                    <td class="text-right mono {% if analytics.avg_moic is not none and analytics.avg_moic >= 2 %}value-positive{% elif analytics.avg_moic is not none and analytics.avg_moic < 1 %}value-negative{% endif %}">
+                        {{ "%.2fx"|format(analytics.avg_moic) if analytics.avg_moic is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_moic is not none and analytics.wavg_moic >= 2 %}value-positive{% elif analytics.wavg_moic is not none and analytics.wavg_moic < 1 %}value-negative{% endif %}">
+                        {{ "%.2fx"|format(analytics.wavg_moic) if analytics.wavg_moic is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label">IRR</td>
+                    <td class="text-right mono {% if analytics.avg_irr is not none and analytics.avg_irr > 0 %}value-positive{% elif analytics.avg_irr is not none and analytics.avg_irr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.avg_irr * 100) if analytics.avg_irr is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if analytics.wavg_irr is not none and analytics.wavg_irr > 0 %}value-positive{% elif analytics.wavg_irr is not none and analytics.wavg_irr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(analytics.wavg_irr * 100) if analytics.wavg_irr is not none else "—" }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 

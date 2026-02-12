@@ -55,6 +55,7 @@
                     </td>
                 </tr>
 
+                {% set m = deal_metrics[deal.id] %}
                 <tr class="detail-row" style="display: none;" id="detail-{{ deal.id }}">
                     <td colspan="9">
                         <div class="detail-grid">
@@ -107,6 +108,30 @@
                                 <div class="detail-metric">
                                     <span class="detail-label">Exit Date</span>
                                     <span class="detail-value">{{ deal.exit_date.strftime('%b %d, %Y') if deal.exit_date else "—" }}</span>
+                                </div>
+                                <div class="detail-metric">
+                                    <span class="detail-label">Hold Period</span>
+                                    <span class="detail-value">{{ "%.1f yrs"|format(m.hold_period) if m.hold_period is not none else "—" }}</span>
+                                </div>
+                            </div>
+
+                            <div class="detail-section">
+                                <h4 class="detail-section-title">Performance</h4>
+                                <div class="detail-metric">
+                                    <span class="detail-label">Revenue Growth</span>
+                                    <span class="detail-value {% if m.revenue_growth is not none and m.revenue_growth > 0 %}value-positive{% elif m.revenue_growth is not none and m.revenue_growth < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }}</span>
+                                </div>
+                                <div class="detail-metric">
+                                    <span class="detail-label">Revenue CAGR</span>
+                                    <span class="detail-value {% if m.revenue_cagr is not none and m.revenue_cagr > 0 %}value-positive{% elif m.revenue_cagr is not none and m.revenue_cagr < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.revenue_cagr) if m.revenue_cagr is not none else "—" }}</span>
+                                </div>
+                                <div class="detail-metric">
+                                    <span class="detail-label">EBITDA Growth</span>
+                                    <span class="detail-value {% if m.ebitda_growth is not none and m.ebitda_growth > 0 %}value-positive{% elif m.ebitda_growth is not none and m.ebitda_growth < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.ebitda_growth) if m.ebitda_growth is not none else "—" }}</span>
+                                </div>
+                                <div class="detail-metric">
+                                    <span class="detail-label">EBITDA CAGR</span>
+                                    <span class="detail-value {% if m.ebitda_cagr is not none and m.ebitda_cagr > 0 %}value-positive{% elif m.ebitda_cagr is not none and m.ebitda_cagr < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.ebitda_cagr) if m.ebitda_cagr is not none else "—" }}</span>
                                 </div>
                             </div>
                         </div>
