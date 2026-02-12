@@ -130,6 +130,54 @@ def _compute_deal_metrics(deal):
     else:
         m["exit_net_debt_ev"] = None
 
+    # --- Value Creation Bridge (Additive Decomposition) ---
+    # Requires all 8 entry/exit operating fields, non-zero denominators, and equity_invested
+    _vb_fields = [
+        deal.entry_revenue, deal.exit_revenue,
+        deal.entry_ebitda, deal.exit_ebitda,
+        deal.entry_enterprise_value, deal.exit_enterprise_value,
+        deal.entry_net_debt, deal.exit_net_debt,
+    ]
+    _can_bridge = (
+        all(v is not None for v in _vb_fields)
+        and deal.entry_ebitda != 0
+        and deal.entry_revenue != 0
+        and deal.equity_invested and deal.equity_invested > 0
+    )
+    if _can_bridge:
+        entry_margin = deal.entry_ebitda / deal.entry_revenue  # decimal
+        exit_margin = deal.exit_ebitda / deal.exit_revenue if deal.exit_revenue != 0 else 0
+        entry_multiple = deal.entry_enterprise_value / deal.entry_ebitda
+        exit_multiple = deal.exit_enterprise_value / deal.exit_ebitda if deal.exit_ebitda != 0 else 0
+
+        entry_equity = deal.entry_enterprise_value - deal.entry_net_debt
+        exit_equity = deal.exit_enterprise_value - deal.exit_net_debt
+        total_value_created = exit_equity - entry_equity
+
+        vb_rev = (deal.exit_revenue - deal.entry_revenue) * entry_margin * entry_multiple
+        vb_margin = deal.exit_revenue * (exit_margin - entry_margin) * entry_multiple
+        vb_multiple = (exit_multiple - entry_multiple) * deal.exit_ebitda
+        vb_leverage = deal.entry_net_debt - deal.exit_net_debt
+        vb_other = total_value_created - (vb_rev + vb_margin + vb_multiple + vb_leverage)
+
+        m["vb_revenue_growth"] = vb_rev
+        m["vb_margin_expansion"] = vb_margin
+        m["vb_multiple_expansion"] = vb_multiple
+        m["vb_leverage"] = vb_leverage
+        m["vb_other"] = vb_other
+        eq = deal.equity_invested
+        m["vb_revenue_growth_moic"] = vb_rev / eq
+        m["vb_margin_expansion_moic"] = vb_margin / eq
+        m["vb_multiple_expansion_moic"] = vb_multiple / eq
+        m["vb_leverage_moic"] = vb_leverage / eq
+        m["vb_other_moic"] = vb_other / eq
+    else:
+        for k in ["vb_revenue_growth", "vb_margin_expansion", "vb_multiple_expansion",
+                   "vb_leverage", "vb_other", "vb_revenue_growth_moic",
+                   "vb_margin_expansion_moic", "vb_multiple_expansion_moic",
+                   "vb_leverage_moic", "vb_other_moic"]:
+            m[k] = None
+
     return m
 
 
@@ -150,6 +198,8 @@ def _compute_portfolio_analytics(deals):
         "entry_ebitda_margin", "entry_net_debt_ev",
         "exit_ev_ebitda", "exit_ev_revenue", "exit_net_debt_ebitda",
         "exit_ebitda_margin", "exit_net_debt_ev",
+        "vb_revenue_growth_moic", "vb_margin_expansion_moic",
+        "vb_multiple_expansion_moic", "vb_leverage_moic", "vb_other_moic",
     ]
     result = {}
     for f in fields:
@@ -164,6 +214,98 @@ def _compute_portfolio_analytics(deals):
         else:
             result[f"avg_{f}"] = None
             result[f"wavg_{f}"] = None
+    return result
+
+
+def _compute_fund_metrics(cashflows):
+    """Compute DPI, RVPI, TVPI from cashflow records."""
+    total_called = sum(cf.capital_called or 0 for cf in cashflows)
+    total_distributed = sum(cf.distributions or 0 for cf in cashflows)
+
+    # Latest NAV per company (last observed NAV by date)
+    latest_navs = {}
+    for cf in sorted(cashflows, key=lambda c: c.date):
+        if cf.nav is not None:
+            latest_navs[cf.company_name] = cf.nav
+    total_nav = sum(latest_navs.values()) if latest_navs else 0
+
+    if total_called > 0:
+        dpi = total_distributed / total_called
+        rvpi = total_nav / total_called
+        tvpi = dpi + rvpi
+    else:
+        dpi = rvpi = tvpi = None
+
+    return {
+        "total_called": total_called,
+        "total_distributed": total_distributed,
+        "total_nav": total_nav,
+        "dpi": dpi,
+        "rvpi": rvpi,
+        "tvpi": tvpi,
+    }
+
+
+def _compute_risk_metrics(deals):
+    """Compute portfolio risk and concentration analysis."""
+    result = {}
+
+    # --- Loss Ratio ---
+    deals_with_moic = [d for d in deals if d.moic is not None]
+    if deals_with_moic:
+        losses = [d for d in deals_with_moic if d.moic < 1.0]
+        result["loss_ratio_count"] = len(losses) / len(deals_with_moic) * 100
+        total_eq = sum(d.equity_invested or 0 for d in deals_with_moic)
+        loss_eq = sum(d.equity_invested or 0 for d in losses)
+        result["loss_ratio_capital"] = (loss_eq / total_eq * 100) if total_eq > 0 else None
+        result["loss_count"] = len(losses)
+        result["total_with_moic"] = len(deals_with_moic)
+    else:
+        result["loss_ratio_count"] = None
+        result["loss_ratio_capital"] = None
+        result["loss_count"] = 0
+        result["total_with_moic"] = 0
+
+    # --- MOIC Distribution Buckets ---
+    buckets = [
+        ("<0.5x", 0, 0.5), ("0.5-1.0x", 0.5, 1.0), ("1.0-1.5x", 1.0, 1.5),
+        ("1.5-2.0x", 1.5, 2.0), ("2.0-3.0x", 2.0, 3.0), ("3.0x+", 3.0, float("inf")),
+    ]
+    moic_dist = []
+    for label, lo, hi in buckets:
+        count = sum(1 for d in deals_with_moic if lo <= d.moic < hi)
+        pct = count / len(deals_with_moic) * 100 if deals_with_moic else 0
+        moic_dist.append({"label": label, "count": count, "pct": pct})
+    result["moic_distribution"] = moic_dist
+
+    # --- Concentration ---
+    eq_deals = [
+        (d.equity_invested, d.company_name, d.sector)
+        for d in deals if d.equity_invested and d.equity_invested > 0
+    ]
+    eq_deals.sort(key=lambda x: x[0], reverse=True)
+    total_eq = sum(e for e, _, _ in eq_deals)
+
+    if total_eq > 0 and len(eq_deals) >= 5:
+        result["top5_concentration"] = sum(e for e, _, _ in eq_deals[:5]) / total_eq * 100
+        result["top5_deals"] = [(n, e, e / total_eq * 100) for e, n, _ in eq_deals[:5]]
+    else:
+        result["top5_concentration"] = None
+        result["top5_deals"] = []
+
+    # --- Sector Breakdown ---
+    sector_eq = {}
+    for e, _, s in eq_deals:
+        sector_eq[s or "Unknown"] = sector_eq.get(s or "Unknown", 0) + e
+    if total_eq > 0:
+        result["sector_breakdown"] = sorted(
+            [{"sector": s, "equity": v, "pct": v / total_eq * 100}
+             for s, v in sector_eq.items()],
+            key=lambda x: x["equity"], reverse=True,
+        )
+    else:
+        result["sector_breakdown"] = []
+
     return result
 
 
@@ -287,6 +429,44 @@ def dashboard():
     # --- Portfolio analytics (simple avg + equity-weighted avg) ---
     analytics = _compute_portfolio_analytics(filtered_deals)
 
+    # --- Fund-level metrics (DPI / RVPI / TVPI) ---
+    cf_filter_query = Cashflow.query
+    if current_fund:
+        cf_filter_query = cf_filter_query.filter(Cashflow.fund_number == current_fund)
+    if current_fund or current_status or current_sector:
+        company_names_for_cf = [d.company_name for d in filtered_deals]
+        if company_names_for_cf:
+            cf_filter_query = cf_filter_query.filter(
+                Cashflow.company_name.in_(company_names_for_cf)
+            )
+        else:
+            cf_filter_query = cf_filter_query.filter(False)
+    fund_metrics = _compute_fund_metrics(cf_filter_query.all())
+
+    # --- Risk metrics ---
+    risk = _compute_risk_metrics(filtered_deals)
+
+    # --- Vintage Year Analysis ---
+    vintage_map = {}
+    for d in filtered_deals:
+        yr = d.investment_date.year if d.investment_date else None
+        if yr is None:
+            continue
+        vintage_map.setdefault(yr, []).append(d)
+
+    vintage_years = []
+    for yr in sorted(vintage_map):
+        ds = vintage_map[yr]
+        moics = [d.moic for d in ds if d.moic is not None]
+        irrs = [d.irr for d in ds if d.irr is not None]
+        vintage_years.append({
+            "year": yr,
+            "deal_count": len(ds),
+            "total_equity": sum(d.equity_invested or 0 for d in ds),
+            "avg_moic": sum(moics) / len(moics) if moics else None,
+            "avg_irr": sum(irrs) / len(irrs) if irrs else None,
+        })
+
     # --- Recent deals (filtered) ---
     recent_deals = deal_query.order_by(Deal.created_at.desc()).limit(5).all()
 
@@ -303,6 +483,9 @@ def dashboard():
         total_distributions=total_distributions,
         recent_deals=recent_deals,
         analytics=analytics,
+        fund_metrics=fund_metrics,
+        risk=risk,
+        vintage_years=vintage_years,
         funds=funds,
         statuses=statuses,
         sectors=sectors,

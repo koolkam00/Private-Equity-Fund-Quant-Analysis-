@@ -894,6 +894,99 @@ th.sort-desc::after {
     border-bottom: none;
 }
 
+/* --- Risk & Portfolio Construction --- */
+.risk-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-8);
+}
+
+.risk-stat {
+    margin-bottom: var(--space-5);
+}
+
+.risk-stat-value {
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+.risk-stat-label {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.risk-stat-detail {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    margin-top: var(--space-1);
+}
+
+.risk-subsection {
+    margin-top: var(--space-4);
+}
+
+/* --- Metric Bars (MOIC distribution, concentration, sector) --- */
+.metric-bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+}
+
+.metric-bar-label {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    min-width: 60px;
+    flex-shrink: 0;
+}
+
+.metric-bar-track {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.metric-bar {
+    height: 8px;
+    border-radius: 4px;
+    min-width: 2px;
+    transition: width 0.3s ease;
+}
+
+.metric-bar.bar-positive { background: var(--accent-green); }
+.metric-bar.bar-negative { background: var(--accent-red); }
+.metric-bar.bar-dist { background: var(--accent-blue); }
+.metric-bar.bar-concentration { background: var(--accent-amber); }
+.metric-bar.bar-sector { background: var(--accent-purple); }
+
+.metric-bar-value {
+    font-size: var(--text-xs);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 80px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* --- Value Bridge Table (deal detail) --- */
+.value-bridge-table {
+    max-width: 560px;
+}
+
+.value-bridge-table .summary-row td {
+    font-weight: 600;
+    border-top: 2px solid var(--border-accent);
+}
+
 /* --- Override Bootstrap form controls --- */
 .form-control,
 .form-select {

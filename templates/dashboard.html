@@ -108,7 +108,7 @@
     </div>
 
     <div class="panel">
-        <div class="panel-header">Cashflow Summary</div>
+        <div class="panel-header">Fund Performance</div>
         <div class="panel-body">
             <div class="cf-summary-row">
                 <span class="cf-label">Total Capital Called</span>
@@ -121,6 +121,18 @@
             <div class="cf-summary-row">
                 <span class="cf-label">Net Cashflow</span>
                 <span class="cf-value {% if total_distributions - total_capital_called >= 0 %}value-positive{% else %}value-negative{% endif %}">${{ "%.1f"|format(total_distributions - total_capital_called) }}M</span>
+            </div>
+            <div class="cf-summary-row" style="border-top: 2px solid var(--border-accent); margin-top: var(--space-2); padding-top: var(--space-3);">
+                <span class="cf-label">DPI (Realized Return)</span>
+                <span class="cf-value">{{ "%.2fx"|format(fund_metrics.dpi) if fund_metrics.dpi is not none else "—" }}</span>
+            </div>
+            <div class="cf-summary-row">
+                <span class="cf-label">RVPI (Unrealized Value)</span>
+                <span class="cf-value">{{ "%.2fx"|format(fund_metrics.rvpi) if fund_metrics.rvpi is not none else "—" }}</span>
+            </div>
+            <div class="cf-summary-row">
+                <span class="cf-label">TVPI (Total Value)</span>
+                <span class="cf-value {% if fund_metrics.tvpi is not none and fund_metrics.tvpi >= 1 %}value-positive{% elif fund_metrics.tvpi is not none and fund_metrics.tvpi < 1 %}value-negative{% endif %}">{{ "%.2fx"|format(fund_metrics.tvpi) if fund_metrics.tvpi is not none else "—" }}</span>
             </div>
         </div>
     </div>
@@ -325,6 +337,180 @@
         </table>
     </div>
 </div>
+
+<!-- Value Creation Analysis -->
+<div class="panel">
+    <div class="panel-header">
+        <span><i class="bi bi-diagram-3"></i> Value Creation Analysis</span>
+        <span class="panel-action">Avg MOIC Contribution by Driver</span>
+    </div>
+    <div class="panel-body no-padding">
+        {% if analytics.avg_vb_revenue_growth_moic is not none %}
+        <table class="data-table analytics-table">
+            <thead>
+                <tr>
+                    <th>Driver</th>
+                    <th class="text-right">Average</th>
+                    <th class="text-right">Wtd Average</th>
+                    <th style="width: 30%"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set vb_drivers = [
+                    ("Revenue Growth", analytics.avg_vb_revenue_growth_moic, analytics.wavg_vb_revenue_growth_moic),
+                    ("Margin Expansion", analytics.avg_vb_margin_expansion_moic, analytics.wavg_vb_margin_expansion_moic),
+                    ("Multiple Expansion", analytics.avg_vb_multiple_expansion_moic, analytics.wavg_vb_multiple_expansion_moic),
+                    ("Leverage / Debt Paydown", analytics.avg_vb_leverage_moic, analytics.wavg_vb_leverage_moic),
+                    ("Other / Residual", analytics.avg_vb_other_moic, analytics.wavg_vb_other_moic),
+                ] %}
+                {% set max_abs = namespace(val=0.01) %}
+                {% for name, avg, wavg in vb_drivers %}
+                    {% if avg is not none and avg|abs > max_abs.val %}{% set max_abs.val = avg|abs %}{% endif %}
+                    {% if wavg is not none and wavg|abs > max_abs.val %}{% set max_abs.val = wavg|abs %}{% endif %}
+                {% endfor %}
+                {% for name, avg, wavg in vb_drivers %}
+                <tr>
+                    <td class="metric-label">{{ name }}</td>
+                    <td class="text-right mono {% if avg is not none and avg > 0 %}value-positive{% elif avg is not none and avg < 0 %}value-negative{% endif %}">
+                        {{ "%+.2fx"|format(avg) if avg is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if wavg is not none and wavg > 0 %}value-positive{% elif wavg is not none and wavg < 0 %}value-negative{% endif %}">
+                        {{ "%+.2fx"|format(wavg) if wavg is not none else "—" }}
+                    </td>
+                    <td>
+                        {% if wavg is not none %}
+                        <div class="metric-bar-row">
+                            {% set bar_pct = (wavg|abs / max_abs.val * 100)|round(1) %}
+                            <div class="metric-bar {% if wavg >= 0 %}bar-positive{% else %}bar-negative{% endif %}" style="width: {{ bar_pct }}%"></div>
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>Value creation bridge requires complete entry/exit financial data.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Risk & Portfolio Construction -->
+<div class="panel">
+    <div class="panel-header">
+        <span><i class="bi bi-shield-check"></i> Risk & Portfolio Construction</span>
+    </div>
+    <div class="panel-body">
+        <div class="risk-grid">
+            <!-- Left Column: Loss Ratio + MOIC Distribution -->
+            <div>
+                <div class="risk-stat">
+                    <div class="risk-stat-label">Loss Ratio (Count)</div>
+                    <div class="risk-stat-value {% if risk.loss_ratio_count is not none and risk.loss_ratio_count > 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(risk.loss_ratio_count) if risk.loss_ratio_count is not none else "—" }}
+                    </div>
+                    <div class="risk-stat-detail">{{ risk.loss_count }} of {{ risk.total_with_moic }} deals below 1.0x</div>
+                </div>
+                <div class="risk-stat">
+                    <div class="risk-stat-label">Loss Ratio (Capital-Weighted)</div>
+                    <div class="risk-stat-value {% if risk.loss_ratio_capital is not none and risk.loss_ratio_capital > 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(risk.loss_ratio_capital) if risk.loss_ratio_capital is not none else "—" }}
+                    </div>
+                </div>
+
+                <div class="risk-subsection">
+                    <div class="risk-stat-label" style="margin-bottom: var(--space-3);">MOIC Distribution</div>
+                    {% for bucket in risk.moic_distribution %}
+                    <div class="metric-bar-row">
+                        <span class="metric-bar-label">{{ bucket.label }}</span>
+                        <div class="metric-bar-track">
+                            <div class="metric-bar bar-dist" style="width: {{ bucket.pct|round(1) }}%"></div>
+                        </div>
+                        <span class="metric-bar-value">{{ bucket.count }} ({{ "%.0f"|format(bucket.pct) }}%)</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Right Column: Concentration + Sector -->
+            <div>
+                {% if risk.top5_concentration is not none %}
+                <div class="risk-stat">
+                    <div class="risk-stat-label">Top 5 Concentration</div>
+                    <div class="risk-stat-value">{{ "%.1f%%"|format(risk.top5_concentration) }}</div>
+                </div>
+                {% if risk.top5_deals %}
+                <div class="risk-subsection">
+                    {% for name, equity, pct in risk.top5_deals %}
+                    <div class="metric-bar-row">
+                        <span class="metric-bar-label" style="min-width: 120px;">{{ name }}</span>
+                        <div class="metric-bar-track">
+                            <div class="metric-bar bar-concentration" style="width: {{ pct|round(1) }}%"></div>
+                        </div>
+                        <span class="metric-bar-value">${{ "%.1f"|format(equity) }}M ({{ "%.0f"|format(pct) }}%)</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endif %}
+
+                {% if risk.sector_breakdown %}
+                <div class="risk-subsection" style="margin-top: var(--space-6);">
+                    <div class="risk-stat-label" style="margin-bottom: var(--space-3);">Sector Allocation</div>
+                    {% for item in risk.sector_breakdown %}
+                    <div class="metric-bar-row">
+                        <span class="metric-bar-label" style="min-width: 120px;">{{ item.sector }}</span>
+                        <div class="metric-bar-track">
+                            <div class="metric-bar bar-sector" style="width: {{ item.pct|round(1) }}%"></div>
+                        </div>
+                        <span class="metric-bar-value">{{ "%.0f"|format(item.pct) }}%</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Vintage Year Analysis -->
+{% if vintage_years %}
+<div class="panel">
+    <div class="panel-header">
+        <span><i class="bi bi-calendar3"></i> Vintage Year Analysis</span>
+    </div>
+    <div class="panel-body no-padding">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Vintage Year</th>
+                    <th class="text-right">Deal Count</th>
+                    <th class="text-right">Total Equity</th>
+                    <th class="text-right">Avg MOIC</th>
+                    <th class="text-right">Avg IRR</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for vy in vintage_years %}
+                <tr>
+                    <td class="company-name">{{ vy.year }}</td>
+                    <td class="text-right mono">{{ vy.deal_count }}</td>
+                    <td class="text-right mono">${{ "%.1f"|format(vy.total_equity) }}M</td>
+                    <td class="text-right mono {% if vy.avg_moic is not none and vy.avg_moic >= 2 %}value-positive{% elif vy.avg_moic is not none and vy.avg_moic < 1 %}value-negative{% endif %}">
+                        {{ "%.2fx"|format(vy.avg_moic) if vy.avg_moic is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if vy.avg_irr is not none and vy.avg_irr > 0 %}value-positive{% elif vy.avg_irr is not none and vy.avg_irr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(vy.avg_irr * 100) if vy.avg_irr is not none else "—" }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 
 <!-- Recent Deals -->
 <div class="panel">
