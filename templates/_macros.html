@@ -1,3 +1,11 @@
 {% macro fmt_currency(value) -%}
     {%- if value is none -%}—{%- else -%}${{ "%.1f"|format(value) }}M{%- endif -%}
 {%- endmacro %}
+
+{% macro fmt_multiple(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ "%.2fx"|format(value) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_pct(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value) }}{%- endif -%}
+{%- endmacro %}

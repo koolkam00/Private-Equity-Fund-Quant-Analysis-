@@ -66,6 +66,70 @@ def _compute_deal_metrics(deal):
     else:
         m["ebitda_cagr"] = None
 
+    # --- Financial Ratios (entry) ---
+
+    # Entry EV/EBITDA
+    if deal.entry_enterprise_value is not None and deal.entry_ebitda and deal.entry_ebitda != 0:
+        m["entry_ev_ebitda"] = deal.entry_enterprise_value / deal.entry_ebitda
+    else:
+        m["entry_ev_ebitda"] = None
+
+    # Entry EV/Revenue
+    if deal.entry_enterprise_value is not None and deal.entry_revenue and deal.entry_revenue != 0:
+        m["entry_ev_revenue"] = deal.entry_enterprise_value / deal.entry_revenue
+    else:
+        m["entry_ev_revenue"] = None
+
+    # Entry Net Debt/EBITDA
+    if deal.entry_net_debt is not None and deal.entry_ebitda and deal.entry_ebitda != 0:
+        m["entry_net_debt_ebitda"] = deal.entry_net_debt / deal.entry_ebitda
+    else:
+        m["entry_net_debt_ebitda"] = None
+
+    # Entry EBITDA Margin (%)
+    if deal.entry_ebitda is not None and deal.entry_revenue and deal.entry_revenue != 0:
+        m["entry_ebitda_margin"] = deal.entry_ebitda / deal.entry_revenue * 100
+    else:
+        m["entry_ebitda_margin"] = None
+
+    # Entry Net Debt/EV (%)
+    if deal.entry_net_debt is not None and deal.entry_enterprise_value and deal.entry_enterprise_value != 0:
+        m["entry_net_debt_ev"] = deal.entry_net_debt / deal.entry_enterprise_value * 100
+    else:
+        m["entry_net_debt_ev"] = None
+
+    # --- Financial Ratios (exit) ---
+
+    # Exit EV/EBITDA
+    if deal.exit_enterprise_value is not None and deal.exit_ebitda and deal.exit_ebitda != 0:
+        m["exit_ev_ebitda"] = deal.exit_enterprise_value / deal.exit_ebitda
+    else:
+        m["exit_ev_ebitda"] = None
+
+    # Exit EV/Revenue
+    if deal.exit_enterprise_value is not None and deal.exit_revenue and deal.exit_revenue != 0:
+        m["exit_ev_revenue"] = deal.exit_enterprise_value / deal.exit_revenue
+    else:
+        m["exit_ev_revenue"] = None
+
+    # Exit Net Debt/EBITDA
+    if deal.exit_net_debt is not None and deal.exit_ebitda and deal.exit_ebitda != 0:
+        m["exit_net_debt_ebitda"] = deal.exit_net_debt / deal.exit_ebitda
+    else:
+        m["exit_net_debt_ebitda"] = None
+
+    # Exit EBITDA Margin (%)
+    if deal.exit_ebitda is not None and deal.exit_revenue and deal.exit_revenue != 0:
+        m["exit_ebitda_margin"] = deal.exit_ebitda / deal.exit_revenue * 100
+    else:
+        m["exit_ebitda_margin"] = None
+
+    # Exit Net Debt/EV (%)
+    if deal.exit_net_debt is not None and deal.exit_enterprise_value and deal.exit_enterprise_value != 0:
+        m["exit_net_debt_ev"] = deal.exit_net_debt / deal.exit_enterprise_value * 100
+    else:
+        m["exit_net_debt_ev"] = None
+
     return m
 
 
@@ -82,6 +146,10 @@ def _compute_portfolio_analytics(deals):
     fields = [
         "revenue_growth", "revenue_cagr", "ebitda_growth", "ebitda_cagr",
         "hold_period", "moic", "irr",
+        "entry_ev_ebitda", "entry_ev_revenue", "entry_net_debt_ebitda",
+        "entry_ebitda_margin", "entry_net_debt_ev",
+        "exit_ev_ebitda", "exit_ev_revenue", "exit_net_debt_ebitda",
+        "exit_ebitda_margin", "exit_net_debt_ev",
     ]
     result = {}
     for f in fields:
