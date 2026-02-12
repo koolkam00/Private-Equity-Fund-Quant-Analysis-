@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency %}
+{% block title %}Dashboard — PE Fund Tracker{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- KPI Cards -->
+<div class="kpi-grid">
+    <div class="kpi-card kpi-blue">
+        <div class="kpi-value">{{ total_deals }}</div>
+        <div class="kpi-label">Total Deals</div>
+        <i class="bi bi-briefcase kpi-icon"></i>
+    </div>
+    <div class="kpi-card kpi-cyan">
+        <div class="kpi-value">${{ "%.1f"|format(total_equity) }}M</div>
+        <div class="kpi-label">Total Equity Invested</div>
+        <i class="bi bi-bank kpi-icon"></i>
+    </div>
+    <div class="kpi-card kpi-green">
+        <div class="kpi-value">{{ "%.2f"|format(avg_moic) }}x</div>
+        <div class="kpi-label">Average MOIC</div>
+        <i class="bi bi-arrow-up-right kpi-icon"></i>
+    </div>
+    <div class="kpi-card kpi-amber">
+        <div class="kpi-value">{{ "%.1f"|format(avg_irr * 100) }}%</div>
+        <div class="kpi-label">Average IRR</div>
+        <i class="bi bi-percent kpi-icon"></i>
+    </div>
+    <div class="kpi-card kpi-green">
+        <div class="kpi-value">{{ fully_realized }}</div>
+        <div class="kpi-label">Fully Realized</div>
+        <i class="bi bi-check-circle kpi-icon"></i>
+    </div>
+    <div class="kpi-card kpi-purple">
+        <div class="kpi-value">{{ unrealized }}</div>
+        <div class="kpi-label">Unrealized</div>
+        <i class="bi bi-hourglass-split kpi-icon"></i>
+    </div>
+</div>
+
+<!-- Status + Cashflow Summary -->
+<div class="dashboard-panels">
+    <div class="panel">
+        <div class="panel-header">Portfolio Status</div>
+        <div class="panel-body">
+            {% if total_deals > 0 %}
+            <div class="status-bar">
+                <div class="status-segment realized"
+                     style="width: {{ (fully_realized / total_deals * 100)|round(1) }}%"></div>
+                <div class="status-segment partial"
+                     style="width: {{ (partially_realized / total_deals * 100)|round(1) }}%"></div>
+                <div class="status-segment unrealized"
+                     style="width: {{ (unrealized / total_deals * 100)|round(1) }}%"></div>
+            </div>
+            {% else %}
+            <div class="status-bar"></div>
+            {% endif %}
+            <div class="status-legend">
+                <span class="legend-item">
+                    <span class="legend-dot realized"></span>
+                    Fully Realized ({{ fully_realized }})
+                </span>
+                <span class="legend-item">
+                    <span class="legend-dot partial"></span>
+                    Partially Realized ({{ partially_realized }})
+                </span>
+                <span class="legend-item">
+                    <span class="legend-dot unrealized"></span>
+                    Unrealized ({{ unrealized }})
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">Cashflow Summary</div>
+        <div class="panel-body">
+            <div class="cf-summary-row">
+                <span class="cf-label">Total Capital Called</span>
+                <span class="cf-value">${{ "%.1f"|format(total_capital_called) }}M</span>
+            </div>
+            <div class="cf-summary-row">
+                <span class="cf-label">Total Distributions</span>
+                <span class="cf-value">${{ "%.1f"|format(total_distributions) }}M</span>
+            </div>
+            <div class="cf-summary-row">
+                <span class="cf-label">Net Cashflow</span>
+                <span class="cf-value {% if total_distributions - total_capital_called >= 0 %}value-positive{% else %}value-negative{% endif %}">${{ "%.1f"|format(total_distributions - total_capital_called) }}M</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Deals -->
+<div class="panel">
+    <div class="panel-header">
+        Recent Deals
+        <a href="{{ url_for('deals') }}" class="panel-action">View All &rarr;</a>
+    </div>
+    <div class="panel-body no-padding">
+        {% if recent_deals %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Fund</th>
+                    <th>Status</th>
+                    <th class="text-right">Equity Invested</th>
+                    <th class="text-right">MOIC</th>
+                    <th class="text-right">IRR</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for deal in recent_deals %}
+                <tr>
+                    <td class="company-name">{{ deal.company_name }}</td>
+                    <td>{{ deal.fund_number or "—" }}</td>
+                    <td>
+                        <span class="status-badge status-{{ deal.status|lower|replace(' ', '-') }}">
+                            {{ deal.status or "Unrealized" }}
+                        </span>
+                    </td>
+                    <td class="text-right mono">{{ fmt_currency(deal.equity_invested) }}</td>
+                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 2 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}">
+                        {{ "%.2fx"|format(deal.moic) if deal.moic is not none else "—" }}
+                    </td>
+                    <td class="text-right mono {% if deal.irr is not none and deal.irr > 0 %}value-positive{% elif deal.irr is not none and deal.irr < 0 %}value-negative{% endif %}">
+                        {{ "%.1f%%"|format(deal.irr * 100) if deal.irr is not none else "—" }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No deals yet. <a href="{{ url_for('upload') }}">Upload data</a> to get started.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

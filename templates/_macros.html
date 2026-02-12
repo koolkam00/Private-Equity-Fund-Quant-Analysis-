@@ -1,0 +1,3 @@
+{% macro fmt_currency(value) -%}
+    {%- if value is none -%}—{%- else -%}${{ "%.1f"|format(value) }}M{%- endif -%}
+{%- endmacro %}

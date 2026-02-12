@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, render_template, request, redirect, url_for, flash
+from sqlalchemy import func
 from werkzeug.utils import secure_filename
 
 from config import Config
@@ -70,7 +71,47 @@ def _handle_upload(parse_func, redirect_route):
 
 @app.route("/")
 def index():
-    return redirect(url_for("upload"))
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard")
+def dashboard():
+    total_deals = Deal.query.count()
+    fully_realized = Deal.query.filter(Deal.status == "Fully Realized").count()
+    partially_realized = Deal.query.filter(Deal.status == "Partially Realized").count()
+    unrealized = Deal.query.filter(Deal.status == "Unrealized").count()
+
+    agg = db.session.query(
+        func.sum(Deal.equity_invested),
+        func.avg(Deal.moic),
+        func.avg(Deal.irr),
+    ).first()
+    total_equity = agg[0] or 0
+    avg_moic = agg[1] or 0
+    avg_irr = agg[2] or 0
+
+    cf_agg = db.session.query(
+        func.sum(Cashflow.capital_called),
+        func.sum(Cashflow.distributions),
+    ).first()
+    total_capital_called = cf_agg[0] or 0
+    total_distributions = cf_agg[1] or 0
+
+    recent_deals = Deal.query.order_by(Deal.created_at.desc()).limit(5).all()
+
+    return render_template(
+        "dashboard.html",
+        total_deals=total_deals,
+        fully_realized=fully_realized,
+        partially_realized=partially_realized,
+        unrealized=unrealized,
+        total_equity=total_equity,
+        avg_moic=avg_moic,
+        avg_irr=avg_irr,
+        total_capital_called=total_capital_called,
+        total_distributions=total_distributions,
+        recent_deals=recent_deals,
+    )
 
 
 @app.route("/upload")

@@ -1,37 +1,89 @@
 {% extends "base.html" %}
-{% block title %}Upload Data{% endblock %}
+{% block title %}Upload Data — PE Fund Tracker{% endblock %}
+{% block page_title %}Upload Data{% endblock %}
+
 {% block content %}
-<h3 class="mb-4">Upload Data</h3>
-<div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="card">
-            <div class="card-header"><h5 class="mb-0">Deal Data</h5></div>
-            <div class="card-body">
-                <p class="text-muted">Upload an Excel file with deal-level data: company name, fund, sector, status, operating metrics, MOIC, IRR, etc.</p>
-                <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="deal_file" class="form-label">Excel File (.xlsx)</label>
-                        <input type="file" class="form-control" id="deal_file" name="file" accept=".xlsx,.xls" required>
+
+<div class="upload-grid">
+    <!-- Deal Upload -->
+    <div class="panel upload-panel">
+        <div class="panel-header">
+            <span><i class="bi bi-briefcase"></i> Deal Data</span>
+        </div>
+        <div class="panel-body">
+            <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
+                <div class="drop-zone">
+                    <i class="bi bi-cloud-arrow-up drop-icon"></i>
+                    <p class="drop-text">Drag & drop your Excel file here</p>
+                    <p class="drop-subtext">or click to browse</p>
+                    <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
+                    <p class="file-name"></p>
+                </div>
+
+                <div class="expected-columns">
+                    <h5>Expected Columns</h5>
+                    <div class="column-tags">
+                        <span class="col-tag required">Company Name</span>
+                        <span class="col-tag">Fund</span>
+                        <span class="col-tag">Sector</span>
+                        <span class="col-tag">Status</span>
+                        <span class="col-tag">Investment Date</span>
+                        <span class="col-tag">Exit Date</span>
+                        <span class="col-tag">Equity Invested</span>
+                        <span class="col-tag">Entry Revenue</span>
+                        <span class="col-tag">Entry EBITDA</span>
+                        <span class="col-tag">Entry EV</span>
+                        <span class="col-tag">Entry Net Debt</span>
+                        <span class="col-tag">Exit Revenue</span>
+                        <span class="col-tag">Exit EBITDA</span>
+                        <span class="col-tag">Exit EV</span>
+                        <span class="col-tag">Exit Net Debt</span>
+                        <span class="col-tag">MOIC</span>
+                        <span class="col-tag">IRR</span>
                     </div>
-                    <button type="submit" class="btn btn-primary">Upload Deals</button>
-                </form>
-            </div>
+                </div>
+
+                <button type="submit" class="btn-upload">
+                    <i class="bi bi-upload"></i> Upload Deals
+                </button>
+            </form>
         </div>
     </div>
-    <div class="col-md-6 mb-4">
-        <div class="card">
-            <div class="card-header"><h5 class="mb-0">Cashflow Data</h5></div>
-            <div class="card-body">
-                <p class="text-muted">Upload an Excel file with cashflow data: company name, date, capital called, distributions, fees, NAV.</p>
-                <form method="POST" action="{{ url_for('upload_cashflows') }}" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="cashflow_file" class="form-label">Excel File (.xlsx)</label>
-                        <input type="file" class="form-control" id="cashflow_file" name="file" accept=".xlsx,.xls" required>
+
+    <!-- Cashflow Upload -->
+    <div class="panel upload-panel">
+        <div class="panel-header">
+            <span><i class="bi bi-cash-stack"></i> Cashflow Data</span>
+        </div>
+        <div class="panel-body">
+            <form method="POST" action="{{ url_for('upload_cashflows') }}" enctype="multipart/form-data">
+                <div class="drop-zone">
+                    <i class="bi bi-cloud-arrow-up drop-icon"></i>
+                    <p class="drop-text">Drag & drop your Excel file here</p>
+                    <p class="drop-subtext">or click to browse</p>
+                    <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
+                    <p class="file-name"></p>
+                </div>
+
+                <div class="expected-columns">
+                    <h5>Expected Columns</h5>
+                    <div class="column-tags">
+                        <span class="col-tag required">Company Name</span>
+                        <span class="col-tag required">Date</span>
+                        <span class="col-tag">Fund</span>
+                        <span class="col-tag">Capital Called</span>
+                        <span class="col-tag">Distributions</span>
+                        <span class="col-tag">Fees</span>
+                        <span class="col-tag">NAV</span>
                     </div>
-                    <button type="submit" class="btn btn-primary">Upload Cashflows</button>
-                </form>
-            </div>
+                </div>
+
+                <button type="submit" class="btn-upload">
+                    <i class="bi bi-upload"></i> Upload Cashflows
+                </button>
+            </form>
         </div>
     </div>
 </div>
+
 {% endblock %}

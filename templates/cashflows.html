@@ -1,37 +1,73 @@
 {% extends "base.html" %}
-{% block title %}Cashflows{% endblock %}
+{% from "_macros.html" import fmt_currency %}
+{% block title %}Cashflows — PE Fund Tracker{% endblock %}
+{% block page_title %}Cashflows{% endblock %}
+{% block page_actions %}<span class="record-count">{{ cashflows|length }} records</span>{% endblock %}
+
 {% block content %}
-<h3>Cashflows ({{ cashflows|length }})</h3>
+
 {% if cashflows %}
-<div class="table-responsive">
-    <table class="table table-striped table-hover table-sm">
-        <thead class="table-dark">
-            <tr>
-                <th>Company</th>
-                <th>Fund</th>
-                <th>Date</th>
-                <th>Capital Called</th>
-                <th>Distributions</th>
-                <th>Fees</th>
-                <th>NAV</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for cf in cashflows %}
-            <tr>
-                <td>{{ cf.company_name }}</td>
-                <td>{{ cf.fund_number or "-" }}</td>
-                <td>{{ cf.date }}</td>
-                <td>{{ "%.1f"|format(cf.capital_called) if cf.capital_called is not none else "-" }}</td>
-                <td>{{ "%.1f"|format(cf.distributions) if cf.distributions is not none else "-" }}</td>
-                <td>{{ "%.1f"|format(cf.fees) if cf.fees is not none else "-" }}</td>
-                <td>{{ "%.1f"|format(cf.nav) if cf.nav is not none else "-" }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+{% for company, group in cashflows|groupby('company_name') %}
+{% set cf_list = group|list %}
+{% set ns = namespace(total_called=0, total_dist=0, total_fees=0) %}
+{% for cf in cf_list %}
+    {% set ns.total_called = ns.total_called + (cf.capital_called or 0) %}
+    {% set ns.total_dist = ns.total_dist + (cf.distributions or 0) %}
+    {% set ns.total_fees = ns.total_fees + (cf.fees or 0) %}
+{% endfor %}
+
+<div class="panel cashflow-company-panel">
+    <div class="panel-header">
+        <span class="company-group-name">{{ company }}</span>
+        <div class="company-summary-badges">
+            <span class="summary-badge">Called: {{ fmt_currency(ns.total_called) }}</span>
+            <span class="summary-badge">Distributed: {{ fmt_currency(ns.total_dist) }}</span>
+        </div>
+    </div>
+    <div class="panel-body no-padding">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Fund</th>
+                    <th>Date</th>
+                    <th class="text-right">Capital Called</th>
+                    <th class="text-right">Distributions</th>
+                    <th class="text-right">Fees</th>
+                    <th class="text-right">NAV</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cf in cf_list %}
+                <tr>
+                    <td>{{ cf.fund_number or "—" }}</td>
+                    <td>{{ cf.date.strftime('%b %d, %Y') if cf.date else "—" }}</td>
+                    <td class="text-right mono">{{ fmt_currency(cf.capital_called) }}</td>
+                    <td class="text-right mono">{{ fmt_currency(cf.distributions) }}</td>
+                    <td class="text-right mono">{{ fmt_currency(cf.fees) }}</td>
+                    <td class="text-right mono">{{ fmt_currency(cf.nav) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="summary-row">
+                    <td colspan="2" class="summary-label">Total</td>
+                    <td class="text-right mono">{{ fmt_currency(ns.total_called) }}</td>
+                    <td class="text-right mono">{{ fmt_currency(ns.total_dist) }}</td>
+                    <td class="text-right mono">{{ fmt_currency(ns.total_fees) }}</td>
+                    <td class="text-right mono">—</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
 </div>
+{% endfor %}
 {% else %}
-<p class="text-muted">No cashflows uploaded yet. <a href="{{ url_for('upload') }}">Upload a file</a> to get started.</p>
+<div class="empty-state">
+    <i class="bi bi-cash-stack"></i>
+    <h3>No cashflows uploaded yet</h3>
+    <p>Upload a cashflow data file to get started.</p>
+    <a href="{{ url_for('upload') }}" class="btn-primary-action">Upload Data</a>
+</div>
 {% endif %}
+
 {% endblock %}
