@@ -39,8 +39,13 @@ def _compute_deal_metrics(deal):
         m["revenue_growth"] = None
 
     # Revenue Growth CAGR %
-    if m["revenue_growth"] is not None and m["hold_period"] and m["hold_period"] > 0:
-        m["revenue_cagr"] = ((deal.exit_revenue / deal.entry_revenue) ** (1 / m["hold_period"]) - 1) * 100
+    if (m["revenue_growth"] is not None
+            and m["hold_period"] and m["hold_period"] > 0
+            and deal.entry_revenue > 0 and deal.exit_revenue > 0):
+        try:
+            m["revenue_cagr"] = ((deal.exit_revenue / deal.entry_revenue) ** (1 / m["hold_period"]) - 1) * 100
+        except (ValueError, ZeroDivisionError, OverflowError):
+            m["revenue_cagr"] = None
     else:
         m["revenue_cagr"] = None
 
@@ -51,8 +56,13 @@ def _compute_deal_metrics(deal):
         m["ebitda_growth"] = None
 
     # EBITDA Growth CAGR %
-    if m["ebitda_growth"] is not None and m["hold_period"] and m["hold_period"] > 0:
-        m["ebitda_cagr"] = ((deal.exit_ebitda / deal.entry_ebitda) ** (1 / m["hold_period"]) - 1) * 100
+    if (m["ebitda_growth"] is not None
+            and m["hold_period"] and m["hold_period"] > 0
+            and deal.entry_ebitda > 0 and deal.exit_ebitda > 0):
+        try:
+            m["ebitda_cagr"] = ((deal.exit_ebitda / deal.entry_ebitda) ** (1 / m["hold_period"]) - 1) * 100
+        except (ValueError, ZeroDivisionError, OverflowError):
+            m["ebitda_cagr"] = None
     else:
         m["ebitda_cagr"] = None
 

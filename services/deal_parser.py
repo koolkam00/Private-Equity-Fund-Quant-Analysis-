@@ -181,6 +181,6 @@ def _clean_str(val):
     if val is None:
         return None
     s = str(val).strip()
-    if s in ("", "nan", "None", "NaT"):
+    if s.lower() in ("", "nan", "none", "nat", "n/a", "na", "-", "--", "#n/a", "#ref!"):
         return None
     return s
