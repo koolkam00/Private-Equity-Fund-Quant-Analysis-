@@ -681,6 +681,12 @@ th.sort-desc::after {
     color: var(--accent-amber);
 }
 
+.flash-info {
+    background: rgba(30, 58, 95, 0.06);
+    border-left-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
 .flash-close {
     background: none;
     border: none;
@@ -1020,4 +1026,98 @@ th.sort-desc::after {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
+}
+
+/* --- Responsive Breakpoints --- */
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 200px;
+    }
+    .main-content {
+        margin-left: 200px;
+        padding: var(--space-5);
+    }
+    .kpi-grid {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: var(--space-3);
+    }
+    .dashboard-panels {
+        grid-template-columns: 1fr;
+    }
+    .upload-grid {
+        grid-template-columns: 1fr;
+    }
+    .detail-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .risk-grid {
+        grid-template-columns: 1fr;
+    }
+    .filter-bar {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 640px) {
+    .sidebar {
+        position: relative;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        overflow-x: auto;
+    }
+    .sidebar-nav {
+        display: flex;
+        flex-direction: row;
+        padding: 0;
+    }
+    .nav-item {
+        border-left: none;
+        border-bottom: 3px solid transparent;
+        padding: var(--space-2) var(--space-3);
+        white-space: nowrap;
+    }
+    .nav-item.active {
+        border-left-color: transparent;
+        border-bottom-color: var(--sidebar-accent);
+    }
+    .sidebar-brand {
+        padding: var(--space-3) var(--space-4);
+    }
+    .sidebar-footer {
+        display: none;
+    }
+    .main-content {
+        margin-left: 0;
+        padding: var(--space-4);
+    }
+    .kpi-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-2);
+    }
+    .kpi-card .kpi-value {
+        font-size: var(--text-xl);
+    }
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+    }
+    .data-table {
+        font-size: var(--text-xs);
+    }
+    .data-table thead th,
+    .data-table td {
+        padding: var(--space-2) var(--space-2);
+    }
+    .filter-bar {
+        flex-direction: column;
+        gap: var(--space-3);
+    }
+    .filter-select {
+        min-width: 100%;
+    }
 }

@@ -53,23 +53,20 @@
     </div>
     <div class="kpi-card">
         <div class="kpi-value">{{ "%.2f"|format(avg_moic) }}x</div>
-        <div class="kpi-label">Average MOIC</div>
+        <div class="kpi-label">Avg MOIC (Gross)</div>
         <i class="bi bi-arrow-up-right kpi-icon"></i>
     </div>
     <div class="kpi-card">
         <div class="kpi-value">{{ "%.1f"|format(avg_irr * 100) }}%</div>
-        <div class="kpi-label">Average IRR</div>
+        <div class="kpi-label">Avg IRR (Gross)</div>
         <i class="bi bi-percent kpi-icon"></i>
     </div>
     <div class="kpi-card">
-        <div class="kpi-value">{{ fully_realized }}</div>
-        <div class="kpi-label">Fully Realized</div>
-        <i class="bi bi-check-circle kpi-icon"></i>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value">{{ unrealized }}</div>
-        <div class="kpi-label">Unrealized</div>
-        <i class="bi bi-hourglass-split kpi-icon"></i>
+        <div class="kpi-value {% if fund_metrics.tvpi is not none and fund_metrics.tvpi >= 1.5 %}value-positive{% elif fund_metrics.tvpi is not none and fund_metrics.tvpi < 1.0 %}value-negative{% endif %}">
+            {{ "%.2fx"|format(fund_metrics.tvpi) if fund_metrics.tvpi is not none else "—" }}
+        </div>
+        <div class="kpi-label">Fund TVPI</div>
+        <i class="bi bi-trophy kpi-icon"></i>
     </div>
 </div>
 
@@ -301,10 +298,10 @@
                 </tr>
             </tbody>
 
-            {# --- Returns --- #}
+            {# --- Returns (Gross) --- #}
             <tbody>
                 <tr class="section-header-row">
-                    <td colspan="3" class="section-header">Returns</td>
+                    <td colspan="3" class="section-header">Returns (Gross)</td>
                 </tr>
                 <tr>
                     <td class="metric-label">Hold Period</td>
@@ -317,11 +314,29 @@
                 </tr>
                 <tr>
                     <td class="metric-label">MOIC</td>
-                    <td class="text-right mono {% if analytics.avg_moic is not none and analytics.avg_moic >= 2 %}value-positive{% elif analytics.avg_moic is not none and analytics.avg_moic < 1 %}value-negative{% endif %}">
+                    <td class="text-right mono {% if analytics.avg_moic is not none and analytics.avg_moic >= 1.5 %}value-positive{% elif analytics.avg_moic is not none and analytics.avg_moic < 1 %}value-negative{% endif %}">
                         {{ "%.2fx"|format(analytics.avg_moic) if analytics.avg_moic is not none else "—" }}
                     </td>
-                    <td class="text-right mono {% if analytics.wavg_moic is not none and analytics.wavg_moic >= 2 %}value-positive{% elif analytics.wavg_moic is not none and analytics.wavg_moic < 1 %}value-negative{% endif %}">
+                    <td class="text-right mono {% if analytics.wavg_moic is not none and analytics.wavg_moic >= 1.5 %}value-positive{% elif analytics.wavg_moic is not none and analytics.wavg_moic < 1 %}value-negative{% endif %}">
                         {{ "%.2fx"|format(analytics.wavg_moic) if analytics.wavg_moic is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label" style="padding-left: 2rem;">Median MOIC</td>
+                    <td class="text-right mono" colspan="2">
+                        {{ "%.2fx"|format(moic_median) if moic_median is not none else "—" }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label" style="padding-left: 2rem;">MOIC Range</td>
+                    <td class="text-right mono" colspan="2">
+                        {% if moic_min is not none %}{{ "%.2fx"|format(moic_min) }} – {{ "%.2fx"|format(moic_max) }}{% else %}—{% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="metric-label" style="padding-left: 2rem;">Interquartile Range</td>
+                    <td class="text-right mono" colspan="2">
+                        {% if moic_q1 is not none %}{{ "%.2fx"|format(moic_q1) }} – {{ "%.2fx"|format(moic_q3) }}{% else %}—{% endif %}
                     </td>
                 </tr>
                 <tr>
@@ -439,7 +454,10 @@
                 {% if risk.top5_concentration is not none %}
                 <div class="risk-stat">
                     <div class="risk-stat-label">Top 5 Concentration</div>
-                    <div class="risk-stat-value">{{ "%.1f%%"|format(risk.top5_concentration) }}</div>
+                    <div class="risk-stat-value {% if risk.top5_concentration > 60 %}value-negative{% endif %}">{{ "%.1f%%"|format(risk.top5_concentration) }}</div>
+                    {% if risk.top5_concentration > 60 %}
+                    <div class="risk-stat-detail" style="color: var(--accent-red);"><i class="bi bi-exclamation-triangle"></i> Above 60% threshold</div>
+                    {% endif %}
                 </div>
                 {% if risk.top5_deals %}
                 <div class="risk-subsection">
@@ -486,19 +504,29 @@
             <thead>
                 <tr>
                     <th>Vintage Year</th>
+                    <th>Maturity</th>
                     <th class="text-right">Deal Count</th>
                     <th class="text-right">Total Equity</th>
-                    <th class="text-right">Avg MOIC</th>
-                    <th class="text-right">Avg IRR</th>
+                    <th class="text-right">Avg MOIC (Gross)</th>
+                    <th class="text-right">Avg IRR (Gross)</th>
                 </tr>
             </thead>
             <tbody>
                 {% for vy in vintage_years %}
                 <tr>
                     <td class="company-name">{{ vy.year }}</td>
+                    <td>
+                        {% if vy.maturity == "Early (J-Curve)" %}
+                        <span class="status-badge status-unrealized">{{ vy.maturity }}</span>
+                        {% elif vy.maturity == "Maturing" %}
+                        <span class="status-badge status-partially-realized">{{ vy.maturity }}</span>
+                        {% else %}
+                        <span class="status-badge status-fully-realized">{{ vy.maturity }}</span>
+                        {% endif %}
+                    </td>
                     <td class="text-right mono">{{ vy.deal_count }}</td>
                     <td class="text-right mono">${{ "%.1f"|format(vy.total_equity) }}M</td>
-                    <td class="text-right mono {% if vy.avg_moic is not none and vy.avg_moic >= 2 %}value-positive{% elif vy.avg_moic is not none and vy.avg_moic < 1 %}value-negative{% endif %}">
+                    <td class="text-right mono {% if vy.avg_moic is not none and vy.avg_moic >= 1.5 %}value-positive{% elif vy.avg_moic is not none and vy.avg_moic < 1 %}value-negative{% endif %}">
                         {{ "%.2fx"|format(vy.avg_moic) if vy.avg_moic is not none else "—" }}
                     </td>
                     <td class="text-right mono {% if vy.avg_irr is not none and vy.avg_irr > 0 %}value-positive{% elif vy.avg_irr is not none and vy.avg_irr < 0 %}value-negative{% endif %}">
@@ -527,8 +555,8 @@
                     <th>Fund</th>
                     <th>Status</th>
                     <th class="text-right">Equity Invested</th>
-                    <th class="text-right">MOIC</th>
-                    <th class="text-right">IRR</th>
+                    <th class="text-right">MOIC (Gross)</th>
+                    <th class="text-right">IRR (Gross)</th>
                 </tr>
             </thead>
             <tbody>
@@ -542,7 +570,7 @@
                         </span>
                     </td>
                     <td class="text-right mono">{{ fmt_currency(deal.equity_invested) }}</td>
-                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 2 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}">
+                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 1.5 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}">
                         {{ "%.2fx"|format(deal.moic) if deal.moic is not none else "—" }}
                     </td>
                     <td class="text-right mono {% if deal.irr is not none and deal.irr > 0 %}value-positive{% elif deal.irr is not none and deal.irr < 0 %}value-negative{% endif %}">

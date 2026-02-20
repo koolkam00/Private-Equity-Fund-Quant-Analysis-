@@ -1,4 +1,5 @@
 import os
+from datetime import date
 
 from flask import Flask, render_template, request, redirect, url_for, flash
 from sqlalchemy import func
@@ -142,6 +143,8 @@ def _compute_deal_metrics(deal):
         all(v is not None for v in _vb_fields)
         and deal.entry_ebitda != 0
         and deal.entry_revenue != 0
+        and deal.exit_revenue != 0
+        and deal.exit_ebitda != 0
         and deal.equity_invested and deal.equity_invested > 0
     )
     if _can_bridge:
@@ -340,6 +343,18 @@ def _handle_upload(parse_func, redirect_route):
                 f"Successfully imported {result['success']} records (batch {result['batch_id']}).",
                 "success",
             )
+        if result.get("duplicates_skipped", 0) > 0:
+            flash(
+                f"Skipped {result['duplicates_skipped']} duplicate deal(s) already in database.",
+                "warning",
+            )
+        if result.get("bridge_complete") is not None and result["success"] > 0:
+            pct = result["bridge_complete"] / result["success"] * 100
+            flash(
+                f"Data completeness: {result['bridge_complete']}/{result['success']} "
+                f"deals ({pct:.0f}%) have full entry/exit data for value bridge.",
+                "info" if pct >= 80 else "warning",
+            )
         if result["errors"]:
             for err in result["errors"][:10]:
                 flash(err, "warning")
@@ -408,6 +423,18 @@ def dashboard():
     irr_vals = [d.irr for d in filtered_deals if d.irr is not None]
     avg_irr = sum(irr_vals) / len(irr_vals) if irr_vals else 0
 
+    # MOIC dispersion metrics
+    if moic_vals:
+        sorted_moics = sorted(moic_vals)
+        n = len(sorted_moics)
+        moic_median = sorted_moics[n // 2] if n % 2 else (sorted_moics[n // 2 - 1] + sorted_moics[n // 2]) / 2
+        moic_min = sorted_moics[0]
+        moic_max = sorted_moics[-1]
+        moic_q1 = sorted_moics[n // 4] if n >= 4 else moic_min
+        moic_q3 = sorted_moics[3 * n // 4] if n >= 4 else moic_max
+    else:
+        moic_median = moic_min = moic_max = moic_q1 = moic_q3 = None
+
     # --- Cashflow sums (filtered by matching company names / funds) ---
     cf_query = db.session.query(
         func.sum(Cashflow.capital_called),
@@ -459,12 +486,14 @@ def dashboard():
         ds = vintage_map[yr]
         moics = [d.moic for d in ds if d.moic is not None]
         irrs = [d.irr for d in ds if d.irr is not None]
+        vintage_age = date.today().year - yr
         vintage_years.append({
             "year": yr,
             "deal_count": len(ds),
             "total_equity": sum(d.equity_invested or 0 for d in ds),
             "avg_moic": sum(moics) / len(moics) if moics else None,
             "avg_irr": sum(irrs) / len(irrs) if irrs else None,
+            "maturity": "Early (J-Curve)" if vintage_age < 3 else ("Maturing" if vintage_age < 5 else "Mature"),
         })
 
     # --- Recent deals (filtered) ---
@@ -483,6 +512,11 @@ def dashboard():
         total_distributions=total_distributions,
         recent_deals=recent_deals,
         analytics=analytics,
+        moic_median=moic_median,
+        moic_min=moic_min,
+        moic_max=moic_max,
+        moic_q1=moic_q1,
+        moic_q3=moic_q3,
         fund_metrics=fund_metrics,
         risk=risk,
         vintage_years=vintage_years,

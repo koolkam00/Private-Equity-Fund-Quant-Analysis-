@@ -19,8 +19,8 @@
                     <th data-sort="string">Status</th>
                     <th data-sort="date">Investment Date</th>
                     <th data-sort="number" class="text-right">Equity Invested</th>
-                    <th data-sort="number" class="text-right">MOIC</th>
-                    <th data-sort="number" class="text-right">IRR</th>
+                    <th data-sort="number" class="text-right">MOIC (Gross)</th>
+                    <th data-sort="number" class="text-right">IRR (Gross)</th>
                 </tr>
             </thead>
             <tbody>
@@ -45,7 +45,7 @@
                     <td class="text-right mono" data-value="{{ deal.equity_invested or 0 }}">
                         {{ fmt_currency(deal.equity_invested) }}
                     </td>
-                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 2 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}"
+                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 1.5 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}"
                         data-value="{{ deal.moic or 0 }}">
                         {{ "%.2fx"|format(deal.moic) if deal.moic is not none else "—" }}
                     </td>
@@ -116,7 +116,7 @@
                             </div>
 
                             <div class="detail-section">
-                                <h4 class="detail-section-title">Performance</h4>
+                                <h4 class="detail-section-title">Performance (Gross)</h4>
                                 <div class="detail-metric">
                                     <span class="detail-label">Revenue Growth</span>
                                     <span class="detail-value {% if m.revenue_growth is not none and m.revenue_growth > 0 %}value-positive{% elif m.revenue_growth is not none and m.revenue_growth < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }}</span>

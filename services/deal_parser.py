@@ -82,11 +82,43 @@ FLOAT_COLS = {
 STR_COLS = {"company_name", "fund_number", "sector", "status"}
 
 
+def _normalize_irr(val):
+    """Auto-detect if IRR was entered as percentage (e.g. 15) vs decimal (e.g. 0.15).
+    Convention: stored as decimal where 0.15 = 15%.
+    Heuristic: if abs(val) > 1.0, assume it's already a percentage and divide by 100.
+    """
+    if val is None:
+        return None
+    try:
+        val = float(val)
+    except (TypeError, ValueError):
+        return None
+    if abs(val) > 1.0:
+        return val / 100.0
+    return val
+
+
+def _normalize_moic(val):
+    """Auto-detect if MOIC was entered as percentage-like (e.g. 200 meaning 2.0x).
+    Heuristic: if val > 50, assume it's 100-based and divide by 100.
+    """
+    if val is None:
+        return None
+    try:
+        val = float(val)
+    except (TypeError, ValueError):
+        return None
+    if val > 50.0:
+        return val / 100.0
+    return val
+
+
 def parse_deals(file_path):
     """
     Parse an Excel file of deal data and insert rows into the database.
 
-    Returns: {"success": int, "errors": list[str], "batch_id": str}
+    Returns: {"success": int, "errors": list[str], "batch_id": str,
+              "bridge_complete": int, "duplicates_skipped": int}
     """
     batch_id = str(uuid.uuid4())[:8]
 
@@ -105,6 +137,8 @@ def parse_deals(file_path):
             "success": 0,
             "errors": ["Could not find a 'Company Name' (or similar) column in the spreadsheet."],
             "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
         }
 
     # Keep only valid columns
@@ -120,8 +154,16 @@ def parse_deals(file_path):
     for col in STR_COLS & set(df.columns):
         df[col] = df[col].astype(str).replace("nan", None)
 
+    # Build existing deal keys for duplicate detection
+    existing_keys = set()
+    for d in Deal.query.all():
+        key = (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
+        existing_keys.add(key)
+
     success = 0
     errors = []
+    bridge_complete = 0
+    duplicates_skipped = 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2  # Excel row (1-indexed header + 0-indexed data)
@@ -133,6 +175,32 @@ def parse_deals(file_path):
         if pd.isna(company) or company is None or str(company).strip() in ("", "None"):
             errors.append(f"Row {row_num}: Skipped — missing company name.")
             continue
+
+        # Duplicate detection
+        fund_val = _clean_str(row.get("fund_number")) or ""
+        deal_key = (str(company).strip().lower(), fund_val.strip().lower())
+        if deal_key in existing_keys:
+            errors.append(f"Row {row_num}: Skipped duplicate — '{company}' already exists.")
+            duplicates_skipped += 1
+            continue
+        existing_keys.add(deal_key)
+
+        # Normalize IRR and MOIC with warnings
+        raw_irr = _clean_val(row.get("irr"))
+        raw_moic = _clean_val(row.get("moic"))
+        norm_irr = _normalize_irr(raw_irr)
+        norm_moic = _normalize_moic(raw_moic)
+
+        if raw_irr is not None and abs(raw_irr) > 1.0:
+            errors.append(
+                f"Row {row_num}: IRR value {raw_irr} appears to be a percentage; "
+                f"converted to {norm_irr:.4f} (decimal convention)."
+            )
+        if raw_moic is not None and raw_moic > 50.0:
+            errors.append(
+                f"Row {row_num}: MOIC value {raw_moic} appears percentage-based; "
+                f"converted to {norm_moic:.2f}x."
+            )
 
         try:
             deal = Deal(
@@ -151,17 +219,33 @@ def parse_deals(file_path):
                 exit_ebitda=_clean_val(row.get("exit_ebitda")),
                 exit_enterprise_value=_clean_val(row.get("exit_enterprise_value")),
                 exit_net_debt=_clean_val(row.get("exit_net_debt")),
-                moic=_clean_val(row.get("moic")),
-                irr=_clean_val(row.get("irr")),
+                moic=norm_moic,
+                irr=norm_irr,
                 upload_batch=batch_id,
             )
             db.session.add(deal)
             success += 1
+
+            # Track bridge completeness
+            bridge_fields = [
+                deal.entry_revenue, deal.entry_ebitda,
+                deal.entry_enterprise_value, deal.entry_net_debt,
+                deal.exit_revenue, deal.exit_ebitda,
+                deal.exit_enterprise_value, deal.exit_net_debt,
+            ]
+            if all(v is not None for v in bridge_fields):
+                bridge_complete += 1
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
 
     db.session.commit()
-    return {"success": success, "errors": errors, "batch_id": batch_id}
+    return {
+        "success": success,
+        "errors": errors,
+        "batch_id": batch_id,
+        "bridge_complete": bridge_complete,
+        "duplicates_skipped": duplicates_skipped,
+    }
 
 
 def _clean_val(val):
