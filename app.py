@@ -1,324 +1,50 @@
+import logging
 import os
-from datetime import date
 
-from flask import Flask, render_template, request, redirect, url_for, flash
-from sqlalchemy import func
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
 from config import Config
-from models import db, Deal, Cashflow
+from models import Deal, db, ensure_schema_updates
 from services.deal_parser import parse_deals
-from services.cashflow_parser import parse_cashflows
+from services.metrics import (
+    compute_bridge_aggregate,
+    compute_bridge_view,
+    compute_data_quality,
+    compute_deal_metrics,
+    compute_loss_and_distribution,
+    compute_portfolio_analytics,
+    compute_vintage_series,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config.from_object(Config)
-
 db.init_app(app)
 
-# Ensure directories exist
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(os.path.join(os.path.dirname(__file__), "instance"), exist_ok=True)
 
 with app.app_context():
     db.create_all()
-
-
-def _compute_deal_metrics(deal):
-    """Compute derived performance metrics for a single deal."""
-    m = {}
-    # Hold Period (years)
-    if deal.investment_date and deal.exit_date:
-        delta = deal.exit_date - deal.investment_date
-        m["hold_period"] = delta.days / 365.25
-    else:
-        m["hold_period"] = None
-
-    # Revenue Growth %
-    if deal.entry_revenue and deal.exit_revenue and deal.entry_revenue != 0:
-        m["revenue_growth"] = (deal.exit_revenue - deal.entry_revenue) / deal.entry_revenue * 100
-    else:
-        m["revenue_growth"] = None
-
-    # Revenue Growth CAGR %
-    if (m["revenue_growth"] is not None
-            and m["hold_period"] and m["hold_period"] > 0
-            and deal.entry_revenue > 0 and deal.exit_revenue > 0):
-        try:
-            m["revenue_cagr"] = ((deal.exit_revenue / deal.entry_revenue) ** (1 / m["hold_period"]) - 1) * 100
-        except (ValueError, ZeroDivisionError, OverflowError):
-            m["revenue_cagr"] = None
-    else:
-        m["revenue_cagr"] = None
-
-    # EBITDA Growth %
-    if deal.entry_ebitda and deal.exit_ebitda and deal.entry_ebitda != 0:
-        m["ebitda_growth"] = (deal.exit_ebitda - deal.entry_ebitda) / deal.entry_ebitda * 100
-    else:
-        m["ebitda_growth"] = None
-
-    # EBITDA Growth CAGR %
-    if (m["ebitda_growth"] is not None
-            and m["hold_period"] and m["hold_period"] > 0
-            and deal.entry_ebitda > 0 and deal.exit_ebitda > 0):
-        try:
-            m["ebitda_cagr"] = ((deal.exit_ebitda / deal.entry_ebitda) ** (1 / m["hold_period"]) - 1) * 100
-        except (ValueError, ZeroDivisionError, OverflowError):
-            m["ebitda_cagr"] = None
-    else:
-        m["ebitda_cagr"] = None
-
-    # --- Financial Ratios (entry) ---
-
-    # Entry EV/EBITDA
-    if deal.entry_enterprise_value is not None and deal.entry_ebitda and deal.entry_ebitda != 0:
-        m["entry_ev_ebitda"] = deal.entry_enterprise_value / deal.entry_ebitda
-    else:
-        m["entry_ev_ebitda"] = None
-
-    # Entry EV/Revenue
-    if deal.entry_enterprise_value is not None and deal.entry_revenue and deal.entry_revenue != 0:
-        m["entry_ev_revenue"] = deal.entry_enterprise_value / deal.entry_revenue
-    else:
-        m["entry_ev_revenue"] = None
-
-    # Entry Net Debt/EBITDA
-    if deal.entry_net_debt is not None and deal.entry_ebitda and deal.entry_ebitda != 0:
-        m["entry_net_debt_ebitda"] = deal.entry_net_debt / deal.entry_ebitda
-    else:
-        m["entry_net_debt_ebitda"] = None
-
-    # Entry EBITDA Margin (%)
-    if deal.entry_ebitda is not None and deal.entry_revenue and deal.entry_revenue != 0:
-        m["entry_ebitda_margin"] = deal.entry_ebitda / deal.entry_revenue * 100
-    else:
-        m["entry_ebitda_margin"] = None
-
-    # Entry Net Debt/EV (%)
-    if deal.entry_net_debt is not None and deal.entry_enterprise_value and deal.entry_enterprise_value != 0:
-        m["entry_net_debt_ev"] = deal.entry_net_debt / deal.entry_enterprise_value * 100
-    else:
-        m["entry_net_debt_ev"] = None
-
-    # --- Financial Ratios (exit) ---
-
-    # Exit EV/EBITDA
-    if deal.exit_enterprise_value is not None and deal.exit_ebitda and deal.exit_ebitda != 0:
-        m["exit_ev_ebitda"] = deal.exit_enterprise_value / deal.exit_ebitda
-    else:
-        m["exit_ev_ebitda"] = None
-
-    # Exit EV/Revenue
-    if deal.exit_enterprise_value is not None and deal.exit_revenue and deal.exit_revenue != 0:
-        m["exit_ev_revenue"] = deal.exit_enterprise_value / deal.exit_revenue
-    else:
-        m["exit_ev_revenue"] = None
-
-    # Exit Net Debt/EBITDA
-    if deal.exit_net_debt is not None and deal.exit_ebitda and deal.exit_ebitda != 0:
-        m["exit_net_debt_ebitda"] = deal.exit_net_debt / deal.exit_ebitda
-    else:
-        m["exit_net_debt_ebitda"] = None
-
-    # Exit EBITDA Margin (%)
-    if deal.exit_ebitda is not None and deal.exit_revenue and deal.exit_revenue != 0:
-        m["exit_ebitda_margin"] = deal.exit_ebitda / deal.exit_revenue * 100
-    else:
-        m["exit_ebitda_margin"] = None
-
-    # Exit Net Debt/EV (%)
-    if deal.exit_net_debt is not None and deal.exit_enterprise_value and deal.exit_enterprise_value != 0:
-        m["exit_net_debt_ev"] = deal.exit_net_debt / deal.exit_enterprise_value * 100
-    else:
-        m["exit_net_debt_ev"] = None
-
-    # --- Value Creation Bridge (Additive Decomposition) ---
-    # Requires all 8 entry/exit operating fields, non-zero denominators, and equity_invested
-    _vb_fields = [
-        deal.entry_revenue, deal.exit_revenue,
-        deal.entry_ebitda, deal.exit_ebitda,
-        deal.entry_enterprise_value, deal.exit_enterprise_value,
-        deal.entry_net_debt, deal.exit_net_debt,
-    ]
-    _can_bridge = (
-        all(v is not None for v in _vb_fields)
-        and deal.entry_ebitda != 0
-        and deal.entry_revenue != 0
-        and deal.exit_revenue != 0
-        and deal.exit_ebitda != 0
-        and deal.equity_invested and deal.equity_invested > 0
-    )
-    if _can_bridge:
-        entry_margin = deal.entry_ebitda / deal.entry_revenue  # decimal
-        exit_margin = deal.exit_ebitda / deal.exit_revenue if deal.exit_revenue != 0 else 0
-        entry_multiple = deal.entry_enterprise_value / deal.entry_ebitda
-        exit_multiple = deal.exit_enterprise_value / deal.exit_ebitda if deal.exit_ebitda != 0 else 0
-
-        entry_equity = deal.entry_enterprise_value - deal.entry_net_debt
-        exit_equity = deal.exit_enterprise_value - deal.exit_net_debt
-        total_value_created = exit_equity - entry_equity
-
-        vb_rev = (deal.exit_revenue - deal.entry_revenue) * entry_margin * entry_multiple
-        vb_margin = deal.exit_revenue * (exit_margin - entry_margin) * entry_multiple
-        vb_multiple = (exit_multiple - entry_multiple) * deal.exit_ebitda
-        vb_leverage = deal.entry_net_debt - deal.exit_net_debt
-        vb_other = total_value_created - (vb_rev + vb_margin + vb_multiple + vb_leverage)
-
-        m["vb_revenue_growth"] = vb_rev
-        m["vb_margin_expansion"] = vb_margin
-        m["vb_multiple_expansion"] = vb_multiple
-        m["vb_leverage"] = vb_leverage
-        m["vb_other"] = vb_other
-        eq = deal.equity_invested
-        m["vb_revenue_growth_moic"] = vb_rev / eq
-        m["vb_margin_expansion_moic"] = vb_margin / eq
-        m["vb_multiple_expansion_moic"] = vb_multiple / eq
-        m["vb_leverage_moic"] = vb_leverage / eq
-        m["vb_other_moic"] = vb_other / eq
-    else:
-        for k in ["vb_revenue_growth", "vb_margin_expansion", "vb_multiple_expansion",
-                   "vb_leverage", "vb_other", "vb_revenue_growth_moic",
-                   "vb_margin_expansion_moic", "vb_multiple_expansion_moic",
-                   "vb_leverage_moic", "vb_other_moic"]:
-            m[k] = None
-
-    return m
-
-
-def _compute_portfolio_analytics(deals):
-    """Compute simple averages and equity-weighted averages across deals."""
-    metrics = []
-    for d in deals:
-        m = _compute_deal_metrics(d)
-        m["equity"] = d.equity_invested or 0
-        m["moic"] = d.moic
-        m["irr"] = d.irr if d.irr is not None else None
-        metrics.append(m)
-
-    fields = [
-        "revenue_growth", "revenue_cagr", "ebitda_growth", "ebitda_cagr",
-        "hold_period", "moic", "irr",
-        "entry_ev_ebitda", "entry_ev_revenue", "entry_net_debt_ebitda",
-        "entry_ebitda_margin", "entry_net_debt_ev",
-        "exit_ev_ebitda", "exit_ev_revenue", "exit_net_debt_ebitda",
-        "exit_ebitda_margin", "exit_net_debt_ev",
-        "vb_revenue_growth_moic", "vb_margin_expansion_moic",
-        "vb_multiple_expansion_moic", "vb_leverage_moic", "vb_other_moic",
-    ]
-    result = {}
-    for f in fields:
-        vals = [(m[f], m["equity"]) for m in metrics if m[f] is not None]
-        if vals:
-            result[f"avg_{f}"] = sum(v for v, _ in vals) / len(vals)
-            total_w = sum(w for _, w in vals)
-            if total_w > 0:
-                result[f"wavg_{f}"] = sum(v * w for v, w in vals) / total_w
-            else:
-                result[f"wavg_{f}"] = result[f"avg_{f}"]
-        else:
-            result[f"avg_{f}"] = None
-            result[f"wavg_{f}"] = None
-    return result
-
-
-def _compute_fund_metrics(cashflows):
-    """Compute DPI, RVPI, TVPI from cashflow records."""
-    total_called = sum(cf.capital_called or 0 for cf in cashflows)
-    total_distributed = sum(cf.distributions or 0 for cf in cashflows)
-
-    # Latest NAV per company (last observed NAV by date)
-    latest_navs = {}
-    for cf in sorted(cashflows, key=lambda c: c.date):
-        if cf.nav is not None:
-            latest_navs[cf.company_name] = cf.nav
-    total_nav = sum(latest_navs.values()) if latest_navs else 0
-
-    if total_called > 0:
-        dpi = total_distributed / total_called
-        rvpi = total_nav / total_called
-        tvpi = dpi + rvpi
-    else:
-        dpi = rvpi = tvpi = None
-
-    return {
-        "total_called": total_called,
-        "total_distributed": total_distributed,
-        "total_nav": total_nav,
-        "dpi": dpi,
-        "rvpi": rvpi,
-        "tvpi": tvpi,
-    }
-
-
-def _compute_risk_metrics(deals):
-    """Compute portfolio risk and concentration analysis."""
-    result = {}
-
-    # --- Loss Ratio ---
-    deals_with_moic = [d for d in deals if d.moic is not None]
-    if deals_with_moic:
-        losses = [d for d in deals_with_moic if d.moic < 1.0]
-        result["loss_ratio_count"] = len(losses) / len(deals_with_moic) * 100
-        total_eq = sum(d.equity_invested or 0 for d in deals_with_moic)
-        loss_eq = sum(d.equity_invested or 0 for d in losses)
-        result["loss_ratio_capital"] = (loss_eq / total_eq * 100) if total_eq > 0 else None
-        result["loss_count"] = len(losses)
-        result["total_with_moic"] = len(deals_with_moic)
-    else:
-        result["loss_ratio_count"] = None
-        result["loss_ratio_capital"] = None
-        result["loss_count"] = 0
-        result["total_with_moic"] = 0
-
-    # --- MOIC Distribution Buckets ---
-    buckets = [
-        ("<0.5x", 0, 0.5), ("0.5-1.0x", 0.5, 1.0), ("1.0-1.5x", 1.0, 1.5),
-        ("1.5-2.0x", 1.5, 2.0), ("2.0-3.0x", 2.0, 3.0), ("3.0x+", 3.0, float("inf")),
-    ]
-    moic_dist = []
-    for label, lo, hi in buckets:
-        count = sum(1 for d in deals_with_moic if lo <= d.moic < hi)
-        pct = count / len(deals_with_moic) * 100 if deals_with_moic else 0
-        moic_dist.append({"label": label, "count": count, "pct": pct})
-    result["moic_distribution"] = moic_dist
-
-    # --- Concentration ---
-    eq_deals = [
-        (d.equity_invested, d.company_name, d.sector)
-        for d in deals if d.equity_invested and d.equity_invested > 0
-    ]
-    eq_deals.sort(key=lambda x: x[0], reverse=True)
-    total_eq = sum(e for e, _, _ in eq_deals)
-
-    if total_eq > 0 and len(eq_deals) >= 5:
-        result["top5_concentration"] = sum(e for e, _, _ in eq_deals[:5]) / total_eq * 100
-        result["top5_deals"] = [(n, e, e / total_eq * 100) for e, n, _ in eq_deals[:5]]
-    else:
-        result["top5_concentration"] = None
-        result["top5_deals"] = []
-
-    # --- Sector Breakdown ---
-    sector_eq = {}
-    for e, _, s in eq_deals:
-        sector_eq[s or "Unknown"] = sector_eq.get(s or "Unknown", 0) + e
-    if total_eq > 0:
-        result["sector_breakdown"] = sorted(
-            [{"sector": s, "equity": v, "pct": v / total_eq * 100}
-             for s, v in sector_eq.items()],
-            key=lambda x: x["equity"], reverse=True,
-        )
-    else:
-        result["sector_breakdown"] = []
-
-    return result
+    ensure_schema_updates()
 
 
 def _allowed_file(filename):
-    ext = os.path.splitext(filename)[1].lower()
-    return ext in app.config["ALLOWED_EXTENSIONS"]
+    return os.path.splitext(filename)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
+
+
+def _deal_vintage_year(deal):
+    if deal.year_invested is not None:
+        return int(deal.year_invested)
+    if deal.investment_date is not None:
+        return int(deal.investment_date.year)
+    return None
 
 
 def _handle_upload(parse_func, redirect_route):
-    """Shared logic for deal and cashflow uploads."""
     if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("upload"))
@@ -339,36 +65,208 @@ def _handle_upload(parse_func, redirect_route):
     try:
         result = parse_func(file_path)
         if result["success"] > 0:
-            flash(
-                f"Successfully imported {result['success']} records (batch {result['batch_id']}).",
-                "success",
-            )
+            flash(f"Successfully imported {result['success']} deal records (batch {result['batch_id']}).", "success")
         if result.get("duplicates_skipped", 0) > 0:
+            flash(f"Skipped {result['duplicates_skipped']} duplicate deal records.", "warning")
+        if result.get("quarantined_count", 0) > 0:
             flash(
-                f"Skipped {result['duplicates_skipped']} duplicate deal(s) already in database.",
+                f"Quarantined {result['quarantined_count']} invalid row(s). "
+                f"Issue Report ID: {result.get('issue_report_id')}",
                 "warning",
             )
         if result.get("bridge_complete") is not None and result["success"] > 0:
             pct = result["bridge_complete"] / result["success"] * 100
-            flash(
-                f"Data completeness: {result['bridge_complete']}/{result['success']} "
-                f"deals ({pct:.0f}%) have full entry/exit data for value bridge.",
-                "info" if pct >= 80 else "warning",
-            )
-        if result["errors"]:
-            for err in result["errors"][:10]:
-                flash(err, "warning")
-            if len(result["errors"]) > 10:
-                flash(f"...and {len(result['errors']) - 10} more warnings.", "warning")
-        if result["success"] == 0 and not result["errors"]:
+            flash(f"Bridge-ready deals: {result['bridge_complete']}/{result['success']} ({pct:.0f}%).", "info")
+        for err in result.get("errors", [])[:8]:
+            flash(err, "warning")
+        if len(result.get("errors", [])) > 8:
+            flash(f"...and {len(result['errors']) - 8} additional warnings.", "warning")
+        if result["success"] == 0 and not result.get("errors"):
             flash("No records found in the file.", "warning")
-    except Exception as e:
-        flash(f"Error processing file: {str(e)}", "danger")
+    except Exception as exc:
+        logger.exception("Error processing upload")
+        flash(f"Error processing file: {str(exc)}", "danger")
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
 
     return redirect(url_for(redirect_route))
+
+
+def _empty_dashboard_context():
+    metric_pair = {"avg": None, "wavg": None}
+    empty_entry_exit = {
+        "entry": {
+            "tev_ebitda": metric_pair,
+            "tev_revenue": metric_pair,
+            "net_debt_ebitda": metric_pair,
+            "net_debt_tev": metric_pair,
+            "ebitda_margin": metric_pair,
+        },
+        "exit": {
+            "tev_ebitda": metric_pair,
+            "tev_revenue": metric_pair,
+            "net_debt_ebitda": metric_pair,
+            "net_debt_tev": metric_pair,
+            "ebitda_margin": metric_pair,
+        },
+        "growth": {
+            "revenue_growth": metric_pair,
+            "ebitda_growth": metric_pair,
+            "revenue_cagr": metric_pair,
+            "ebitda_cagr": metric_pair,
+        },
+        "returns": {
+            "gross_moic": metric_pair,
+            "implied_irr": metric_pair,
+            "hold_period": metric_pair,
+        },
+    }
+
+    return {
+        "kpis": {
+            "total_deals": 0,
+            "total_equity": 0,
+            "total_value": 0,
+            "total_value_created": 0,
+            "gross_moic": None,
+            "implied_irr": None,
+        },
+        "loss": {"count_pct": None, "capital_pct": None, "loss_count": 0, "total_count": 0},
+        "moic_distribution": [],
+        "entry_exit_summary": empty_entry_exit,
+        "bridge_aggregate": {
+            "additive": {},
+            "multiplicative": {},
+            "diagnostics": {"driver_delta_dollar": {}, "low_confidence_count": 0, "ready_count": 0},
+        },
+        "vintage_series": [],
+        "deal_metrics": {},
+        "deals": [],
+        "data_quality": {"total_deals": 0, "complete_deals": 0, "bridge_ready": 0, "warnings": []},
+        "funds": [],
+        "statuses": [],
+        "sectors": [],
+        "geographies": [],
+        "vintages": [],
+        "current_fund": "",
+        "current_status": "",
+        "current_sector": "",
+        "current_geography": "",
+        "current_vintage": "",
+    }
+
+
+def _build_filtered_deals_context():
+    all_deals = Deal.query.all()
+
+    funds = sorted({d.fund_number for d in all_deals if d.fund_number})
+    statuses = sorted({d.status for d in all_deals if d.status})
+    sectors = sorted({d.sector for d in all_deals if d.sector})
+    geographies = sorted({d.geography for d in all_deals if d.geography})
+    vintages = sorted({_deal_vintage_year(d) for d in all_deals if _deal_vintage_year(d) is not None})
+
+    current_fund = request.args.get("fund", "")
+    current_status = request.args.get("status", "")
+    current_sector = request.args.get("sector", "")
+    current_geography = request.args.get("geography", "")
+    current_vintage = request.args.get("vintage", "")
+
+    filtered = all_deals
+    if current_fund:
+        filtered = [d for d in filtered if d.fund_number == current_fund]
+    if current_status:
+        filtered = [d for d in filtered if d.status == current_status]
+    if current_sector:
+        filtered = [d for d in filtered if d.sector == current_sector]
+    if current_geography:
+        filtered = [d for d in filtered if (d.geography or "Unknown") == current_geography]
+    if current_vintage:
+        try:
+            vintage_int = int(current_vintage)
+            filtered = [d for d in filtered if _deal_vintage_year(d) == vintage_int]
+        except ValueError:
+            filtered = []
+
+    return {
+        "deals": filtered,
+        "funds": funds,
+        "statuses": statuses,
+        "sectors": sectors,
+        "geographies": geographies,
+        "vintages": vintages,
+        "current_fund": current_fund,
+        "current_status": current_status,
+        "current_sector": current_sector,
+        "current_geography": current_geography,
+        "current_vintage": current_vintage,
+    }
+
+
+def _aggregate_bridge_diagnostics(metrics_by_id):
+    deltas = {k: [] for k in ("revenue", "margin", "multiple", "leverage", "other")}
+    low_confidence = 0
+    ready = 0
+
+    for m in metrics_by_id.values():
+        diag = m.get("bridge_diagnostics", {})
+        if diag.get("low_confidence_bridge"):
+            low_confidence += 1
+
+        bridge_add = m.get("bridge_additive_fund", {})
+        if bridge_add.get("ready"):
+            ready += 1
+
+        for k, v in (diag.get("driver_delta_dollar") or {}).items():
+            if v is not None:
+                deltas[k].append(v)
+
+    delta_avg = {k: (sum(vs) / len(vs) if vs else None) for k, vs in deltas.items()}
+    return {
+        "driver_delta_dollar": delta_avg,
+        "low_confidence_count": low_confidence,
+        "ready_count": ready,
+    }
+
+
+def _build_dashboard_payload(filtered_deals):
+    metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
+
+    portfolio = compute_portfolio_analytics(filtered_deals, metrics_by_id=metrics_by_id)
+    risk = compute_loss_and_distribution(filtered_deals, metrics_by_id=metrics_by_id)
+    additive = compute_bridge_aggregate(filtered_deals, model="additive", basis="fund")
+    multiplicative = compute_bridge_aggregate(filtered_deals, model="multiplicative", basis="fund")
+    vintage = compute_vintage_series(filtered_deals, metrics_by_id=metrics_by_id)
+    quality = compute_data_quality(filtered_deals, metrics_by_id)
+
+    kpis = {
+        "total_deals": len(filtered_deals),
+        "total_equity": portfolio["total_equity"],
+        "total_value": portfolio["total_value"],
+        "total_value_created": portfolio["total_value_created"],
+        "gross_moic": portfolio["returns"]["gross_moic"]["avg"],
+        "implied_irr": portfolio["returns"]["implied_irr"]["wavg"],
+    }
+
+    return {
+        "kpis": kpis,
+        "loss": risk["loss_ratios"],
+        "moic_distribution": risk["moic_distribution"],
+        "entry_exit_summary": {
+            "entry": portfolio["entry"],
+            "exit": portfolio["exit"],
+            "growth": portfolio["growth"],
+            "returns": portfolio["returns"],
+        },
+        "bridge_aggregate": {
+            "additive": additive,
+            "multiplicative": multiplicative,
+            "diagnostics": _aggregate_bridge_diagnostics(metrics_by_id),
+        },
+        "vintage_series": vintage,
+        "deal_metrics": metrics_by_id,
+        "data_quality": quality,
+    }
 
 
 @app.route("/")
@@ -378,154 +276,106 @@ def index():
 
 @app.route("/dashboard")
 def dashboard():
-    # --- Filter dropdown options (always unfiltered) ---
-    funds = [
-        r[0] for r in db.session.query(Deal.fund_number).distinct()
-        if r[0]
-    ]
-    statuses = [
-        r[0] for r in db.session.query(Deal.status).distinct()
-        if r[0]
-    ]
-    sectors = [
-        r[0] for r in db.session.query(Deal.sector).distinct()
-        if r[0]
-    ]
-    funds.sort()
-    statuses.sort()
-    sectors.sort()
+    try:
+        filter_ctx = _build_filtered_deals_context()
+        payload = _build_dashboard_payload(filter_ctx["deals"])
+        return render_template(
+            "dashboard.html",
+            deals=filter_ctx["deals"],
+            kpis=payload["kpis"],
+            loss=payload["loss"],
+            moic_distribution=payload["moic_distribution"],
+            entry_exit_summary=payload["entry_exit_summary"],
+            bridge_aggregate=payload["bridge_aggregate"],
+            vintage_series=payload["vintage_series"],
+            deal_metrics=payload["deal_metrics"],
+            data_quality=payload["data_quality"],
+            funds=filter_ctx["funds"],
+            statuses=filter_ctx["statuses"],
+            sectors=filter_ctx["sectors"],
+            geographies=filter_ctx["geographies"],
+            vintages=filter_ctx["vintages"],
+            current_fund=filter_ctx["current_fund"],
+            current_status=filter_ctx["current_status"],
+            current_sector=filter_ctx["current_sector"],
+            current_geography=filter_ctx["current_geography"],
+            current_vintage=filter_ctx["current_vintage"],
+        )
+    except Exception as exc:
+        logger.exception("Dashboard computation failed")
+        flash(f"Error computing dashboard metrics: {str(exc)}", "danger")
+        return render_template("dashboard.html", **_empty_dashboard_context())
 
-    # --- Read current filter values ---
-    current_fund = request.args.get("fund", "")
-    current_status = request.args.get("status", "")
-    current_sector = request.args.get("sector", "")
 
-    # --- Build filtered deal query ---
-    deal_query = Deal.query
-    if current_fund:
-        deal_query = deal_query.filter(Deal.fund_number == current_fund)
-    if current_status:
-        deal_query = deal_query.filter(Deal.status == current_status)
-    if current_sector:
-        deal_query = deal_query.filter(Deal.sector == current_sector)
-
-    filtered_deals = deal_query.all()
-
-    # --- KPIs from filtered deals ---
-    total_deals = len(filtered_deals)
-    fully_realized = sum(1 for d in filtered_deals if d.status == "Fully Realized")
-    partially_realized = sum(1 for d in filtered_deals if d.status == "Partially Realized")
-    unrealized = sum(1 for d in filtered_deals if d.status == "Unrealized")
-
-    total_equity = sum(d.equity_invested or 0 for d in filtered_deals)
-    moic_vals = [d.moic for d in filtered_deals if d.moic is not None]
-    avg_moic = sum(moic_vals) / len(moic_vals) if moic_vals else 0
-    irr_vals = [d.irr for d in filtered_deals if d.irr is not None]
-    avg_irr = sum(irr_vals) / len(irr_vals) if irr_vals else 0
-
-    # MOIC dispersion metrics
-    if moic_vals:
-        sorted_moics = sorted(moic_vals)
-        n = len(sorted_moics)
-        moic_median = sorted_moics[n // 2] if n % 2 else (sorted_moics[n // 2 - 1] + sorted_moics[n // 2]) / 2
-        moic_min = sorted_moics[0]
-        moic_max = sorted_moics[-1]
-        moic_q1 = sorted_moics[n // 4] if n >= 4 else moic_min
-        moic_q3 = sorted_moics[3 * n // 4] if n >= 4 else moic_max
-    else:
-        moic_median = moic_min = moic_max = moic_q1 = moic_q3 = None
-
-    # --- Cashflow sums (filtered by matching company names / funds) ---
-    cf_query = db.session.query(
-        func.sum(Cashflow.capital_called),
-        func.sum(Cashflow.distributions),
+@app.route("/api/dashboard/series")
+def dashboard_series_api():
+    filter_ctx = _build_filtered_deals_context()
+    payload = _build_dashboard_payload(filter_ctx["deals"])
+    return jsonify(
+        {
+            "kpis": payload["kpis"],
+            "loss_ratios": payload["loss"],
+            "moic_distribution": payload["moic_distribution"],
+            "entry_exit_summary": payload["entry_exit_summary"],
+            "bridge_aggregate": payload["bridge_aggregate"],
+            "vintage_series": payload["vintage_series"],
+        }
     )
-    if current_fund:
-        cf_query = cf_query.filter(Cashflow.fund_number == current_fund)
-    if current_fund or current_status or current_sector:
-        # Further restrict to companies in the filtered deal set
-        company_names = [d.company_name for d in filtered_deals]
-        if company_names:
-            cf_query = cf_query.filter(Cashflow.company_name.in_(company_names))
-        else:
-            cf_query = cf_query.filter(False)
-    cf_agg = cf_query.first()
-    total_capital_called = cf_agg[0] or 0
-    total_distributions = cf_agg[1] or 0
 
-    # --- Portfolio analytics (simple avg + equity-weighted avg) ---
-    analytics = _compute_portfolio_analytics(filtered_deals)
 
-    # --- Fund-level metrics (DPI / RVPI / TVPI) ---
-    cf_filter_query = Cashflow.query
-    if current_fund:
-        cf_filter_query = cf_filter_query.filter(Cashflow.fund_number == current_fund)
-    if current_fund or current_status or current_sector:
-        company_names_for_cf = [d.company_name for d in filtered_deals]
-        if company_names_for_cf:
-            cf_filter_query = cf_filter_query.filter(
-                Cashflow.company_name.in_(company_names_for_cf)
+@app.route("/api/deals/<int:deal_id>/bridge")
+def deal_bridge_api(deal_id):
+    deal = db.session.get(Deal, deal_id)
+    if deal is None:
+        abort(404)
+
+    model = request.args.get("model", "additive").lower()
+    basis = request.args.get("basis", "fund").lower()
+    unit = request.args.get("unit", "moic").lower()
+
+    if model not in {"additive", "multiplicative"}:
+        return jsonify({"error": "model must be additive or multiplicative"}), 400
+    if basis not in {"fund", "company"}:
+        return jsonify({"error": "basis must be fund or company"}), 400
+    if unit not in {"dollar", "moic", "pct"}:
+        return jsonify({"error": "unit must be dollar, moic, or pct"}), 400
+
+    warnings = []
+    bridge = compute_bridge_view(deal, model=model, basis=basis, unit=unit, warnings=warnings)
+
+    add_fund = compute_bridge_view(deal, model="additive", basis="fund", unit="dollar", warnings=[])
+    mul_fund = compute_bridge_view(deal, model="multiplicative", basis="fund", unit="dollar", warnings=[])
+
+    diagnostics = {
+        "low_confidence_bridge": bool(mul_fund.get("low_confidence_bridge")),
+        "driver_delta_dollar": {
+            k: (
+                (mul_fund.get("fund_drivers_dollar", {}).get(k) - add_fund.get("fund_drivers_dollar", {}).get(k))
+                if add_fund.get("fund_drivers_dollar", {}).get(k) is not None and mul_fund.get("fund_drivers_dollar", {}).get(k) is not None
+                else None
             )
-        else:
-            cf_filter_query = cf_filter_query.filter(False)
-    fund_metrics = _compute_fund_metrics(cf_filter_query.all())
+            for k in ("revenue", "margin", "multiple", "leverage", "other")
+        },
+    }
 
-    # --- Risk metrics ---
-    risk = _compute_risk_metrics(filtered_deals)
-
-    # --- Vintage Year Analysis ---
-    vintage_map = {}
-    for d in filtered_deals:
-        yr = d.investment_date.year if d.investment_date else None
-        if yr is None:
-            continue
-        vintage_map.setdefault(yr, []).append(d)
-
-    vintage_years = []
-    for yr in sorted(vintage_map):
-        ds = vintage_map[yr]
-        moics = [d.moic for d in ds if d.moic is not None]
-        irrs = [d.irr for d in ds if d.irr is not None]
-        vintage_age = date.today().year - yr
-        vintage_years.append({
-            "year": yr,
-            "deal_count": len(ds),
-            "total_equity": sum(d.equity_invested or 0 for d in ds),
-            "avg_moic": sum(moics) / len(moics) if moics else None,
-            "avg_irr": sum(irrs) / len(irrs) if irrs else None,
-            "maturity": "Early (J-Curve)" if vintage_age < 3 else ("Maturing" if vintage_age < 5 else "Mature"),
-        })
-
-    # --- Recent deals (filtered) ---
-    recent_deals = deal_query.order_by(Deal.created_at.desc()).limit(5).all()
-
-    return render_template(
-        "dashboard.html",
-        total_deals=total_deals,
-        fully_realized=fully_realized,
-        partially_realized=partially_realized,
-        unrealized=unrealized,
-        total_equity=total_equity,
-        avg_moic=avg_moic,
-        avg_irr=avg_irr,
-        total_capital_called=total_capital_called,
-        total_distributions=total_distributions,
-        recent_deals=recent_deals,
-        analytics=analytics,
-        moic_median=moic_median,
-        moic_min=moic_min,
-        moic_max=moic_max,
-        moic_q1=moic_q1,
-        moic_q3=moic_q3,
-        fund_metrics=fund_metrics,
-        risk=risk,
-        vintage_years=vintage_years,
-        funds=funds,
-        statuses=statuses,
-        sectors=sectors,
-        current_fund=current_fund,
-        current_status=current_status,
-        current_sector=current_sector,
+    return jsonify(
+        {
+            "deal_id": deal.id,
+            "company": deal.company_name,
+            "model": model,
+            "basis": basis,
+            "unit": unit,
+            "ready": bridge.get("ready"),
+            "low_confidence_bridge": bridge.get("low_confidence_bridge"),
+            "ownership_pct": bridge.get("ownership_pct"),
+            "drivers": bridge.get("drivers"),
+            "drivers_dollar": bridge.get("drivers_dollar"),
+            "value_created": bridge.get("value_created"),
+            "fund_value_created": bridge.get("fund_value_created"),
+            "company_value_created": bridge.get("company_value_created"),
+            "diagnostics": diagnostics,
+            "warnings": warnings,
+        }
     )
 
 
@@ -539,25 +389,13 @@ def upload_deals():
     return _handle_upload(parse_deals, "deals")
 
 
-@app.route("/upload/cashflows", methods=["POST"])
-def upload_cashflows():
-    return _handle_upload(parse_cashflows, "cashflows")
-
-
 @app.route("/deals")
 def deals():
     all_deals = Deal.query.order_by(Deal.created_at.desc()).all()
-    deal_metrics = {d.id: _compute_deal_metrics(d) for d in all_deals}
+    deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
     return render_template("deals.html", deals=all_deals, deal_metrics=deal_metrics)
 
 
-@app.route("/cashflows")
-def cashflows():
-    all_cashflows = Cashflow.query.order_by(
-        Cashflow.company_name, Cashflow.date
-    ).all()
-    return render_template("cashflows.html", cashflows=all_cashflows)
-
-
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", "5001"))
+    app.run(debug=True, port=port)

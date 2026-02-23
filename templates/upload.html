@@ -1,95 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Upload Data — PE Fund Tracker{% endblock %}
-{% block page_title %}Upload Data{% endblock %}
+{% block title %}Upload — PE Portfolio Lab{% endblock %}
+{% block page_title %}Upload Deal Template{% endblock %}
 
 {% block content %}
-
-<div class="upload-grid">
-    <!-- Deal Upload -->
-    <div class="panel upload-panel">
-        <div class="panel-header">
-            <span><i class="bi bi-briefcase"></i> Deal Data</span>
-        </div>
-        <div class="panel-body">
-            <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
-                <div class="drop-zone">
-                    <i class="bi bi-cloud-arrow-up drop-icon"></i>
-                    <p class="drop-text">Drag & drop your Excel file here</p>
-                    <p class="drop-subtext">or click to browse</p>
-                    <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
-                    <p class="file-name"></p>
-                </div>
-
-                <div class="expected-columns">
-                    <h5>Expected Columns</h5>
-                    <div class="column-tags">
-                        <span class="col-tag required">Company Name</span>
-                        <span class="col-tag">Fund</span>
-                        <span class="col-tag">Sector</span>
-                        <span class="col-tag">Status</span>
-                        <span class="col-tag">Investment Date</span>
-                        <span class="col-tag">Exit Date</span>
-                        <span class="col-tag">Equity Invested</span>
-                        <span class="col-tag">Entry Revenue</span>
-                        <span class="col-tag">Entry EBITDA</span>
-                        <span class="col-tag">Entry EV</span>
-                        <span class="col-tag">Entry Net Debt</span>
-                        <span class="col-tag">Exit Revenue</span>
-                        <span class="col-tag">Exit EBITDA</span>
-                        <span class="col-tag">Exit EV</span>
-                        <span class="col-tag">Exit Net Debt</span>
-                        <span class="col-tag">MOIC</span>
-                        <span class="col-tag">IRR</span>
-                    </div>
-                    <ul style="font-size: var(--text-xs); color: var(--text-secondary); margin-top: var(--space-3); padding-left: var(--space-5);">
-                        <li><strong>IRR:</strong> Decimal (0.15 = 15%) or percentage (15 = 15%) — auto-detected.</li>
-                        <li><strong>MOIC:</strong> Multiple format (2.0 = 2.0x). Values above 50 assumed percentage-based.</li>
-                        <li><strong>Financials:</strong> All dollar amounts in $M (millions).</li>
-                        <li><strong>Duplicates:</strong> Deals matching an existing company + fund pair will be skipped.</li>
-                    </ul>
-                </div>
-
-                <button type="submit" class="btn-upload">
-                    <i class="bi bi-upload"></i> Upload Deals
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Cashflow Upload -->
-    <div class="panel upload-panel">
-        <div class="panel-header">
-            <span><i class="bi bi-cash-stack"></i> Cashflow Data</span>
-        </div>
-        <div class="panel-body">
-            <form method="POST" action="{{ url_for('upload_cashflows') }}" enctype="multipart/form-data">
-                <div class="drop-zone">
-                    <i class="bi bi-cloud-arrow-up drop-icon"></i>
-                    <p class="drop-text">Drag & drop your Excel file here</p>
-                    <p class="drop-subtext">or click to browse</p>
-                    <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
-                    <p class="file-name"></p>
-                </div>
-
-                <div class="expected-columns">
-                    <h5>Expected Columns</h5>
-                    <div class="column-tags">
-                        <span class="col-tag required">Company Name</span>
-                        <span class="col-tag required">Date</span>
-                        <span class="col-tag">Fund</span>
-                        <span class="col-tag">Capital Called</span>
-                        <span class="col-tag">Distributions</span>
-                        <span class="col-tag">Fees</span>
-                        <span class="col-tag">NAV</span>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn-upload">
-                    <i class="bi bi-upload"></i> Upload Cashflows
-                </button>
-            </form>
-        </div>
-    </div>
+<div class="upload-grid single-upload">
+    <section class="panel">
+        <h3>Deal-Level File</h3>
+        <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
+            <label class="drop-zone">
+                <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
+                <span class="drop-title">Drop or select your deal workbook</span>
+                <span class="file-name"></span>
+            </label>
+            <p class="tiny">
+                Required core fields: Company Name, Fund, Sector, Status, Investment Date, Equity Invested,
+                Realized Value, Unrealized Value, Entry/Exit Revenue, EBITDA, TEV, Net Debt.
+            </p>
+            <p class="tiny">
+                New fields: Geography, Year Invested, Ownership %. If Geography or Year Invested is missing,
+                fallback is applied automatically.
+            </p>
+            <button type="submit" class="btn-upload">Upload Deals</button>
+        </form>
+    </section>
 </div>
-
 {% endblock %}

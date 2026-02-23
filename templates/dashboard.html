@@ -1,591 +1,145 @@
 {% extends "base.html" %}
 {% from "_macros.html" import fmt_currency %}
-{% block title %}Dashboard — PE Fund Tracker{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+{% block title %}Dashboard — PE Portfolio Lab{% endblock %}
+{% block page_title %}Portfolio Dashboard{% endblock %}
 
 {% block content %}
-
-<!-- Filter Bar -->
-<form class="filter-bar" method="GET" action="{{ url_for('dashboard') }}">
-    <div class="filter-group">
-        <label>Fund</label>
-        <select name="fund" class="filter-select" onchange="this.form.submit()">
+<div class="panel panel-tight">
+    <form class="filter-bar" method="GET" action="{{ url_for('dashboard') }}">
+        <select name="fund" onchange="this.form.submit()">
             <option value="">All Funds</option>
-            {% for f in funds %}
-            <option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>
-            {% endfor %}
+            {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
         </select>
-    </div>
-    <div class="filter-group">
-        <label>Status</label>
-        <select name="status" class="filter-select" onchange="this.form.submit()">
+        <select name="status" onchange="this.form.submit()">
             <option value="">All Statuses</option>
-            {% for s in statuses %}
-            <option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>
-            {% endfor %}
+            {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
         </select>
-    </div>
-    <div class="filter-group">
-        <label>Sector</label>
-        <select name="sector" class="filter-select" onchange="this.form.submit()">
+        <select name="sector" onchange="this.form.submit()">
             <option value="">All Sectors</option>
-            {% for s in sectors %}
-            <option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>
-            {% endfor %}
+            {% for s in sectors %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
         </select>
-    </div>
-    {% if current_fund or current_status or current_sector %}
-    <a href="{{ url_for('dashboard') }}" class="filter-clear">Clear Filters</a>
-    {% endif %}
-</form>
-
-<!-- KPI Cards -->
-<div class="kpi-grid">
-    <div class="kpi-card">
-        <div class="kpi-value">{{ total_deals }}</div>
-        <div class="kpi-label">Total Deals</div>
-        <i class="bi bi-briefcase kpi-icon"></i>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value">${{ "%.1f"|format(total_equity) }}M</div>
-        <div class="kpi-label">Total Equity Invested</div>
-        <i class="bi bi-bank kpi-icon"></i>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value">{{ "%.2f"|format(avg_moic) }}x</div>
-        <div class="kpi-label">Avg MOIC (Gross)</div>
-        <i class="bi bi-arrow-up-right kpi-icon"></i>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value">{{ "%.1f"|format(avg_irr * 100) }}%</div>
-        <div class="kpi-label">Avg IRR (Gross)</div>
-        <i class="bi bi-percent kpi-icon"></i>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value {% if fund_metrics.tvpi is not none and fund_metrics.tvpi >= 1.5 %}value-positive{% elif fund_metrics.tvpi is not none and fund_metrics.tvpi < 1.0 %}value-negative{% endif %}">
-            {{ "%.2fx"|format(fund_metrics.tvpi) if fund_metrics.tvpi is not none else "—" }}
-        </div>
-        <div class="kpi-label">Fund TVPI</div>
-        <i class="bi bi-trophy kpi-icon"></i>
-    </div>
+        <select name="geography" onchange="this.form.submit()">
+            <option value="">All Geographies</option>
+            {% for g in geographies %}<option value="{{ g }}" {% if current_geography == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+        </select>
+        <select name="vintage" onchange="this.form.submit()">
+            <option value="">All Vintages</option>
+            {% for y in vintages %}<option value="{{ y }}" {% if current_vintage == y|string %}selected{% endif %}>{{ y }}</option>{% endfor %}
+        </select>
+        {% if current_fund or current_status or current_sector or current_geography or current_vintage %}
+        <a class="btn-link" href="{{ url_for('dashboard') }}">Clear</a>
+        {% endif %}
+    </form>
 </div>
 
-<!-- Status + Cashflow Summary -->
-<div class="dashboard-panels">
-    <div class="panel">
-        <div class="panel-header">Portfolio Status</div>
-        <div class="panel-body">
-            {% if total_deals > 0 %}
-            <div class="status-bar">
-                <div class="status-segment realized"
-                     style="width: {{ (fully_realized / total_deals * 100)|round(1) }}%"></div>
-                <div class="status-segment partial"
-                     style="width: {{ (partially_realized / total_deals * 100)|round(1) }}%"></div>
-                <div class="status-segment unrealized"
-                     style="width: {{ (unrealized / total_deals * 100)|round(1) }}%"></div>
-            </div>
-            {% else %}
-            <div class="status-bar"></div>
-            {% endif %}
-            <div class="status-legend">
-                <span class="legend-item">
-                    <span class="legend-dot realized"></span>
-                    Fully Realized ({{ fully_realized }})
-                </span>
-                <span class="legend-item">
-                    <span class="legend-dot partial"></span>
-                    Partially Realized ({{ partially_realized }})
-                </span>
-                <span class="legend-item">
-                    <span class="legend-dot unrealized"></span>
-                    Unrealized ({{ unrealized }})
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel">
-        <div class="panel-header">Fund Performance</div>
-        <div class="panel-body">
-            <div class="cf-summary-row">
-                <span class="cf-label">Total Capital Called</span>
-                <span class="cf-value">${{ "%.1f"|format(total_capital_called) }}M</span>
-            </div>
-            <div class="cf-summary-row">
-                <span class="cf-label">Total Distributions</span>
-                <span class="cf-value">${{ "%.1f"|format(total_distributions) }}M</span>
-            </div>
-            <div class="cf-summary-row">
-                <span class="cf-label">Net Cashflow</span>
-                <span class="cf-value {% if total_distributions - total_capital_called >= 0 %}value-positive{% else %}value-negative{% endif %}">${{ "%.1f"|format(total_distributions - total_capital_called) }}M</span>
-            </div>
-            <div class="cf-summary-row" style="border-top: 2px solid var(--border-accent); margin-top: var(--space-2); padding-top: var(--space-3);">
-                <span class="cf-label">DPI (Realized Return)</span>
-                <span class="cf-value">{{ "%.2fx"|format(fund_metrics.dpi) if fund_metrics.dpi is not none else "—" }}</span>
-            </div>
-            <div class="cf-summary-row">
-                <span class="cf-label">RVPI (Unrealized Value)</span>
-                <span class="cf-value">{{ "%.2fx"|format(fund_metrics.rvpi) if fund_metrics.rvpi is not none else "—" }}</span>
-            </div>
-            <div class="cf-summary-row">
-                <span class="cf-label">TVPI (Total Value)</span>
-                <span class="cf-value {% if fund_metrics.tvpi is not none and fund_metrics.tvpi >= 1 %}value-positive{% elif fund_metrics.tvpi is not none and fund_metrics.tvpi < 1 %}value-negative{% endif %}">{{ "%.2fx"|format(fund_metrics.tvpi) if fund_metrics.tvpi is not none else "—" }}</span>
-            </div>
-        </div>
-    </div>
+<div class="kpi-grid kpi-grid-wide">
+    <div class="kpi-card"><span>Total Deals</span><strong>{{ kpis.total_deals }}</strong></div>
+    <div class="kpi-card"><span>Total Equity</span><strong>{{ fmt_currency(kpis.total_equity) }}</strong></div>
+    <div class="kpi-card"><span>Total Value</span><strong>{{ fmt_currency(kpis.total_value) }}</strong></div>
+    <div class="kpi-card"><span>Gross MOIC</span><strong class="{% if kpis.gross_moic is not none and kpis.gross_moic >= 1 %}value-positive{% elif kpis.gross_moic is not none %}value-negative{% endif %}">{{ "%.2fx"|format(kpis.gross_moic) if kpis.gross_moic is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Value Created</span><strong class="{% if kpis.total_value_created >= 0 %}value-positive{% else %}value-negative{% endif %}">{{ fmt_currency(kpis.total_value_created) }}</strong></div>
+    <div class="kpi-card"><span>Loss Ratio (Count)</span><strong class="{% if loss.count_pct is not none and loss.count_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.count_pct) if loss.count_pct is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Loss Ratio (Capital)</span><strong class="{% if loss.capital_pct is not none and loss.capital_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.capital_pct) if loss.capital_pct is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Implied IRR (Wtd)</span><strong class="{% if kpis.implied_irr is not none and kpis.implied_irr >= 0 %}value-positive{% elif kpis.implied_irr is not none %}value-negative{% endif %}">{{ "%.1f%%"|format((kpis.implied_irr or 0)*100) if kpis.implied_irr is not none else "—" }}</strong></div>
 </div>
 
-<!-- Portfolio Analytics -->
-<div class="panel">
-    <div class="panel-header">
-        <span><i class="bi bi-bar-chart-line"></i> Portfolio Analytics</span>
-        <span class="panel-action">Weighted by Equity Invested</span>
-    </div>
-    <div class="panel-body no-padding">
-        <table class="data-table analytics-table">
+<div class="panel two-col">
+    <div>
+        <h3>Entry vs Exit Metrics</h3>
+        <table class="data-table compact compare-table">
             <thead>
                 <tr>
                     <th>Metric</th>
-                    <th class="text-right">Average</th>
-                    <th class="text-right">Wtd Average</th>
+                    <th>Entry Avg</th>
+                    <th>Entry Wtd</th>
+                    <th>Exit Avg</th>
+                    <th>Exit Wtd</th>
                 </tr>
             </thead>
-
-            {# --- Growth Metrics --- #}
             <tbody>
-                <tr class="section-header-row">
-                    <td colspan="3" class="section-header">Growth Metrics</td>
+                <tr>
+                    <td>TEV / EBITDA</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_ebitda.avg) if entry_exit_summary.entry.tev_ebitda.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_ebitda.wavg) if entry_exit_summary.entry.tev_ebitda.wavg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_ebitda.avg) if entry_exit_summary.exit.tev_ebitda.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_ebitda.wavg) if entry_exit_summary.exit.tev_ebitda.wavg is not none else "—" }}</td>
                 </tr>
                 <tr>
-                    <td class="metric-label">Revenue Growth</td>
-                    <td class="text-right mono {% if analytics.avg_revenue_growth is not none and analytics.avg_revenue_growth > 0 %}value-positive{% elif analytics.avg_revenue_growth is not none and analytics.avg_revenue_growth < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.avg_revenue_growth) if analytics.avg_revenue_growth is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_revenue_growth is not none and analytics.wavg_revenue_growth > 0 %}value-positive{% elif analytics.wavg_revenue_growth is not none and analytics.wavg_revenue_growth < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.wavg_revenue_growth) if analytics.wavg_revenue_growth is not none else "—" }}
-                    </td>
+                    <td>TEV / Revenue</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_revenue.avg) if entry_exit_summary.entry.tev_revenue.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_revenue.wavg) if entry_exit_summary.entry.tev_revenue.wavg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_revenue.avg) if entry_exit_summary.exit.tev_revenue.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_revenue.wavg) if entry_exit_summary.exit.tev_revenue.wavg is not none else "—" }}</td>
                 </tr>
                 <tr>
-                    <td class="metric-label">Revenue CAGR</td>
-                    <td class="text-right mono {% if analytics.avg_revenue_cagr is not none and analytics.avg_revenue_cagr > 0 %}value-positive{% elif analytics.avg_revenue_cagr is not none and analytics.avg_revenue_cagr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.avg_revenue_cagr) if analytics.avg_revenue_cagr is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_revenue_cagr is not none and analytics.wavg_revenue_cagr > 0 %}value-positive{% elif analytics.wavg_revenue_cagr is not none and analytics.wavg_revenue_cagr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.wavg_revenue_cagr) if analytics.wavg_revenue_cagr is not none else "—" }}
-                    </td>
+                    <td>Net Debt / EBITDA</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.net_debt_ebitda.avg) if entry_exit_summary.entry.net_debt_ebitda.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.net_debt_ebitda.wavg) if entry_exit_summary.entry.net_debt_ebitda.wavg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.net_debt_ebitda.avg) if entry_exit_summary.exit.net_debt_ebitda.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.net_debt_ebitda.wavg) if entry_exit_summary.exit.net_debt_ebitda.wavg is not none else "—" }}</td>
                 </tr>
                 <tr>
-                    <td class="metric-label">EBITDA Growth</td>
-                    <td class="text-right mono {% if analytics.avg_ebitda_growth is not none and analytics.avg_ebitda_growth > 0 %}value-positive{% elif analytics.avg_ebitda_growth is not none and analytics.avg_ebitda_growth < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.avg_ebitda_growth) if analytics.avg_ebitda_growth is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_ebitda_growth is not none and analytics.wavg_ebitda_growth > 0 %}value-positive{% elif analytics.wavg_ebitda_growth is not none and analytics.wavg_ebitda_growth < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.wavg_ebitda_growth) if analytics.wavg_ebitda_growth is not none else "—" }}
-                    </td>
+                    <td>Net Debt / TEV</td>
+                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.entry.net_debt_tev.avg or 0) * 100) if entry_exit_summary.entry.net_debt_tev.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.entry.net_debt_tev.wavg or 0) * 100) if entry_exit_summary.entry.net_debt_tev.wavg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.exit.net_debt_tev.avg or 0) * 100) if entry_exit_summary.exit.net_debt_tev.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.exit.net_debt_tev.wavg or 0) * 100) if entry_exit_summary.exit.net_debt_tev.wavg is not none else "—" }}</td>
                 </tr>
                 <tr>
-                    <td class="metric-label">EBITDA CAGR</td>
-                    <td class="text-right mono {% if analytics.avg_ebitda_cagr is not none and analytics.avg_ebitda_cagr > 0 %}value-positive{% elif analytics.avg_ebitda_cagr is not none and analytics.avg_ebitda_cagr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.avg_ebitda_cagr) if analytics.avg_ebitda_cagr is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_ebitda_cagr is not none and analytics.wavg_ebitda_cagr > 0 %}value-positive{% elif analytics.wavg_ebitda_cagr is not none and analytics.wavg_ebitda_cagr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.wavg_ebitda_cagr) if analytics.wavg_ebitda_cagr is not none else "—" }}
-                    </td>
-                </tr>
-            </tbody>
-
-            {# --- Valuation Multiples (Entry) --- #}
-            <tbody>
-                <tr class="section-header-row">
-                    <td colspan="3" class="section-header">Valuation Multiples (Entry)</td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EV / EBITDA</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_entry_ev_ebitda) if analytics.avg_entry_ev_ebitda is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_entry_ev_ebitda) if analytics.wavg_entry_ev_ebitda is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EV / Revenue</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_entry_ev_revenue) if analytics.avg_entry_ev_revenue is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_entry_ev_revenue) if analytics.wavg_entry_ev_revenue is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">Net Debt / EBITDA</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_entry_net_debt_ebitda) if analytics.avg_entry_net_debt_ebitda is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_entry_net_debt_ebitda) if analytics.wavg_entry_net_debt_ebitda is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EBITDA Margin</td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.avg_entry_ebitda_margin) if analytics.avg_entry_ebitda_margin is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.wavg_entry_ebitda_margin) if analytics.wavg_entry_ebitda_margin is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">Net Debt / EV</td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.avg_entry_net_debt_ev) if analytics.avg_entry_net_debt_ev is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.wavg_entry_net_debt_ev) if analytics.wavg_entry_net_debt_ev is not none else "—" }}
-                    </td>
-                </tr>
-            </tbody>
-
-            {# --- Valuation Multiples (Exit) --- #}
-            <tbody>
-                <tr class="section-header-row">
-                    <td colspan="3" class="section-header">Valuation Multiples (Exit)</td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EV / EBITDA</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_exit_ev_ebitda) if analytics.avg_exit_ev_ebitda is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_exit_ev_ebitda) if analytics.wavg_exit_ev_ebitda is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EV / Revenue</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_exit_ev_revenue) if analytics.avg_exit_ev_revenue is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_exit_ev_revenue) if analytics.wavg_exit_ev_revenue is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">Net Debt / EBITDA</td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.avg_exit_net_debt_ebitda) if analytics.avg_exit_net_debt_ebitda is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.2fx"|format(analytics.wavg_exit_net_debt_ebitda) if analytics.wavg_exit_net_debt_ebitda is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">EBITDA Margin</td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.avg_exit_ebitda_margin) if analytics.avg_exit_ebitda_margin is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.wavg_exit_ebitda_margin) if analytics.wavg_exit_ebitda_margin is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">Net Debt / EV</td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.avg_exit_net_debt_ev) if analytics.avg_exit_net_debt_ev is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.1f%%"|format(analytics.wavg_exit_net_debt_ev) if analytics.wavg_exit_net_debt_ev is not none else "—" }}
-                    </td>
-                </tr>
-            </tbody>
-
-            {# --- Returns (Gross) --- #}
-            <tbody>
-                <tr class="section-header-row">
-                    <td colspan="3" class="section-header">Returns (Gross)</td>
-                </tr>
-                <tr>
-                    <td class="metric-label">Hold Period</td>
-                    <td class="text-right mono">
-                        {{ "%.1f yrs"|format(analytics.avg_hold_period) if analytics.avg_hold_period is not none else "—" }}
-                    </td>
-                    <td class="text-right mono">
-                        {{ "%.1f yrs"|format(analytics.wavg_hold_period) if analytics.wavg_hold_period is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">MOIC</td>
-                    <td class="text-right mono {% if analytics.avg_moic is not none and analytics.avg_moic >= 1.5 %}value-positive{% elif analytics.avg_moic is not none and analytics.avg_moic < 1 %}value-negative{% endif %}">
-                        {{ "%.2fx"|format(analytics.avg_moic) if analytics.avg_moic is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_moic is not none and analytics.wavg_moic >= 1.5 %}value-positive{% elif analytics.wavg_moic is not none and analytics.wavg_moic < 1 %}value-negative{% endif %}">
-                        {{ "%.2fx"|format(analytics.wavg_moic) if analytics.wavg_moic is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label" style="padding-left: 2rem;">Median MOIC</td>
-                    <td class="text-right mono" colspan="2">
-                        {{ "%.2fx"|format(moic_median) if moic_median is not none else "—" }}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label" style="padding-left: 2rem;">MOIC Range</td>
-                    <td class="text-right mono" colspan="2">
-                        {% if moic_min is not none %}{{ "%.2fx"|format(moic_min) }} – {{ "%.2fx"|format(moic_max) }}{% else %}—{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label" style="padding-left: 2rem;">Interquartile Range</td>
-                    <td class="text-right mono" colspan="2">
-                        {% if moic_q1 is not none %}{{ "%.2fx"|format(moic_q1) }} – {{ "%.2fx"|format(moic_q3) }}{% else %}—{% endif %}
-                    </td>
-                </tr>
-                <tr>
-                    <td class="metric-label">IRR</td>
-                    <td class="text-right mono {% if analytics.avg_irr is not none and analytics.avg_irr > 0 %}value-positive{% elif analytics.avg_irr is not none and analytics.avg_irr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.avg_irr * 100) if analytics.avg_irr is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if analytics.wavg_irr is not none and analytics.wavg_irr > 0 %}value-positive{% elif analytics.wavg_irr is not none and analytics.wavg_irr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(analytics.wavg_irr * 100) if analytics.wavg_irr is not none else "—" }}
-                    </td>
+                    <td>EBITDA Margin</td>
+                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.entry.ebitda_margin.avg) if entry_exit_summary.entry.ebitda_margin.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.entry.ebitda_margin.wavg) if entry_exit_summary.entry.ebitda_margin.wavg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.exit.ebitda_margin.avg) if entry_exit_summary.exit.ebitda_margin.avg is not none else "—" }}</td>
+                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.exit.ebitda_margin.wavg) if entry_exit_summary.exit.ebitda_margin.wavg is not none else "—" }}</td>
                 </tr>
             </tbody>
         </table>
     </div>
-</div>
-
-<!-- Value Creation Analysis -->
-<div class="panel">
-    <div class="panel-header">
-        <span><i class="bi bi-diagram-3"></i> Value Creation Analysis</span>
-        <span class="panel-action">Avg MOIC Contribution by Driver</span>
-    </div>
-    <div class="panel-body no-padding">
-        {% if analytics.avg_vb_revenue_growth_moic is not none %}
-        <table class="data-table analytics-table">
-            <thead>
-                <tr>
-                    <th>Driver</th>
-                    <th class="text-right">Average</th>
-                    <th class="text-right">Wtd Average</th>
-                    <th style="width: 30%"></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% set vb_drivers = [
-                    ("Revenue Growth", analytics.avg_vb_revenue_growth_moic, analytics.wavg_vb_revenue_growth_moic),
-                    ("Margin Expansion", analytics.avg_vb_margin_expansion_moic, analytics.wavg_vb_margin_expansion_moic),
-                    ("Multiple Expansion", analytics.avg_vb_multiple_expansion_moic, analytics.wavg_vb_multiple_expansion_moic),
-                    ("Leverage / Debt Paydown", analytics.avg_vb_leverage_moic, analytics.wavg_vb_leverage_moic),
-                    ("Other / Residual", analytics.avg_vb_other_moic, analytics.wavg_vb_other_moic),
-                ] %}
-                {% set max_abs = namespace(val=0.01) %}
-                {% for name, avg, wavg in vb_drivers %}
-                    {% if avg is not none and avg|abs > max_abs.val %}{% set max_abs.val = avg|abs %}{% endif %}
-                    {% if wavg is not none and wavg|abs > max_abs.val %}{% set max_abs.val = wavg|abs %}{% endif %}
-                {% endfor %}
-                {% for name, avg, wavg in vb_drivers %}
-                <tr>
-                    <td class="metric-label">{{ name }}</td>
-                    <td class="text-right mono {% if avg is not none and avg > 0 %}value-positive{% elif avg is not none and avg < 0 %}value-negative{% endif %}">
-                        {{ "%+.2fx"|format(avg) if avg is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if wavg is not none and wavg > 0 %}value-positive{% elif wavg is not none and wavg < 0 %}value-negative{% endif %}">
-                        {{ "%+.2fx"|format(wavg) if wavg is not none else "—" }}
-                    </td>
-                    <td>
-                        {% if wavg is not none %}
-                        <div class="metric-bar-row">
-                            {% set bar_pct = (wavg|abs / max_abs.val * 100)|round(1) %}
-                            <div class="metric-bar {% if wavg >= 0 %}bar-positive{% else %}bar-negative{% endif %}" style="width: {{ bar_pct }}%"></div>
-                        </div>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
+    <div>
+        <h3>Growth Analytics</h3>
+        <table class="compact-table">
+            <tr><td>Revenue Growth (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.revenue_growth.avg) if entry_exit_summary.growth.revenue_growth.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.revenue_growth.wavg) if entry_exit_summary.growth.revenue_growth.wavg is not none else "—" }}</td></tr>
+            <tr><td>EBITDA Growth (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_growth.avg) if entry_exit_summary.growth.ebitda_growth.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_growth.wavg) if entry_exit_summary.growth.ebitda_growth.wavg is not none else "—" }}</td></tr>
+            <tr><td>Revenue CAGR (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.revenue_cagr.avg) if entry_exit_summary.growth.revenue_cagr.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.revenue_cagr.wavg) if entry_exit_summary.growth.revenue_cagr.wavg is not none else "—" }}</td></tr>
+            <tr><td>EBITDA CAGR (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_cagr.avg) if entry_exit_summary.growth.ebitda_cagr.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_cagr.wavg) if entry_exit_summary.growth.ebitda_cagr.wavg is not none else "—" }}</td></tr>
+            <tr><td>Bridge Ready Deals</td><td class="num">{{ data_quality.bridge_ready }} / {{ data_quality.total_deals }}</td></tr>
+            <tr><td>Low-Confidence Multiplicative Bridges</td><td class="num">{{ bridge_aggregate.diagnostics.low_confidence_count }}</td></tr>
         </table>
-        {% else %}
-        <div class="empty-state">
-            <p>Value creation bridge requires complete entry/exit financial data.</p>
+        {% if data_quality.warnings %}
+        <div class="warn-box">
+            <p><strong>{{ data_quality.warnings|length }}</strong> quality warning(s) detected in current filter set.</p>
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- Risk & Portfolio Construction -->
-<div class="panel">
-    <div class="panel-header">
-        <span><i class="bi bi-shield-check"></i> Risk & Portfolio Construction</span>
-    </div>
-    <div class="panel-body">
-        <div class="risk-grid">
-            <!-- Left Column: Loss Ratio + MOIC Distribution -->
-            <div>
-                <div class="risk-stat">
-                    <div class="risk-stat-label">Loss Ratio (Count)</div>
-                    <div class="risk-stat-value {% if risk.loss_ratio_count is not none and risk.loss_ratio_count > 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(risk.loss_ratio_count) if risk.loss_ratio_count is not none else "—" }}
-                    </div>
-                    <div class="risk-stat-detail">{{ risk.loss_count }} of {{ risk.total_with_moic }} deals below 1.0x</div>
-                </div>
-                <div class="risk-stat">
-                    <div class="risk-stat-label">Loss Ratio (Capital-Weighted)</div>
-                    <div class="risk-stat-value {% if risk.loss_ratio_capital is not none and risk.loss_ratio_capital > 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(risk.loss_ratio_capital) if risk.loss_ratio_capital is not none else "—" }}
-                    </div>
-                </div>
-
-                <div class="risk-subsection">
-                    <div class="risk-stat-label" style="margin-bottom: var(--space-3);">MOIC Distribution</div>
-                    {% for bucket in risk.moic_distribution %}
-                    <div class="metric-bar-row">
-                        <span class="metric-bar-label">{{ bucket.label }}</span>
-                        <div class="metric-bar-track">
-                            <div class="metric-bar bar-dist" style="width: {{ bucket.pct|round(1) }}%"></div>
-                        </div>
-                        <span class="metric-bar-value">{{ bucket.count }} ({{ "%.0f"|format(bucket.pct) }}%)</span>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <!-- Right Column: Concentration + Sector -->
-            <div>
-                {% if risk.top5_concentration is not none %}
-                <div class="risk-stat">
-                    <div class="risk-stat-label">Top 5 Concentration</div>
-                    <div class="risk-stat-value {% if risk.top5_concentration > 60 %}value-negative{% endif %}">{{ "%.1f%%"|format(risk.top5_concentration) }}</div>
-                    {% if risk.top5_concentration > 60 %}
-                    <div class="risk-stat-detail" style="color: var(--accent-red);"><i class="bi bi-exclamation-triangle"></i> Above 60% threshold</div>
-                    {% endif %}
-                </div>
-                {% if risk.top5_deals %}
-                <div class="risk-subsection">
-                    {% for name, equity, pct in risk.top5_deals %}
-                    <div class="metric-bar-row">
-                        <span class="metric-bar-label" style="min-width: 120px;">{{ name }}</span>
-                        <div class="metric-bar-track">
-                            <div class="metric-bar bar-concentration" style="width: {{ pct|round(1) }}%"></div>
-                        </div>
-                        <span class="metric-bar-value">${{ "%.1f"|format(equity) }}M ({{ "%.0f"|format(pct) }}%)</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% endif %}
-
-                {% if risk.sector_breakdown %}
-                <div class="risk-subsection" style="margin-top: var(--space-6);">
-                    <div class="risk-stat-label" style="margin-bottom: var(--space-3);">Sector Allocation</div>
-                    {% for item in risk.sector_breakdown %}
-                    <div class="metric-bar-row">
-                        <span class="metric-bar-label" style="min-width: 120px;">{{ item.sector }}</span>
-                        <div class="metric-bar-track">
-                            <div class="metric-bar bar-sector" style="width: {{ item.pct|round(1) }}%"></div>
-                        </div>
-                        <span class="metric-bar-value">{{ "%.0f"|format(item.pct) }}%</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </div>
+<div class="panel chart-panel">
+    <div class="bridge-toolbar">
+        <h3>Value Creation Bridge</h3>
+        <div class="bridge-controls">
+            <label>Model
+                <select id="bridgeModel">
+                    <option value="additive">Additive</option>
+                    <option value="multiplicative">Multiplicative</option>
+                </select>
+            </label>
+            <label>Unit
+                <select id="bridgeUnit">
+                    <option value="moic">MOIC</option>
+                    <option value="dollar">$</option>
+                    <option value="pct">%</option>
+                </select>
+            </label>
         </div>
     </div>
+    <canvas id="bridgeChart"></canvas>
+    <div class="bridge-diagnostics" id="bridgeDiagnostics"></div>
 </div>
 
-<!-- Vintage Year Analysis -->
-{% if vintage_years %}
-<div class="panel">
-    <div class="panel-header">
-        <span><i class="bi bi-calendar3"></i> Vintage Year Analysis</span>
-    </div>
-    <div class="panel-body no-padding">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Vintage Year</th>
-                    <th>Maturity</th>
-                    <th class="text-right">Deal Count</th>
-                    <th class="text-right">Total Equity</th>
-                    <th class="text-right">Avg MOIC (Gross)</th>
-                    <th class="text-right">Avg IRR (Gross)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for vy in vintage_years %}
-                <tr>
-                    <td class="company-name">{{ vy.year }}</td>
-                    <td>
-                        {% if vy.maturity == "Early (J-Curve)" %}
-                        <span class="status-badge status-unrealized">{{ vy.maturity }}</span>
-                        {% elif vy.maturity == "Maturing" %}
-                        <span class="status-badge status-partially-realized">{{ vy.maturity }}</span>
-                        {% else %}
-                        <span class="status-badge status-fully-realized">{{ vy.maturity }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-right mono">{{ vy.deal_count }}</td>
-                    <td class="text-right mono">${{ "%.1f"|format(vy.total_equity) }}M</td>
-                    <td class="text-right mono {% if vy.avg_moic is not none and vy.avg_moic >= 1.5 %}value-positive{% elif vy.avg_moic is not none and vy.avg_moic < 1 %}value-negative{% endif %}">
-                        {{ "%.2fx"|format(vy.avg_moic) if vy.avg_moic is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if vy.avg_irr is not none and vy.avg_irr > 0 %}value-positive{% elif vy.avg_irr is not none and vy.avg_irr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(vy.avg_irr * 100) if vy.avg_irr is not none else "—" }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
-
-<!-- Recent Deals -->
-<div class="panel">
-    <div class="panel-header">
-        Recent Deals
-        <a href="{{ url_for('deals') }}" class="panel-action">View All &rarr;</a>
-    </div>
-    <div class="panel-body no-padding">
-        {% if recent_deals %}
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Company</th>
-                    <th>Fund</th>
-                    <th>Status</th>
-                    <th class="text-right">Equity Invested</th>
-                    <th class="text-right">MOIC (Gross)</th>
-                    <th class="text-right">IRR (Gross)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for deal in recent_deals %}
-                <tr>
-                    <td class="company-name">{{ deal.company_name }}</td>
-                    <td>{{ deal.fund_number or "—" }}</td>
-                    <td>
-                        <span class="status-badge status-{{ deal.status|lower|replace(' ', '-') }}">
-                            {{ deal.status or "Unrealized" }}
-                        </span>
-                    </td>
-                    <td class="text-right mono">{{ fmt_currency(deal.equity_invested) }}</td>
-                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 1.5 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}">
-                        {{ "%.2fx"|format(deal.moic) if deal.moic is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if deal.irr is not none and deal.irr > 0 %}value-positive{% elif deal.irr is not none and deal.irr < 0 %}value-negative{% endif %}">
-                        {{ "%.1f%%"|format(deal.irr * 100) if deal.irr is not none else "—" }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="empty-state">
-            <p>No deals yet. <a href="{{ url_for('upload') }}">Upload data</a> to get started.</p>
-        </div>
-        {% endif %}
-    </div>
+<div class="chart-grid">
+    <section class="panel chart-panel"><h3>MOIC Distribution</h3><canvas id="moicDistChart"></canvas></section>
+    <section class="panel chart-panel"><h3>Vintage Series (MOIC)</h3><canvas id="vintageChart"></canvas></section>
 </div>
 
+<div id="dashboard-series-endpoint" data-url="{{ url_for('dashboard_series_api') }}"></div>
 {% endblock %}

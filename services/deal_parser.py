@@ -1,137 +1,184 @@
+import json
+import math
 import uuid
 
 import pandas as pd
 
-from models import db, Deal
+from models import Deal, UploadIssue, db
+from services.utils import clean_str, clean_val
 
-# Mapping from common Excel column headers (lowercased, stripped) to Deal model fields.
+
 COLUMN_MAP = {
-    # Company name
+    # Identification
     "company": "company_name",
     "company name": "company_name",
     "company/deal name": "company_name",
     "deal name": "company_name",
     "deal": "company_name",
     "portfolio company": "company_name",
-    # Fund
     "fund": "fund_number",
     "fund #": "fund_number",
     "fund number": "fund_number",
     "fund name": "fund_number",
-    # Sector
     "sector": "sector",
     "industry": "sector",
     "sector/industry": "sector",
-    # Status
+    "geography": "geography",
+    "region": "geography",
+    "country": "geography",
     "status": "status",
     "deal status": "status",
     "realization status": "status",
     # Dates
     "investment date": "investment_date",
     "entry date": "investment_date",
+    "year invested": "year_invested",
+    "vintage": "year_invested",
+    "vintage year": "year_invested",
     "exit date": "exit_date",
-    # Equity
+    # Investment values
     "equity invested": "equity_invested",
     "equity": "equity_invested",
     "invested": "equity_invested",
     "investment amount": "equity_invested",
-    # Entry operating metrics
+    "realized value": "realized_value",
+    "realized": "realized_value",
+    "unrealized value": "unrealized_value",
+    "unrealized": "unrealized_value",
+    # Ownership
+    "ownership %": "ownership_pct",
+    "ownership pct": "ownership_pct",
+    "ownership": "ownership_pct",
+    # Entry metrics
     "entry revenue": "entry_revenue",
     "revenue at entry": "entry_revenue",
     "entry ebitda": "entry_ebitda",
     "ebitda at entry": "entry_ebitda",
     "entry ev": "entry_enterprise_value",
+    "entry tev": "entry_enterprise_value",
     "entry enterprise value": "entry_enterprise_value",
+    "entry total enterprise value": "entry_enterprise_value",
     "enterprise value at entry": "entry_enterprise_value",
     "entry net debt": "entry_net_debt",
     "net debt at entry": "entry_net_debt",
-    # Exit operating metrics
+    # Exit metrics
     "exit revenue": "exit_revenue",
     "revenue at exit": "exit_revenue",
     "exit ebitda": "exit_ebitda",
     "ebitda at exit": "exit_ebitda",
     "exit ev": "exit_enterprise_value",
+    "exit tev": "exit_enterprise_value",
     "exit enterprise value": "exit_enterprise_value",
+    "exit total enterprise value": "exit_enterprise_value",
     "enterprise value at exit": "exit_enterprise_value",
     "exit net debt": "exit_net_debt",
     "net debt at exit": "exit_net_debt",
-    # Performance
-    "moic": "moic",
-    "multiple": "moic",
+    # Optional legacy
     "irr": "irr",
     "gross irr": "irr",
 }
 
 VALID_FIELDS = {
-    "company_name", "fund_number", "sector", "status",
-    "investment_date", "exit_date", "equity_invested",
-    "entry_revenue", "entry_ebitda", "entry_enterprise_value", "entry_net_debt",
-    "exit_revenue", "exit_ebitda", "exit_enterprise_value", "exit_net_debt",
-    "moic", "irr",
+    "company_name",
+    "fund_number",
+    "sector",
+    "geography",
+    "status",
+    "investment_date",
+    "year_invested",
+    "exit_date",
+    "equity_invested",
+    "realized_value",
+    "unrealized_value",
+    "ownership_pct",
+    "entry_revenue",
+    "entry_ebitda",
+    "entry_enterprise_value",
+    "entry_net_debt",
+    "exit_revenue",
+    "exit_ebitda",
+    "exit_enterprise_value",
+    "exit_net_debt",
+    "irr",
 }
 
 DATE_COLS = {"investment_date", "exit_date"}
-
 FLOAT_COLS = {
     "equity_invested",
-    "entry_revenue", "entry_ebitda", "entry_enterprise_value", "entry_net_debt",
-    "exit_revenue", "exit_ebitda", "exit_enterprise_value", "exit_net_debt",
-    "moic", "irr",
+    "realized_value",
+    "unrealized_value",
+    "ownership_pct",
+    "entry_revenue",
+    "entry_ebitda",
+    "entry_enterprise_value",
+    "entry_net_debt",
+    "exit_revenue",
+    "exit_ebitda",
+    "exit_enterprise_value",
+    "exit_net_debt",
+    "irr",
 }
+INT_COLS = {"year_invested"}
+STR_COLS = {"company_name", "fund_number", "sector", "geography", "status"}
 
-STR_COLS = {"company_name", "fund_number", "sector", "status"}
 
-
-def _normalize_irr(val):
-    """Auto-detect if IRR was entered as percentage (e.g. 15) vs decimal (e.g. 0.15).
-    Convention: stored as decimal where 0.15 = 15%.
-    Heuristic: if abs(val) > 1.0, assume it's already a percentage and divide by 100.
-    """
+def _normalize_ownership(val):
     if val is None:
         return None
     try:
-        val = float(val)
+        num = float(val)
     except (TypeError, ValueError):
         return None
-    if abs(val) > 1.0:
-        return val / 100.0
-    return val
+    if math.isnan(num) or math.isinf(num):
+        return None
+    if num > 1.0:
+        num /= 100.0
+    return num
 
 
-def _normalize_moic(val):
-    """Auto-detect if MOIC was entered as percentage-like (e.g. 200 meaning 2.0x).
-    Heuristic: if val > 50, assume it's 100-based and divide by 100.
-    """
-    if val is None:
-        return None
-    try:
-        val = float(val)
-    except (TypeError, ValueError):
-        return None
-    if val > 50.0:
-        return val / 100.0
-    return val
+def _record_issue(issue_report_id, batch_id, row_num, company, severity, message, payload):
+    db.session.add(
+        UploadIssue(
+            issue_report_id=issue_report_id,
+            upload_batch=batch_id,
+            file_type="deals",
+            row_number=row_num,
+            company_name=company,
+            severity=severity,
+            message=message,
+            payload=json.dumps(payload, default=str),
+        )
+    )
+
+
+def _warn_extreme_multiples(deal):
+    warnings = []
+    if deal.entry_ebitda and deal.entry_ebitda != 0 and deal.entry_enterprise_value is not None:
+        entry_mult = deal.entry_enterprise_value / deal.entry_ebitda
+        if abs(entry_mult) > 50:
+            warnings.append(f"Entry TEV/EBITDA {entry_mult:.1f}x appears extreme")
+    if deal.exit_ebitda and deal.exit_ebitda != 0 and deal.exit_enterprise_value is not None:
+        exit_mult = deal.exit_enterprise_value / deal.exit_ebitda
+        if abs(exit_mult) > 50:
+            warnings.append(f"Exit TEV/EBITDA {exit_mult:.1f}x appears extreme")
+    return warnings
 
 
 def parse_deals(file_path):
-    """
-    Parse an Excel file of deal data and insert rows into the database.
+    """Parse deal-level template and insert rows.
 
-    Returns: {"success": int, "errors": list[str], "batch_id": str,
-              "bridge_complete": int, "duplicates_skipped": int}
+    Returns: {success, errors, batch_id, bridge_complete, duplicates_skipped,
+              quarantined_count, issue_report_id}
     """
     batch_id = str(uuid.uuid4())[:8]
+    issue_report_id = str(uuid.uuid4())
 
     df = pd.read_excel(file_path, engine="openpyxl")
-
-    # Normalize headers
     df.columns = [str(c).strip().lower() for c in df.columns]
 
-    # Map columns
     rename_map = {col: COLUMN_MAP[col] for col in df.columns if col in COLUMN_MAP}
     df = df.rename(columns=rename_map)
 
-    # Check for required column
     if "company_name" not in df.columns:
         return {
             "success": 0,
@@ -139,104 +186,152 @@ def parse_deals(file_path):
             "batch_id": batch_id,
             "bridge_complete": 0,
             "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
         }
 
-    # Keep only valid columns
     df = df[[c for c in df.columns if c in VALID_FIELDS]]
 
-    # Coerce types
     for col in DATE_COLS & set(df.columns):
         df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
 
     for col in FLOAT_COLS & set(df.columns):
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    for col in INT_COLS & set(df.columns):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
     for col in STR_COLS & set(df.columns):
         df[col] = df[col].astype(str).replace("nan", None)
 
-    # Build existing deal keys for duplicate detection
-    existing_keys = set()
-    for d in Deal.query.all():
-        key = (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
-        existing_keys.add(key)
+    existing_keys = {
+        (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
+        for d in Deal.query.all()
+    }
 
     success = 0
     errors = []
     bridge_complete = 0
     duplicates_skipped = 0
+    quarantined_count = 0
 
     for idx, row in df.iterrows():
-        row_num = idx + 2  # Excel row (1-indexed header + 0-indexed data)
-
+        row_num = idx + 2
         if row.isna().all():
             continue
 
+        row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
         company = row.get("company_name")
+
         if pd.isna(company) or company is None or str(company).strip() in ("", "None"):
-            errors.append(f"Row {row_num}: Skipped — missing company name.")
+            msg = f"Row {row_num}: Quarantined — missing company name."
+            errors.append(msg)
+            quarantined_count += 1
+            _record_issue(issue_report_id, batch_id, row_num, None, "error", msg, row_payload)
             continue
 
-        # Duplicate detection
-        fund_val = _clean_str(row.get("fund_number")) or ""
+        fund_val = clean_str(row.get("fund_number")) or ""
         deal_key = (str(company).strip().lower(), fund_val.strip().lower())
         if deal_key in existing_keys:
-            errors.append(f"Row {row_num}: Skipped duplicate — '{company}' already exists.")
+            msg = f"Row {row_num}: Skipped duplicate — '{company}' already exists."
+            errors.append(msg)
             duplicates_skipped += 1
+            _record_issue(issue_report_id, batch_id, row_num, str(company).strip(), "warning", msg, row_payload)
             continue
         existing_keys.add(deal_key)
 
-        # Normalize IRR and MOIC with warnings
-        raw_irr = _clean_val(row.get("irr"))
-        raw_moic = _clean_val(row.get("moic"))
-        norm_irr = _normalize_irr(raw_irr)
-        norm_moic = _normalize_moic(raw_moic)
+        year_invested_val = clean_val(row.get("year_invested"))
+        if year_invested_val is not None:
+            try:
+                year_invested_val = int(year_invested_val)
+            except (TypeError, ValueError):
+                year_invested_val = None
 
-        if raw_irr is not None and abs(raw_irr) > 1.0:
-            errors.append(
-                f"Row {row_num}: IRR value {raw_irr} appears to be a percentage; "
-                f"converted to {norm_irr:.4f} (decimal convention)."
-            )
-        if raw_moic is not None and raw_moic > 50.0:
-            errors.append(
-                f"Row {row_num}: MOIC value {raw_moic} appears percentage-based; "
-                f"converted to {norm_moic:.2f}x."
-            )
+        investment_date = clean_val(row.get("investment_date"))
+        if year_invested_val is None and investment_date is not None:
+            year_invested_val = investment_date.year
+
+        ownership = _normalize_ownership(clean_val(row.get("ownership_pct")))
 
         try:
             deal = Deal(
                 company_name=str(company).strip(),
-                fund_number=_clean_str(row.get("fund_number")),
-                sector=_clean_str(row.get("sector")),
-                status=_clean_str(row.get("status")) or "Unrealized",
-                investment_date=_clean_val(row.get("investment_date")),
-                exit_date=_clean_val(row.get("exit_date")),
-                equity_invested=_clean_val(row.get("equity_invested")),
-                entry_revenue=_clean_val(row.get("entry_revenue")),
-                entry_ebitda=_clean_val(row.get("entry_ebitda")),
-                entry_enterprise_value=_clean_val(row.get("entry_enterprise_value")),
-                entry_net_debt=_clean_val(row.get("entry_net_debt")),
-                exit_revenue=_clean_val(row.get("exit_revenue")),
-                exit_ebitda=_clean_val(row.get("exit_ebitda")),
-                exit_enterprise_value=_clean_val(row.get("exit_enterprise_value")),
-                exit_net_debt=_clean_val(row.get("exit_net_debt")),
-                moic=norm_moic,
-                irr=norm_irr,
+                fund_number=clean_str(row.get("fund_number")),
+                sector=clean_str(row.get("sector")),
+                geography=clean_str(row.get("geography")) or "Unknown",
+                status=clean_str(row.get("status")) or "Unrealized",
+                investment_date=investment_date,
+                year_invested=year_invested_val,
+                exit_date=clean_val(row.get("exit_date")),
+                equity_invested=clean_val(row.get("equity_invested")),
+                realized_value=clean_val(row.get("realized_value")),
+                unrealized_value=clean_val(row.get("unrealized_value")),
+                ownership_pct=ownership,
+                entry_revenue=clean_val(row.get("entry_revenue")),
+                entry_ebitda=clean_val(row.get("entry_ebitda")),
+                entry_enterprise_value=clean_val(row.get("entry_enterprise_value")),
+                entry_net_debt=clean_val(row.get("entry_net_debt")),
+                exit_revenue=clean_val(row.get("exit_revenue")),
+                exit_ebitda=clean_val(row.get("exit_ebitda")),
+                exit_enterprise_value=clean_val(row.get("exit_enterprise_value")),
+                exit_net_debt=clean_val(row.get("exit_net_debt")),
+                irr=clean_val(row.get("irr")),
                 upload_batch=batch_id,
             )
+
+            # Quarantine conditions
+            if deal.equity_invested is not None and deal.equity_invested < 0:
+                msg = f"Row {row_num}: Quarantined — negative equity invested ({deal.equity_invested})."
+                errors.append(msg)
+                quarantined_count += 1
+                _record_issue(issue_report_id, batch_id, row_num, deal.company_name, "error", msg, row_payload)
+                continue
+
+            if deal.investment_date and deal.exit_date and deal.exit_date < deal.investment_date:
+                msg = (
+                    f"Row {row_num}: Quarantined — exit date ({deal.exit_date}) is before "
+                    f"investment date ({deal.investment_date})."
+                )
+                errors.append(msg)
+                quarantined_count += 1
+                _record_issue(issue_report_id, batch_id, row_num, deal.company_name, "error", msg, row_payload)
+                continue
+
+            # Warnings only
+            if ownership is not None and ownership > 1.5:
+                msg = f"Row {row_num}: Ownership {ownership:.2%} is above expected range."
+                errors.append(msg)
+                _record_issue(issue_report_id, batch_id, row_num, deal.company_name, "warning", msg, row_payload)
+
+            for warn in _warn_extreme_multiples(deal):
+                msg = f"Row {row_num}: {warn}"
+                errors.append(msg)
+                _record_issue(issue_report_id, batch_id, row_num, deal.company_name, "warning", msg, row_payload)
+
+            bridge_fields = [
+                deal.entry_revenue,
+                deal.entry_ebitda,
+                deal.entry_enterprise_value,
+                deal.entry_net_debt,
+                deal.exit_revenue,
+                deal.exit_ebitda,
+                deal.exit_enterprise_value,
+                deal.exit_net_debt,
+            ]
+            if not all(v is not None for v in bridge_fields):
+                msg = f"Row {row_num}: Missing entry/exit fields for full bridge decomposition."
+                errors.append(msg)
+                _record_issue(issue_report_id, batch_id, row_num, deal.company_name, "warning", msg, row_payload)
+            else:
+                bridge_complete += 1
+
             db.session.add(deal)
             success += 1
-
-            # Track bridge completeness
-            bridge_fields = [
-                deal.entry_revenue, deal.entry_ebitda,
-                deal.entry_enterprise_value, deal.entry_net_debt,
-                deal.exit_revenue, deal.exit_ebitda,
-                deal.exit_enterprise_value, deal.exit_net_debt,
-            ]
-            if all(v is not None for v in bridge_fields):
-                bridge_complete += 1
-        except Exception as e:
-            errors.append(f"Row {row_num}: {str(e)}")
+        except Exception as exc:
+            msg = f"Row {row_num}: Quarantined — {str(exc)}"
+            errors.append(msg)
+            quarantined_count += 1
+            _record_issue(issue_report_id, batch_id, row_num, str(company).strip(), "error", msg, row_payload)
 
     db.session.commit()
     return {
@@ -245,26 +340,6 @@ def parse_deals(file_path):
         "batch_id": batch_id,
         "bridge_complete": bridge_complete,
         "duplicates_skipped": duplicates_skipped,
+        "quarantined_count": quarantined_count,
+        "issue_report_id": issue_report_id,
     }
-
-
-def _clean_val(val):
-    """Return None for NaN/NaT, otherwise the value as-is."""
-    if val is None:
-        return None
-    try:
-        if pd.isna(val):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return val
-
-
-def _clean_str(val):
-    """Return None for NaN/'None'/empty, otherwise stripped string."""
-    if val is None:
-        return None
-    s = str(val).strip()
-    if s.lower() in ("", "nan", "none", "nat", "n/a", "na", "-", "--", "#n/a", "#ref!"):
-        return None
-    return s

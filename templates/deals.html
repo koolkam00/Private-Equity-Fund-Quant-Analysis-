@@ -1,243 +1,104 @@
 {% extends "base.html" %}
 {% from "_macros.html" import fmt_currency %}
-{% block title %}Deals — PE Fund Tracker{% endblock %}
+{% block title %}Deals — PE Portfolio Lab{% endblock %}
 {% block page_title %}Deals{% endblock %}
 {% block page_actions %}<span class="record-count">{{ deals|length }} deals</span>{% endblock %}
 
 {% block content %}
-
 {% if deals %}
 <div class="panel">
-    <div class="panel-body no-padding">
-        <table class="data-table sortable" id="deals-table">
-            <thead>
-                <tr>
-                    <th class="col-expand"></th>
-                    <th data-sort="string">Company</th>
-                    <th data-sort="string">Fund</th>
-                    <th data-sort="string">Sector</th>
-                    <th data-sort="string">Status</th>
-                    <th data-sort="date">Investment Date</th>
-                    <th data-sort="number" class="text-right">Equity Invested</th>
-                    <th data-sort="number" class="text-right">MOIC (Gross)</th>
-                    <th data-sort="number" class="text-right">IRR (Gross)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for deal in deals %}
-                <tr class="deal-row" data-deal-id="{{ deal.id }}">
-                    <td class="col-expand">
-                        <button class="expand-btn" onclick="toggleDetail(this)" aria-label="Expand details">
-                            <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </td>
-                    <td class="company-name">{{ deal.company_name }}</td>
-                    <td>{{ deal.fund_number or "—" }}</td>
-                    <td>{{ deal.sector or "—" }}</td>
-                    <td>
-                        <span class="status-badge status-{{ deal.status|lower|replace(' ', '-') }}">
-                            {{ deal.status or "Unrealized" }}
-                        </span>
-                    </td>
-                    <td data-value="{{ deal.investment_date.isoformat() if deal.investment_date else '' }}">
-                        {{ deal.investment_date.strftime('%b %Y') if deal.investment_date else "—" }}
-                    </td>
-                    <td class="text-right mono" data-value="{{ deal.equity_invested or 0 }}">
-                        {{ fmt_currency(deal.equity_invested) }}
-                    </td>
-                    <td class="text-right mono {% if deal.moic is not none and deal.moic >= 1.5 %}value-positive{% elif deal.moic is not none and deal.moic < 1 %}value-negative{% endif %}"
-                        data-value="{{ deal.moic or 0 }}">
-                        {{ "%.2fx"|format(deal.moic) if deal.moic is not none else "—" }}
-                    </td>
-                    <td class="text-right mono {% if deal.irr is not none and deal.irr > 0 %}value-positive{% elif deal.irr is not none and deal.irr < 0 %}value-negative{% endif %}"
-                        data-value="{{ deal.irr or 0 }}">
-                        {{ "%.1f%%"|format(deal.irr * 100) if deal.irr is not none else "—" }}
-                    </td>
-                </tr>
-
-                {% set m = deal_metrics[deal.id] %}
-                <tr class="detail-row" style="display: none;" id="detail-{{ deal.id }}">
-                    <td colspan="9">
-                        <div class="detail-grid">
-                            <div class="detail-section">
-                                <h4 class="detail-section-title">Entry Metrics</h4>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Revenue</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.entry_revenue) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">EBITDA</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.entry_ebitda) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Enterprise Value</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.entry_enterprise_value) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Net Debt</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.entry_net_debt) }}</span>
-                                </div>
-                            </div>
-
-                            <div class="detail-section">
-                                <h4 class="detail-section-title">Exit Metrics</h4>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Revenue</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.exit_revenue) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">EBITDA</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.exit_ebitda) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Enterprise Value</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.exit_enterprise_value) }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Net Debt</span>
-                                    <span class="detail-value">{{ fmt_currency(deal.exit_net_debt) }}</span>
-                                </div>
-                            </div>
-
-                            <div class="detail-section">
-                                <h4 class="detail-section-title">Key Dates</h4>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Investment Date</span>
-                                    <span class="detail-value">{{ deal.investment_date.strftime('%b %d, %Y') if deal.investment_date else "—" }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Exit Date</span>
-                                    <span class="detail-value">{{ deal.exit_date.strftime('%b %d, %Y') if deal.exit_date else "—" }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Hold Period</span>
-                                    <span class="detail-value">{{ "%.1f yrs"|format(m.hold_period) if m.hold_period is not none else "—" }}</span>
-                                </div>
-                            </div>
-
-                            <div class="detail-section">
-                                <h4 class="detail-section-title">Performance (Gross)</h4>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Revenue Growth</span>
-                                    <span class="detail-value {% if m.revenue_growth is not none and m.revenue_growth > 0 %}value-positive{% elif m.revenue_growth is not none and m.revenue_growth < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">Revenue CAGR</span>
-                                    <span class="detail-value {% if m.revenue_cagr is not none and m.revenue_cagr > 0 %}value-positive{% elif m.revenue_cagr is not none and m.revenue_cagr < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.revenue_cagr) if m.revenue_cagr is not none else "—" }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">EBITDA Growth</span>
-                                    <span class="detail-value {% if m.ebitda_growth is not none and m.ebitda_growth > 0 %}value-positive{% elif m.ebitda_growth is not none and m.ebitda_growth < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.ebitda_growth) if m.ebitda_growth is not none else "—" }}</span>
-                                </div>
-                                <div class="detail-metric">
-                                    <span class="detail-label">EBITDA CAGR</span>
-                                    <span class="detail-value {% if m.ebitda_cagr is not none and m.ebitda_cagr > 0 %}value-positive{% elif m.ebitda_cagr is not none and m.ebitda_cagr < 0 %}value-negative{% endif %}">{{ "%.1f%%"|format(m.ebitda_cagr) if m.ebitda_cagr is not none else "—" }}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {# --- Financial Ratios: Entry vs Exit side-by-side --- #}
-                        <div class="detail-ratios">
-                            <h4 class="detail-section-title">Financial Ratios</h4>
-                            <table class="ratios-table">
-                                <thead>
-                                    <tr>
-                                        <th>Ratio</th>
-                                        <th class="text-right">Entry</th>
-                                        <th class="text-right">Exit</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td class="detail-label">EV / EBITDA</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.entry_ev_ebitda) if m.entry_ev_ebitda is not none else "—" }}</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.exit_ev_ebitda) if m.exit_ev_ebitda is not none else "—" }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">EV / Revenue</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.entry_ev_revenue) if m.entry_ev_revenue is not none else "—" }}</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.exit_ev_revenue) if m.exit_ev_revenue is not none else "—" }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Net Debt / EBITDA</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.entry_net_debt_ebitda) if m.entry_net_debt_ebitda is not none else "—" }}</td>
-                                        <td class="text-right mono">{{ "%.2fx"|format(m.exit_net_debt_ebitda) if m.exit_net_debt_ebitda is not none else "—" }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">EBITDA Margin</td>
-                                        <td class="text-right mono">{{ "%.1f%%"|format(m.entry_ebitda_margin) if m.entry_ebitda_margin is not none else "—" }}</td>
-                                        <td class="text-right mono">{{ "%.1f%%"|format(m.exit_ebitda_margin) if m.exit_ebitda_margin is not none else "—" }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Net Debt / EV</td>
-                                        <td class="text-right mono">{{ "%.1f%%"|format(m.entry_net_debt_ev) if m.entry_net_debt_ev is not none else "—" }}</td>
-                                        <td class="text-right mono">{{ "%.1f%%"|format(m.exit_net_debt_ev) if m.exit_net_debt_ev is not none else "—" }}</td>
-                                    </tr>
-                                </tbody>
+    <table class="data-table sortable" id="deals-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th data-sort="string">Company</th>
+                <th data-sort="string">Fund</th>
+                <th data-sort="string">Geography</th>
+                <th data-sort="number">Vintage</th>
+                <th data-sort="number">Gross MOIC</th>
+                <th data-sort="number">Value Created</th>
+                <th data-sort="number">Implied IRR</th>
+                <th data-sort="string">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for deal in deals %}
+            {% set m = deal_metrics[deal.id] %}
+            {% set vintage = deal.year_invested if deal.year_invested is not none else (deal.investment_date.year if deal.investment_date else none) %}
+            <tr class="deal-row" data-deal-id="{{ deal.id }}">
+                <td><button class="expand-btn" onclick="toggleDetail(this)"><i class="bi bi-chevron-right"></i></button></td>
+                <td>{{ deal.company_name }}</td>
+                <td>{{ deal.fund_number or "—" }}</td>
+                <td>{{ deal.geography or "Unknown" }}</td>
+                <td class="num">{{ vintage if vintage is not none else "—" }}</td>
+                <td class="num {% if m.moic is not none and m.moic >= 1 %}value-positive{% elif m.moic is not none %}value-negative{% endif %}">{{ "%.2fx"|format(m.moic) if m.moic is not none else "—" }}</td>
+                <td class="num {% if m.value_created is not none and m.value_created >= 0 %}value-positive{% elif m.value_created is not none %}value-negative{% endif %}">{{ fmt_currency(m.value_created) }}</td>
+                <td class="num {% if m.implied_irr is not none and m.implied_irr >= 0 %}value-positive{% elif m.implied_irr is not none %}value-negative{% endif %}">{{ "%.1f%%"|format((m.implied_irr or 0) * 100) if m.implied_irr is not none else "—" }}</td>
+                {% set status_norm = (deal.status or "Unrealized")|lower|replace(' ', '-') %}
+                <td><span class="status-badge status-{{ status_norm }}">{{ deal.status or "Unrealized" }}</span></td>
+            </tr>
+            <tr class="detail-row" id="detail-{{ deal.id }}" style="display:none;">
+                <td colspan="9">
+                    <div class="detail-layout">
+                        <div>
+                            <h4>Entry vs Exit Comparison</h4>
+                            <table class="compact-table">
+                                <tr><td>TEV / EBITDA</td><td class="num">{{ "%.2fx"|format(m.entry_tev_ebitda) if m.entry_tev_ebitda is not none else "—" }} → {{ "%.2fx"|format(m.exit_tev_ebitda) if m.exit_tev_ebitda is not none else "—" }}</td></tr>
+                                <tr><td>TEV / Revenue</td><td class="num">{{ "%.2fx"|format(m.entry_tev_revenue) if m.entry_tev_revenue is not none else "—" }} → {{ "%.2fx"|format(m.exit_tev_revenue) if m.exit_tev_revenue is not none else "—" }}</td></tr>
+                                <tr><td>Net Debt / EBITDA</td><td class="num">{{ "%.2fx"|format(m.entry_net_debt_ebitda) if m.entry_net_debt_ebitda is not none else "—" }} → {{ "%.2fx"|format(m.exit_net_debt_ebitda) if m.exit_net_debt_ebitda is not none else "—" }}</td></tr>
+                                <tr><td>Net Debt / TEV</td><td class="num">{{ "%.1f%%"|format((m.entry_net_debt_tev or 0) * 100) if m.entry_net_debt_tev is not none else "—" }} → {{ "%.1f%%"|format((m.exit_net_debt_tev or 0) * 100) if m.exit_net_debt_tev is not none else "—" }}</td></tr>
+                                <tr><td>Revenue Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }} / {{ "%.1f%%"|format(m.revenue_cagr) if m.revenue_cagr is not none else "—" }}</td></tr>
+                                <tr><td>EBITDA Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.ebitda_growth) if m.ebitda_growth is not none else "—" }} / {{ "%.1f%%"|format(m.ebitda_cagr) if m.ebitda_cagr is not none else "—" }}</td></tr>
                             </table>
+
+                            {% if m._warnings %}
+                            <div class="warn-box">
+                                {% for w in m._warnings %}<p>{{ w }}</p>{% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
 
-                        {# --- Value Creation Bridge --- #}
-                        {% if m.vb_revenue_growth is not none %}
-                        <div class="detail-ratios">
-                            <h4 class="detail-section-title">Value Creation Bridge</h4>
-                            <table class="ratios-table value-bridge-table">
-                                <thead>
-                                    <tr>
-                                        <th>Driver</th>
-                                        <th class="text-right">Value ($M)</th>
-                                        <th class="text-right">MOIC Contribution</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td class="detail-label">Revenue Growth</td>
-                                        <td class="text-right mono {% if m.vb_revenue_growth > 0 %}value-positive{% elif m.vb_revenue_growth < 0 %}value-negative{% endif %}">${{ "%.1f"|format(m.vb_revenue_growth) }}M</td>
-                                        <td class="text-right mono {% if m.vb_revenue_growth_moic > 0 %}value-positive{% elif m.vb_revenue_growth_moic < 0 %}value-negative{% endif %}">{{ "%+.2fx"|format(m.vb_revenue_growth_moic) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Margin Expansion</td>
-                                        <td class="text-right mono {% if m.vb_margin_expansion > 0 %}value-positive{% elif m.vb_margin_expansion < 0 %}value-negative{% endif %}">${{ "%.1f"|format(m.vb_margin_expansion) }}M</td>
-                                        <td class="text-right mono {% if m.vb_margin_expansion_moic > 0 %}value-positive{% elif m.vb_margin_expansion_moic < 0 %}value-negative{% endif %}">{{ "%+.2fx"|format(m.vb_margin_expansion_moic) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Multiple Expansion</td>
-                                        <td class="text-right mono {% if m.vb_multiple_expansion > 0 %}value-positive{% elif m.vb_multiple_expansion < 0 %}value-negative{% endif %}">${{ "%.1f"|format(m.vb_multiple_expansion) }}M</td>
-                                        <td class="text-right mono {% if m.vb_multiple_expansion_moic > 0 %}value-positive{% elif m.vb_multiple_expansion_moic < 0 %}value-negative{% endif %}">{{ "%+.2fx"|format(m.vb_multiple_expansion_moic) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Leverage / Debt Paydown</td>
-                                        <td class="text-right mono {% if m.vb_leverage > 0 %}value-positive{% elif m.vb_leverage < 0 %}value-negative{% endif %}">${{ "%.1f"|format(m.vb_leverage) }}M</td>
-                                        <td class="text-right mono {% if m.vb_leverage_moic > 0 %}value-positive{% elif m.vb_leverage_moic < 0 %}value-negative{% endif %}">{{ "%+.2fx"|format(m.vb_leverage_moic) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="detail-label">Other / Residual</td>
-                                        <td class="text-right mono {% if m.vb_other > 0 %}value-positive{% elif m.vb_other < 0 %}value-negative{% endif %}">${{ "%.1f"|format(m.vb_other) }}M</td>
-                                        <td class="text-right mono {% if m.vb_other_moic > 0 %}value-positive{% elif m.vb_other_moic < 0 %}value-negative{% endif %}">{{ "%+.2fx"|format(m.vb_other_moic) }}</td>
-                                    </tr>
-                                    <tr class="summary-row">
-                                        <td class="detail-label">Total Value Created</td>
-                                        <td class="text-right mono">${{ "%.1f"|format(m.vb_revenue_growth + m.vb_margin_expansion + m.vb_multiple_expansion + m.vb_leverage + m.vb_other) }}M</td>
-                                        <td class="text-right mono">{{ "%+.2fx"|format(m.vb_revenue_growth_moic + m.vb_margin_expansion_moic + m.vb_multiple_expansion_moic + m.vb_leverage_moic + m.vb_other_moic) }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div>
+                            <div class="bridge-toolbar">
+                                <h4>Deal Bridge</h4>
+                                <div class="bridge-controls bridge-controls-small">
+                                    <label>Model
+                                        <select class="deal-bridge-model" data-deal-id="{{ deal.id }}">
+                                            <option value="additive">Additive</option>
+                                            <option value="multiplicative">Multiplicative</option>
+                                        </select>
+                                    </label>
+                                    <label>Unit
+                                        <select class="deal-bridge-unit" data-deal-id="{{ deal.id }}">
+                                            <option value="moic">MOIC</option>
+                                            <option value="dollar">$</option>
+                                            <option value="pct">%</option>
+                                        </select>
+                                    </label>
+                                    <label>Basis
+                                        <select class="deal-bridge-basis" data-deal-id="{{ deal.id }}">
+                                            <option value="fund">Fund Pro-Rata</option>
+                                            <option value="company">Company</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                            <canvas class="deal-waterfall deal-chart" id="deal-waterfall-{{ deal.id }}"
+                                data-deal-id="{{ deal.id }}"
+                                data-url="{{ url_for('deal_bridge_api', deal_id=deal.id) }}"></canvas>
+                            <div class="bridge-diagnostics" id="deal-bridge-diagnostics-{{ deal.id }}"></div>
                         </div>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% else %}
 <div class="empty-state">
-    <i class="bi bi-briefcase"></i>
     <h3>No deals uploaded yet</h3>
-    <p>Upload a deal data file to get started.</p>
-    <a href="{{ url_for('upload') }}" class="btn-primary-action">Upload Data</a>
+    <a href="{{ url_for('upload') }}" class="btn-link">Upload Data</a>
 </div>
 {% endif %}
-
 {% endblock %}
