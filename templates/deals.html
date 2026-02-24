@@ -249,10 +249,10 @@
                         <div>
                             <h4>Entry vs Exit Comparison</h4>
                             <table class="compact-table">
-                                <tr><td>Revenue ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(deal.entry_revenue) }} → {{ fmt_currency(deal.exit_revenue) }}</td></tr>
-                                <tr><td>EBITDA ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(deal.entry_ebitda) }} → {{ fmt_currency(deal.exit_ebitda) }}</td></tr>
-                                <tr><td>TEV ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(deal.entry_enterprise_value) }} → {{ fmt_currency(deal.exit_enterprise_value) }}</td></tr>
-                                <tr><td>Net Debt ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(deal.entry_net_debt) }} → {{ fmt_currency(deal.exit_net_debt) }}</td></tr>
+                                <tr><td>Revenue ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(m.entry_revenue) }} → {{ fmt_currency(m.exit_revenue) }}</td></tr>
+                                <tr><td>EBITDA ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(m.entry_ebitda) }} → {{ fmt_currency(m.exit_ebitda) }}</td></tr>
+                                <tr><td>TEV ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(m.entry_enterprise_value) }} → {{ fmt_currency(m.exit_enterprise_value) }}</td></tr>
+                                <tr><td>Net Debt ({{ fmt_currency_unit_label() }})</td><td class="num">{{ fmt_currency(m.entry_net_debt) }} → {{ fmt_currency(m.exit_net_debt) }}</td></tr>
                                 <tr><td>TEV / EBITDA</td><td class="num">{{ fmt_multiple(m.entry_tev_ebitda) }} → {{ fmt_multiple(m.exit_tev_ebitda) }}</td></tr>
                                 <tr><td>TEV / Revenue</td><td class="num">{{ fmt_multiple(m.entry_tev_revenue) }} → {{ fmt_multiple(m.exit_tev_revenue) }}</td></tr>
                                 <tr><td>Net Debt / EBITDA</td><td class="num">{{ fmt_multiple(m.entry_net_debt_ebitda) }} → {{ fmt_multiple(m.exit_net_debt_ebitda) }}</td></tr>

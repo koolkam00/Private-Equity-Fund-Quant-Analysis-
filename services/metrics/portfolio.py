@@ -230,7 +230,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
             continue
 
         ready_count += 1
-        if bridge.get("calculation_method") == "revenue_multiple_fallback":
+        if (bridge.get("calculation_method") or "").endswith("_fallback"):
             fallback_ready_count += 1
         for k in DRIVERS:
             v = bridge["drivers_dollar"].get(k)

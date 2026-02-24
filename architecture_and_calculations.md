@@ -225,6 +225,28 @@ Active firm precedence:
   - insert newly uploaded rows atomically in one transaction
 - `upload_batch` and `upload_issues` history are preserved for auditability.
 
+### 9.3 Firm Currency USD Reporting Conversion
+- Each firm stores native uploaded currency in `firms.base_currency`.
+- Additional firm FX metadata is stored in:
+  - `firms.fx_rate_to_usd`
+  - `firms.fx_rate_date`
+  - `firms.fx_rate_source`
+  - `firms.fx_last_status`
+- Conversion policy:
+  - If native currency is `USD`, values remain USD and `fx_rate_to_usd=1.0`.
+  - If native currency is non-USD and upload-date FX lookup succeeds, analytics are reported in USD using firm-level `fx_rate_to_usd`.
+  - If FX lookup fails, upload still succeeds and analytics remain in native currency.
+- FX timestamp policy:
+  - FX is refreshed on each upload using upload date.
+  - Effective date returned by provider is stored and shown in disclosure.
+- Display policy:
+  - Dashboard shows conversion disclosure when active:
+    - source currency, USD rate, effective date, source.
+  - If conversion is unavailable, dashboard shows native-currency warning.
+- Math policy:
+  - Only monetary values are scaled by FX factor.
+  - Ratios/multiples/percentages (MOIC, IRR, CAGR, margins, leverage ratios) are not scaled.
+
 ## 10. Deployment Runbook (Render + Postgres)
 1. Provision with `render.yaml`:
   - Web service + managed Postgres

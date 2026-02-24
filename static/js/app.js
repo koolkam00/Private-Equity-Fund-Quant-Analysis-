@@ -283,6 +283,8 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
         } else {
             if (payload?.calculation_method === 'revenue_multiple_fallback') {
                 txt += ' | FALLBACK: REVENUE-MULTIPLE METHOD (NEG EBITDA)';
+            } else if (payload?.calculation_method === 'ebitda_multiple_fallback') {
+                txt += ' | FALLBACK: EBITDA-MULTIPLE METHOD (MISSING REVENUE)';
             }
             if (payload.ownership_pct !== null && payload.ownership_pct !== undefined) {
                 txt += ` | Ownership ${(payload.ownership_pct * 100).toFixed(1)}%`;

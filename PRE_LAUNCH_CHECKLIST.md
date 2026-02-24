@@ -51,6 +51,12 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] Missing/blank `Firm Currency` defaults to `USD`.
 - [ ] Valid ISO-3 values (for example `EUR`) are accepted and reflected in UI.
 - [ ] Mixed currencies in one workbook are rejected.
+- [ ] Non-USD uploads resolve upload-date FX and dashboard shows:
+  - `Converted from <CCY> to USD at <rate> (effective <date>, source <source>)`.
+- [ ] When FX lookup fails for non-USD upload:
+  - upload still succeeds,
+  - dashboard shows native-currency warning,
+  - reporting currency metadata remains native (not USD).
 - [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
 - [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
 - [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.

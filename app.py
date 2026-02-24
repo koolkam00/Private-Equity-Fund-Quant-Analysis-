@@ -120,6 +120,376 @@ def _firm_currency_code(firm):
     return normalize_currency_code(getattr(firm, "base_currency", None), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
 
 
+MONETARY_DRIVER_KEYS = ("revenue", "margin", "multiple", "leverage", "other")
+DEAL_METRIC_MONEY_KEYS = (
+    "equity",
+    "realized",
+    "unrealized",
+    "value_total",
+    "value_created",
+    "entry_revenue",
+    "entry_ebitda",
+    "entry_enterprise_value",
+    "entry_net_debt",
+    "exit_revenue",
+    "exit_ebitda",
+    "exit_enterprise_value",
+    "exit_net_debt",
+)
+
+
+def _scale_money(value, scale):
+    if scale == 1.0 or value is None or isinstance(value, bool):
+        return value
+    try:
+        return float(value) * scale
+    except (TypeError, ValueError):
+        return value
+
+
+def _safe_fx_rate(value):
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _reporting_currency_context(firm):
+    native_code = _firm_currency_code(firm)
+    rate = _safe_fx_rate(getattr(firm, "fx_rate_to_usd", None)) if firm is not None else None
+    fx_status = (getattr(firm, "fx_last_status", None) or "").strip().lower() if firm is not None else ""
+    fx_date = getattr(firm, "fx_rate_date", None) if firm is not None else None
+    fx_source = getattr(firm, "fx_rate_source", None) if firm is not None else None
+
+    if native_code == DEFAULT_CURRENCY_CODE:
+        return {
+            "native_currency_code": DEFAULT_CURRENCY_CODE,
+            "reporting_currency_code": DEFAULT_CURRENCY_CODE,
+            "money_scale": 1.0,
+            "conversion_active": False,
+            "fx_status": "ok",
+            "fx_rate": 1.0,
+            "fx_date": fx_date,
+            "fx_source": fx_source or "Identity",
+            "conversion_note": None,
+            "conversion_warning": None,
+        }
+
+    conversion_active = fx_status == "ok" and rate is not None
+    if conversion_active:
+        note = (
+            f"Converted from {native_code} to USD at {rate:.6f} "
+            f"(effective {fx_date.isoformat() if fx_date else 'N/A'}, source {fx_source or 'N/A'})."
+        )
+        return {
+            "native_currency_code": native_code,
+            "reporting_currency_code": DEFAULT_CURRENCY_CODE,
+            "money_scale": rate,
+            "conversion_active": True,
+            "fx_status": fx_status,
+            "fx_rate": rate,
+            "fx_date": fx_date,
+            "fx_source": fx_source,
+            "conversion_note": note,
+            "conversion_warning": None,
+        }
+
+    warning = f"FX unavailable; showing native {native_code} values."
+    return {
+        "native_currency_code": native_code,
+        "reporting_currency_code": native_code,
+        "money_scale": 1.0,
+        "conversion_active": False,
+        "fx_status": fx_status or "lookup_failed",
+        "fx_rate": rate,
+        "fx_date": fx_date,
+        "fx_source": fx_source,
+        "conversion_note": None,
+        "conversion_warning": warning,
+    }
+
+
+def _scale_metric_pair(metric_pair, scale):
+    if not isinstance(metric_pair, dict):
+        return
+    metric_pair["avg"] = _scale_money(metric_pair.get("avg"), scale)
+    metric_pair["wavg"] = _scale_money(metric_pair.get("wavg"), scale)
+
+
+def _scale_portfolio_entry_exit(summary, scale):
+    if scale == 1.0 or not isinstance(summary, dict):
+        return
+    for side in ("entry", "exit"):
+        side_payload = summary.get(side) or {}
+        for key in ("revenue", "ebitda", "tev", "net_debt"):
+            _scale_metric_pair(side_payload.get(key), scale)
+
+
+def _scale_bridge_view_payload(bridge, scale):
+    if scale == 1.0 or not isinstance(bridge, dict):
+        return
+    for key in ("value_created", "fund_value_created", "company_value_created"):
+        bridge[key] = _scale_money(bridge.get(key), scale)
+
+    for map_key in ("drivers_dollar", "fund_drivers_dollar", "company_drivers_dollar"):
+        drivers = bridge.get(map_key)
+        if not isinstance(drivers, dict):
+            continue
+        for driver in MONETARY_DRIVER_KEYS:
+            drivers[driver] = _scale_money(drivers.get(driver), scale)
+
+    if bridge.get("unit") == "dollar" and isinstance(bridge.get("drivers"), dict):
+        for driver in MONETARY_DRIVER_KEYS:
+            bridge["drivers"][driver] = _scale_money(bridge["drivers"].get(driver), scale)
+
+    start_end = bridge.get("start_end")
+    if isinstance(start_end, dict) and isinstance(start_end.get("dollar"), dict):
+        start_end["dollar"]["start"] = _scale_money(start_end["dollar"].get("start"), scale)
+        start_end["dollar"]["end"] = _scale_money(start_end["dollar"].get("end"), scale)
+
+
+def _scale_bridge_aggregate_payload(aggregate, scale):
+    if scale == 1.0 or not isinstance(aggregate, dict):
+        return
+    aggregate["total_value_created"] = _scale_money(aggregate.get("total_value_created"), scale)
+    aggregate["total_equity"] = _scale_money(aggregate.get("total_equity"), scale)
+
+    drivers = aggregate.get("drivers")
+    if isinstance(drivers, dict) and isinstance(drivers.get("dollar"), dict):
+        for driver in MONETARY_DRIVER_KEYS:
+            drivers["dollar"][driver] = _scale_money(drivers["dollar"].get(driver), scale)
+
+    start_end = aggregate.get("start_end")
+    if isinstance(start_end, dict) and isinstance(start_end.get("dollar"), dict):
+        start_end["dollar"]["start"] = _scale_money(start_end["dollar"].get("start"), scale)
+        start_end["dollar"]["end"] = _scale_money(start_end["dollar"].get("end"), scale)
+
+
+def _scale_dashboard_payload(payload, scale):
+    if scale == 1.0:
+        return
+    kpis = payload.get("kpis") or {}
+    for key in ("total_equity", "total_value", "total_value_created"):
+        kpis[key] = _scale_money(kpis.get(key), scale)
+
+    _scale_portfolio_entry_exit(payload.get("entry_exit_summary"), scale)
+    _scale_bridge_aggregate_payload(payload.get("bridge_aggregate"), scale)
+
+    for row in payload.get("vintage_series") or []:
+        row["total_equity"] = _scale_money(row.get("total_equity"), scale)
+        row["total_value_created"] = _scale_money(row.get("total_value_created"), scale)
+
+    for point in payload.get("moic_hold_scatter") or []:
+        point["equity"] = _scale_money(point.get("equity"), scale)
+
+    for series in (payload.get("value_creation_mix") or {}).get("series", {}).values():
+        totals = series.get("totals_dollar") or []
+        for idx, value in enumerate(totals):
+            totals[idx] = _scale_money(value, scale)
+
+    exposure = payload.get("realized_unrealized_exposure") or {}
+    for key in ("realized", "unrealized"):
+        vals = exposure.get(key) or []
+        for idx, value in enumerate(vals):
+            vals[idx] = _scale_money(value, scale)
+
+    heatmap = payload.get("loss_concentration_heatmap") or {}
+    values = heatmap.get("values") or []
+    for row in values:
+        for idx, value in enumerate(row):
+            row[idx] = _scale_money(value, scale)
+    heatmap["max_value"] = _scale_money(heatmap.get("max_value"), scale)
+
+    exit_perf = payload.get("exit_type_performance") or {}
+    realized_vals = exit_perf.get("realized_value") or []
+    for idx, value in enumerate(realized_vals):
+        realized_vals[idx] = _scale_money(value, scale)
+
+    for row in payload.get("lead_partner_scorecard") or []:
+        row["capital_deployed"] = _scale_money(row.get("capital_deployed"), scale)
+
+    for row in payload.get("fund_summary_rows") or []:
+        row["fund_size"] = _scale_money(row.get("fund_size"), scale)
+
+    _scale_deal_metrics(payload.get("deal_metrics"), scale)
+
+
+def _scale_deal_metrics(metrics_by_id, scale):
+    if scale == 1.0 or not isinstance(metrics_by_id, dict):
+        return
+
+    for metric in metrics_by_id.values():
+        if not isinstance(metric, dict):
+            continue
+        for key in DEAL_METRIC_MONEY_KEYS:
+            metric[key] = _scale_money(metric.get(key), scale)
+
+        bridge = metric.get("bridge_additive_fund")
+        if isinstance(bridge, dict):
+            _scale_bridge_view_payload(bridge, scale)
+
+        sens = ((metric.get("bridge_diagnostics") or {}).get("ownership_sensitivity") or {})
+        for key in (
+            "driver_subtotal_base",
+            "driver_subtotal_up_10",
+            "driver_subtotal_down_10",
+            "other_up_10",
+            "other_down_10",
+        ):
+            sens[key] = _scale_money(sens.get(key), scale)
+
+
+def _scale_track_totals(totals, scale):
+    if scale == 1.0 or not isinstance(totals, dict):
+        return
+    for key in ("invested_equity", "realized_value", "unrealized_value", "total_value"):
+        totals[key] = _scale_money(totals.get(key), scale)
+
+
+def _scale_track_record_payload(track_record, scale):
+    if scale == 1.0 or not isinstance(track_record, dict):
+        return
+
+    for fund in track_record.get("funds", []):
+        fund["fund_size"] = _scale_money(fund.get("fund_size"), scale)
+        _scale_track_totals(fund.get("totals"), scale)
+
+        for row in fund.get("rows", []):
+            row["fund_size"] = _scale_money(row.get("fund_size"), scale)
+            for key in ("invested_equity", "realized_value", "unrealized_value", "total_value"):
+                row[key] = _scale_money(row.get(key), scale)
+
+        for rollup in (fund.get("status_rollups") or []):
+            _scale_track_totals(rollup.get("totals"), scale)
+        for rollup in (fund.get("summary_rollups") or []):
+            _scale_track_totals(rollup.get("totals"), scale)
+
+    overall = track_record.get("overall") or {}
+    _scale_track_totals(overall.get("totals"), scale)
+    for rollup in (overall.get("status_rollups") or []):
+        _scale_track_totals(rollup.get("totals"), scale)
+    for rollup in (overall.get("summary_rollups") or []):
+        _scale_track_totals(rollup.get("totals"), scale)
+
+
+def _scale_rollup_details_payload(rollup_details, scale):
+    if scale == 1.0 or not isinstance(rollup_details, dict):
+        return
+    for detail in rollup_details.values():
+        _scale_portfolio_entry_exit(detail.get("entry_exit"), scale)
+        bridge = detail.get("bridge")
+        _scale_bridge_aggregate_payload(bridge, scale)
+
+
+def _scale_ic_memo_payload(memo, scale):
+    if scale == 1.0 or not isinstance(memo, dict):
+        return
+
+    executive = memo.get("executive") or {}
+    for key in ("total_equity", "realized_value", "unrealized_value", "total_value", "total_value_created"):
+        executive[key] = _scale_money(executive.get(key), scale)
+    for key in ("top_5_deals", "bottom_5_deals"):
+        for row in executive.get(key) or []:
+            for money_key in ("invested_equity", "total_value", "value_created"):
+                row[money_key] = _scale_money(row.get(money_key), scale)
+
+    bridge = memo.get("bridge") or {}
+    _scale_bridge_aggregate_payload(bridge, scale)
+    for row in bridge.get("table_rows") or []:
+        row["dollar"] = _scale_money(row.get("dollar"), scale)
+
+    for dim in (memo.get("slicing") or {}).get("dimensions", {}).values():
+        for key in ("groups", "top_decile", "bottom_decile"):
+            for row in dim.get(key) or []:
+                for money_key in ("invested_equity", "total_value", "value_created"):
+                    row[money_key] = _scale_money(row.get(money_key), scale)
+
+    for row in (memo.get("team") or {}).get("lead_partner_table", []):
+        row["capital_deployed"] = _scale_money(row.get("capital_deployed"), scale)
+        row["value_created"] = _scale_money(row.get("value_created"), scale)
+    for row in (memo.get("team") or {}).get("entry_channel_table", []):
+        row["capital_deployed"] = _scale_money(row.get("capital_deployed"), scale)
+        row["value_created"] = _scale_money(row.get("value_created"), scale)
+
+
+def _scale_analysis_payload(page, payload, scale):
+    if scale == 1.0 or not isinstance(payload, dict):
+        return
+
+    if page == "fund-liquidity":
+        for key in ("paid_in", "distributed", "nav", "unfunded"):
+            vals = payload.get(key) or []
+            for idx, value in enumerate(vals):
+                vals[idx] = _scale_money(value, scale)
+        latest = payload.get("latest") or {}
+        for key in ("paid_in", "distributed", "nav", "unfunded"):
+            latest[key] = _scale_money(latest.get(key), scale)
+        for row in payload.get("fund_summaries") or []:
+            for key in ("committed_capital", "paid_in_capital", "distributed_capital", "nav", "unfunded_commitment"):
+                row[key] = _scale_money(row.get(key), scale)
+        return
+
+    if page == "underwrite-outcome":
+        coverage = payload.get("coverage") or {}
+        coverage["invested_equity"] = _scale_money(coverage.get("invested_equity"), scale)
+        for key in ("rows", "by_partner", "by_sector", "by_entry_channel"):
+            for row in payload.get(key) or []:
+                row["invested_equity"] = _scale_money(row.get("invested_equity"), scale)
+        return
+
+    if page == "valuation-quality":
+        for row in payload.get("unrealized_rows") or []:
+            for key in ("latest_mark", "invested_equity", "unrealized_value"):
+                row[key] = _scale_money(row.get(key), scale)
+        for row in payload.get("mark_error_rows") or []:
+            row["pre_exit_mark"] = _scale_money(row.get("pre_exit_mark"), scale)
+            row["realized_value"] = _scale_money(row.get("realized_value"), scale)
+        return
+
+    if page == "exit-readiness":
+        for row in payload.get("aging_buckets") or []:
+            row["invested_equity"] = _scale_money(row.get("invested_equity"), scale)
+            row["unrealized_value"] = _scale_money(row.get("unrealized_value"), scale)
+        for key in ("aging_by_fund", "aging_by_sector"):
+            for row in payload.get(key) or []:
+                buckets = row.get("buckets") or {}
+                for bucket_key, value in list(buckets.items()):
+                    buckets[bucket_key] = _scale_money(value, scale)
+        for row in payload.get("rows") or []:
+            row["invested_equity"] = _scale_money(row.get("invested_equity"), scale)
+            row["unrealized_value"] = _scale_money(row.get("unrealized_value"), scale)
+        return
+
+    if page == "stress-lab":
+        summary = payload.get("summary") or {}
+        for key in ("invested_equity", "current_value", "stressed_value", "base_total_value", "stressed_total_value", "delta_value"):
+            summary[key] = _scale_money(summary.get(key), scale)
+
+        for row in payload.get("deal_rows") or []:
+            for key in ("current_ebitda", "stressed_ebitda", "invested_equity", "base_total_value", "current_total_value", "stressed_total_value", "delta_value"):
+                row[key] = _scale_money(row.get(key), scale)
+
+        for row in payload.get("fund_subtotals") or []:
+            for key in ("invested_equity", "current_total_value", "stressed_total_value", "delta_value"):
+                row[key] = _scale_money(row.get(key), scale)
+        for row in (payload.get("fund_subtotals_map") or {}).values():
+            for key in ("invested_equity", "current_total_value", "stressed_total_value", "delta_value"):
+                row[key] = _scale_money(row.get(key), scale)
+        return
+
+    if page == "deal-trajectory":
+        summary = payload.get("summary") or {}
+        summary["current_equity_value"] = _scale_money(summary.get("current_equity_value"), scale)
+        for row in payload.get("trajectory") or []:
+            for key in ("revenue", "ebitda", "enterprise_value", "net_debt", "equity_value"):
+                row[key] = _scale_money(row.get(key), scale)
+        for row in payload.get("cashflow_curve") or []:
+            for key in ("calls", "distributions", "cum_calls", "cum_distributions"):
+                row[key] = _scale_money(row.get(key), scale)
+
+
+
 def _slugify_team_name(name):
     token = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
     return token or "team"
@@ -443,6 +813,15 @@ def inject_global_scope_context():
             "app_currency_symbol": currency_symbol(code) or "",
             "app_currency_unit_label": currency_unit_label(code),
             "fmt_currency_millions": format_currency_millions,
+            "app_native_currency": code,
+            "app_conversion_active": False,
+            "app_conversion_note": None,
+            "app_conversion_warning": None,
+            "app_conversion_rate": 1.0,
+            "app_conversion_date": None,
+            "app_conversion_source": "Identity",
+            "app_fx_status": "ok",
+            "app_money_scale": 1.0,
             "app_active_team": None,
             "app_active_membership": None,
             "app_team_is_admin": False,
@@ -452,7 +831,8 @@ def inject_global_scope_context():
     team = db.session.get(Team, membership.team_id) if membership is not None else None
     active_firm = _resolve_active_firm_for_team()
     active_firm_id = active_firm.id if active_firm is not None else None
-    currency_code = _firm_currency_code(active_firm)
+    reporting = _reporting_currency_context(active_firm)
+    currency_code = reporting["reporting_currency_code"]
     firms = _accessible_firms_for_current_team()
     return {
         "app_firms": firms,
@@ -462,6 +842,15 @@ def inject_global_scope_context():
         "app_currency_symbol": currency_symbol(currency_code) or "",
         "app_currency_unit_label": currency_unit_label(currency_code),
         "fmt_currency_millions": format_currency_millions,
+        "app_native_currency": reporting["native_currency_code"],
+        "app_conversion_active": reporting["conversion_active"],
+        "app_conversion_note": reporting["conversion_note"],
+        "app_conversion_warning": reporting["conversion_warning"],
+        "app_conversion_rate": reporting["fx_rate"],
+        "app_conversion_date": reporting["fx_date"],
+        "app_conversion_source": reporting["fx_source"],
+        "app_fx_status": reporting["fx_status"],
+        "app_money_scale": reporting["money_scale"],
         "app_active_team": team,
         "app_active_membership": membership,
         "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
@@ -815,6 +1204,18 @@ def _handle_upload(parse_func, redirect_route):
                 flash(f"Upload firm scope: {firm_name}.", "info")
             firm_currency = normalize_currency_code(result.get("firm_currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
             flash(f"Firm currency: {firm_currency}.", "info")
+            fx_status = (result.get("fx_status") or "").lower()
+            fx_rate = result.get("fx_rate_to_usd")
+            fx_date = result.get("fx_rate_date")
+            if firm_currency != DEFAULT_CURRENCY_CODE and fx_status == "ok" and fx_rate:
+                fx_date_text = fx_date.isoformat() if hasattr(fx_date, "isoformat") else str(fx_date or "N/A")
+                flash(
+                    f"Reporting conversion active: {firm_currency}->USD at {float(fx_rate):.6f} (effective {fx_date_text}).",
+                    "info",
+                )
+            fx_warning = result.get("fx_warning")
+            if fx_warning:
+                flash(fx_warning, "warning")
         replaced_funds = result.get("replaced_funds") or {}
         if replaced_funds:
             replaced_summaries = ", ".join(f"{name} ({count} old deals replaced)" for name, count in replaced_funds.items())
@@ -1654,6 +2055,8 @@ def dashboard():
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _build_dashboard_payload(filter_ctx["deals"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_dashboard_payload(payload, reporting["money_scale"])
         return render_template(
             "dashboard.html",
             deals=filter_ctx["deals"],
@@ -1695,6 +2098,8 @@ def dashboard():
 
         filter_ctx = _build_filtered_deals_context()
         payload = _build_dashboard_payload(filter_ctx["deals"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_dashboard_payload(payload, reporting["money_scale"])
         return render_template(
             "dashboard.html",
             deals=filter_ctx["deals"],
@@ -1740,11 +2145,15 @@ def dashboard_series_api():
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _build_dashboard_payload(filter_ctx["deals"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_dashboard_payload(payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
         payload = _build_dashboard_payload(filter_ctx["deals"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_dashboard_payload(payload, reporting["money_scale"])
     return jsonify(
         {
             "kpis": payload["kpis"],
@@ -1772,11 +2181,15 @@ def analysis_page(page):
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_analysis_payload(page, payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_analysis_payload(page, payload, reporting["money_scale"])
 
     return render_template(
         "analysis_page.html",
@@ -1796,11 +2209,15 @@ def analysis_series_api(page):
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_analysis_payload(page, payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_analysis_payload(page, payload, reporting["money_scale"])
 
     return jsonify(
         {
@@ -1825,6 +2242,8 @@ def ic_memo(fund_name=None):
             decile_pct=0.10,
             decile_min=1,
         )
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_ic_memo_payload(payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
@@ -1837,6 +2256,8 @@ def ic_memo(fund_name=None):
             decile_pct=0.10,
             decile_min=1,
         )
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_ic_memo_payload(payload, reporting["money_scale"])
 
     active_fund_scope = filter_ctx["current_fund"] or "All Funds"
     payload["meta"]["fund_scope"] = active_fund_scope
@@ -1900,8 +2321,11 @@ def deal_bridge_api(deal_id):
 
     warnings = []
     bridge = compute_bridge_view(deal, model="additive", basis=basis, unit=unit, warnings=warnings)
+    reporting = _reporting_currency_context(active_firm)
+    money_scale = reporting["money_scale"]
+    _scale_bridge_view_payload(bridge, money_scale)
 
-    equity = deal.equity_invested
+    equity = _scale_money(deal.equity_invested, money_scale)
     value_created = bridge.get("value_created")
     ownership = bridge.get("ownership_pct")
 
@@ -2049,6 +2473,11 @@ def deals():
     deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
     track_record = compute_deal_track_record(all_deals, metrics_by_id=deal_metrics)
     rollup_details = compute_deals_rollup_details(all_deals, track_record, metrics_by_id=deal_metrics)
+    reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+    scale = reporting["money_scale"]
+    _scale_deal_metrics(deal_metrics, scale)
+    _scale_track_record_payload(track_record, scale)
+    _scale_rollup_details_payload(rollup_details, scale)
     deals_by_id = {d.id: d for d in all_deals}
     return render_template(
         "deals.html",
@@ -2074,6 +2503,8 @@ def track_record():
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
     record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+    _scale_track_record_payload(record, reporting["money_scale"])
     return render_template("track_record.html", track_record=record, deals=all_deals)
 
 
@@ -2091,8 +2522,10 @@ def download_track_record_pdf():
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
     record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+    _scale_track_record_payload(record, reporting["money_scale"])
 
-    currency_code = _firm_currency_code(filter_ctx.get("active_firm"))
+    currency_code = reporting["reporting_currency_code"]
 
     try:
         pdf_bytes = _build_track_record_pdf(record, currency_code=currency_code)

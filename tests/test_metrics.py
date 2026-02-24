@@ -241,6 +241,27 @@ def test_bridge_fallback_when_ebitda_is_zero():
     assert bridge["fallback_reason"] == "negative_ebitda"
 
 
+def test_bridge_fallback_when_revenue_is_zero_but_ebitda_is_available():
+    deal = _make_deal(id=31, entry_revenue=0.0, exit_revenue=0.0, entry_ebitda=10.0, exit_ebitda=20.0)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["bridge_ready"] is True
+    bridge = metrics["bridge_additive_fund"]
+    assert bridge["calculation_method"] == "ebitda_multiple_fallback"
+    assert bridge["fallback_reason"] == "missing_revenue"
+    assert bridge["drivers_dollar"]["revenue"] == 0.0
+    assert bridge["drivers_dollar"]["margin"] == 0.0
+    subtotal = sum((bridge["drivers_dollar"].get(k) or 0.0) for k in ("revenue", "margin", "multiple", "leverage", "other"))
+    assert abs(subtotal - metrics["value_created"]) < 1e-9
+
+
+def test_bridge_aggregate_counts_both_fallback_methods():
+    d1 = _make_deal(id=32, entry_ebitda=-8.0, exit_ebitda=-4.0)
+    d2 = _make_deal(id=33, entry_revenue=None, exit_revenue=None, entry_ebitda=12.0, exit_ebitda=18.0)
+    agg = compute_bridge_aggregate([d1, d2], basis="fund")
+    assert agg["ready_count"] == 2
+    assert agg["fallback_ready_count"] == 2
+
+
 def test_data_quality_bridge_ready_uses_computed_metric_flag():
     d1 = _make_deal(id=26)
     d2 = _make_deal(id=27, entry_ebitda=-10, exit_ebitda=-5)

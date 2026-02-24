@@ -3,6 +3,7 @@ import math
 import re
 import uuid
 from collections import defaultdict
+from datetime import date
 
 import pandas as pd
 
@@ -17,6 +18,7 @@ from models import (
     UploadIssue,
     db,
 )
+from services.fx_rates import resolve_rate_to_usd
 from services.utils import DEFAULT_CURRENCY_CODE, clean_str, clean_val, normalize_currency_code
 
 
@@ -739,6 +741,57 @@ def _resolve_or_create_firm(firm_name, base_currency=DEFAULT_CURRENCY_CODE):
     return firm
 
 
+def _refresh_firm_fx_metadata(firm, upload_date=None):
+    as_of = upload_date or date.today()
+    code = normalize_currency_code(getattr(firm, "base_currency", None), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+    firm.base_currency = code
+
+    if code == DEFAULT_CURRENCY_CODE:
+        firm.fx_rate_to_usd = 1.0
+        firm.fx_rate_date = as_of
+        firm.fx_rate_source = "Identity"
+        firm.fx_last_status = "ok"
+        db.session.flush()
+        return {
+            "ok": True,
+            "fx_rate_to_usd": 1.0,
+            "fx_rate_date": as_of,
+            "fx_rate_source": "Identity",
+            "fx_status": "ok",
+            "fx_warning": None,
+        }
+
+    fx = resolve_rate_to_usd(code, as_of)
+    if fx.get("ok"):
+        firm.fx_rate_to_usd = fx.get("rate")
+        firm.fx_rate_date = fx.get("effective_date")
+        firm.fx_rate_source = fx.get("source")
+        firm.fx_last_status = "ok"
+        db.session.flush()
+        return {
+            "ok": True,
+            "fx_rate_to_usd": firm.fx_rate_to_usd,
+            "fx_rate_date": firm.fx_rate_date,
+            "fx_rate_source": firm.fx_rate_source,
+            "fx_status": "ok",
+            "fx_warning": None,
+        }
+
+    firm.fx_rate_to_usd = None
+    firm.fx_rate_date = None
+    firm.fx_rate_source = fx.get("source")
+    firm.fx_last_status = "lookup_failed"
+    db.session.flush()
+    return {
+        "ok": False,
+        "fx_rate_to_usd": None,
+        "fx_rate_date": None,
+        "fx_rate_source": firm.fx_rate_source,
+        "fx_status": "lookup_failed",
+        "fx_warning": fx.get("warning") or f"FX lookup failed for {code}. Showing native currency values.",
+    }
+
+
 def _ensure_team_firm_access(team_id, firm_id, created_by_user_id=None):
     if team_id is None or firm_id is None:
         return
@@ -916,6 +969,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     firm = _resolve_or_create_firm(distinct_firms[0], base_currency=firm_currency)
     firm_id = firm.id
     _ensure_team_firm_access(team_id, firm_id, created_by_user_id=uploader_user_id)
+    fx_meta = _refresh_firm_fx_metadata(firm, upload_date=date.today())
 
     if replace_mode == "replace_fund":
         uploaded_funds = set()
@@ -1095,4 +1149,8 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         "firm_name": firm.name,
         "firm_id": firm.id,
         "firm_currency": firm.base_currency or DEFAULT_CURRENCY_CODE,
+        "fx_rate_to_usd": fx_meta.get("fx_rate_to_usd"),
+        "fx_rate_date": fx_meta.get("fx_rate_date"),
+        "fx_status": fx_meta.get("fx_status"),
+        "fx_warning": fx_meta.get("fx_warning"),
     }

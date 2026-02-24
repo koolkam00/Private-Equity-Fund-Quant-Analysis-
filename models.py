@@ -185,6 +185,10 @@ class Firm(db.Model):
     name = db.Column(db.String(255), nullable=False, unique=True, index=True)
     slug = db.Column(db.String(255), nullable=False, unique=True, index=True)
     base_currency = db.Column(db.String(3), nullable=False, default="USD")
+    fx_rate_to_usd = db.Column(db.Float, nullable=True)
+    fx_rate_date = db.Column(db.Date, nullable=True)
+    fx_rate_source = db.Column(db.String(128), nullable=True)
+    fx_last_status = db.Column(db.String(32), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
     def __repr__(self):
@@ -326,12 +330,28 @@ def ensure_schema_updates():
     inspector = inspect(engine)
 
     _ensure_column(engine, inspector, "firms", "base_currency", "VARCHAR(3)", default_sql="'USD'")
+    _ensure_column(engine, inspector, "firms", "fx_rate_to_usd", "FLOAT")
+    _ensure_column(engine, inspector, "firms", "fx_rate_date", "DATE")
+    _ensure_column(engine, inspector, "firms", "fx_rate_source", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "firms", "fx_last_status", "VARCHAR(32)")
     with engine.begin() as conn:
         conn.execute(text("UPDATE firms SET base_currency = UPPER(TRIM(base_currency)) WHERE base_currency IS NOT NULL"))
         conn.execute(
             text(
                 "UPDATE firms SET base_currency = 'USD' "
                 "WHERE base_currency IS NULL OR TRIM(base_currency) = '' OR LENGTH(TRIM(base_currency)) <> 3"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE firms SET fx_rate_to_usd = 1.0 "
+                "WHERE base_currency = 'USD' AND (fx_rate_to_usd IS NULL OR fx_rate_to_usd <= 0)"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE firms SET fx_last_status = 'ok' "
+                "WHERE base_currency = 'USD' AND (fx_last_status IS NULL OR TRIM(fx_last_status) = '')"
             )
         )
 

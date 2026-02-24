@@ -1,8 +1,10 @@
 import os
 import tempfile
 import uuid
+from datetime import date
 
 import pandas as pd
+import pytest
 
 from models import (
     Deal,
@@ -17,6 +19,43 @@ from models import (
     db,
 )
 from services.deal_parser import parse_deals
+
+
+@pytest.fixture(autouse=True)
+def stub_fx_resolver(monkeypatch):
+    rates = {"EUR": 1.10, "GBP": 1.25, "CAD": 0.75}
+
+    def _fake_resolver(currency_code, as_of_date):
+        code = (currency_code or "USD").upper()
+        if code == "USD":
+            return {
+                "ok": True,
+                "rate": 1.0,
+                "effective_date": as_of_date,
+                "source": "Identity",
+                "warning": None,
+                "currency_code": code,
+            }
+        rate = rates.get(code)
+        if rate is None:
+            return {
+                "ok": False,
+                "rate": None,
+                "effective_date": None,
+                "source": "Frankfurter (ECB)",
+                "warning": f"FX lookup failed for {code}",
+                "currency_code": code,
+            }
+        return {
+            "ok": True,
+            "rate": rate,
+            "effective_date": as_of_date if isinstance(as_of_date, date) else date.today(),
+            "source": "Frankfurter (ECB)",
+            "warning": None,
+            "currency_code": code,
+        }
+
+    monkeypatch.setattr("services.deal_parser.resolve_rate_to_usd", _fake_resolver)
 
 
 def create_temp_excel(data, sheet_name="Sheet1"):
@@ -109,9 +148,14 @@ def test_parse_deals_valid(app_context):
         assert abs(deal.net_dpi - 1.9) < 1e-9
         assert result["firm_name"] == firm_name
         assert result["firm_currency"] == "USD"
+        assert result["fx_status"] == "ok"
+        assert result["fx_rate_to_usd"] == 1.0
+        assert result["fx_warning"] is None
         firm = Firm.query.filter_by(id=result["firm_id"]).first()
         assert firm is not None
         assert firm.base_currency == "USD"
+        assert firm.fx_rate_to_usd == 1.0
+        assert firm.fx_last_status == "ok"
         assert TeamFirmAccess.query.filter_by(team_id=team.id, firm_id=result["firm_id"]).count() == 1
     finally:
         os.remove(file_path)
@@ -220,9 +264,14 @@ def test_parse_deals_normalizes_lowercase_firm_currency(app_context):
         result = parse_deals(file_path, team_id=team.id)
         assert result["success"] == 1
         assert result["firm_currency"] == "EUR"
+        assert result["fx_status"] == "ok"
+        assert abs(result["fx_rate_to_usd"] - 1.10) < 1e-9
+        assert result["fx_warning"] is None
         firm = Firm.query.filter_by(id=result["firm_id"]).first()
         assert firm is not None
         assert firm.base_currency == "EUR"
+        assert abs(firm.fx_rate_to_usd - 1.10) < 1e-9
+        assert firm.fx_last_status == "ok"
     finally:
         os.remove(file_path)
 
@@ -283,9 +332,55 @@ def test_parse_deals_updates_existing_firm_currency_from_upload(app_context):
         result = parse_deals(file_path, team_id=team.id)
         assert result["success"] == 1
         assert result["firm_currency"] == "GBP"
+        assert result["fx_status"] == "ok"
+        assert abs(result["fx_rate_to_usd"] - 1.25) < 1e-9
         refreshed = Firm.query.filter_by(id=firm.id).first()
         assert refreshed is not None
         assert refreshed.base_currency == "GBP"
+        assert abs(refreshed.fx_rate_to_usd - 1.25) < 1e-9
+        assert refreshed.fx_last_status == "ok"
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_allows_upload_when_fx_lookup_fails(app_context, monkeypatch):
+    team = create_team()
+    firm_name = f"NoFX Firm {uuid.uuid4().hex[:6]}"
+
+    def _fail_fx(currency_code, as_of_date):
+        return {
+            "ok": False,
+            "rate": None,
+            "effective_date": None,
+            "source": "Frankfurter (ECB)",
+            "warning": "FX service unavailable",
+            "currency_code": currency_code,
+        }
+
+    monkeypatch.setattr("services.deal_parser.resolve_rate_to_usd", _fail_fx)
+
+    data = {
+        "Firm Name": [firm_name],
+        "Firm Currency": ["EUR"],
+        "Company Name": ["NoFX Co"],
+        "Fund": ["Fund FX"],
+        "Equity Invested": [100],
+        "Realized Value": [120],
+        "Unrealized Value": [0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 1
+        assert result["firm_currency"] == "EUR"
+        assert result["fx_status"] == "lookup_failed"
+        assert result["fx_rate_to_usd"] is None
+        assert result["fx_warning"] is not None
+        firm = Firm.query.filter_by(id=result["firm_id"]).first()
+        assert firm is not None
+        assert firm.base_currency == "EUR"
+        assert firm.fx_rate_to_usd is None
+        assert firm.fx_last_status == "lookup_failed"
     finally:
         os.remove(file_path)
 

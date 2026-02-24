@@ -67,8 +67,6 @@ def _required_bridge_inputs(deal):
     return all(
         v is not None
         for v in (
-            deal.entry_revenue,
-            deal.exit_revenue,
             deal.entry_enterprise_value,
             deal.exit_enterprise_value,
             deal.entry_net_debt,
@@ -96,11 +94,9 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
     ev0, ev1 = deal.entry_enterprise_value, deal.exit_enterprise_value
     nd0, nd1 = deal.entry_net_debt, deal.exit_net_debt
 
-    if any(abs(v) < EPS for v in (r0, r1)):
-        warnings.append("Near-zero revenue prevents robust additive bridge.")
-        return _empty_bridge(unit=unit, basis=basis)
+    revenue_available = all(v is not None and abs(v) >= EPS for v in (r0, r1))
 
-    if e0 <= 0 or e1 <= 0:
+    if revenue_available and (e0 <= 0 or e1 <= 0):
         rm0 = safe_divide(ev0, r0)
         rm1 = safe_divide(ev1, r1)
         if rm0 is None or rm1 is None:
@@ -115,7 +111,7 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
         }
         calculation_method = "revenue_multiple_fallback"
         fallback_reason = "negative_ebitda"
-    else:
+    elif revenue_available:
         if any(abs(v) < EPS for v in (e0, e1)):
             warnings.append("Near-zero EBITDA prevents robust additive bridge.")
             return _empty_bridge(unit=unit, basis=basis)
@@ -137,6 +133,28 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
         }
         calculation_method = "ebitda_additive"
         fallback_reason = None
+    else:
+        if any(abs(v) < EPS for v in (e0, e1)):
+            warnings.append("Insufficient revenue and non-positive EBITDA prevent additive bridge.")
+            return _empty_bridge(unit=unit, basis=basis)
+
+        x0 = safe_divide(ev0, e0)
+        x1 = safe_divide(ev1, e1)
+        if x0 is None or x1 is None:
+            warnings.append("Invalid EV/EBITDA prevents EBITDA-multiple fallback bridge.")
+            return _empty_bridge(unit=unit, basis=basis)
+        if x0 < 0 or x1 < 0:
+            warnings.append("Negative TEV/EBITDA multiple prevents EBITDA-multiple fallback bridge.")
+            return _empty_bridge(unit=unit, basis=basis)
+
+        company = {
+            "revenue": 0.0,
+            "margin": 0.0,
+            "multiple": (x1 - x0) * e1,
+            "leverage": nd0 - nd1,
+        }
+        calculation_method = "ebitda_multiple_fallback"
+        fallback_reason = "missing_revenue"
 
     ownership = _derive_ownership(deal, warnings)
     if ownership is None:

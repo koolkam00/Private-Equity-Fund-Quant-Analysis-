@@ -91,6 +91,18 @@
     </form>
 </div>
 
+{% if app_conversion_active %}
+<div class="panel panel-tight conversion-banner">
+    <strong>Currency Conversion:</strong>
+    Converted from {{ app_native_currency }} to USD at {{ "%.6f"|format(app_conversion_rate or 0) }}
+    (effective {{ app_conversion_date.strftime("%Y-%m-%d") if app_conversion_date else "N/A" }}, source {{ app_conversion_source or "N/A" }}).
+</div>
+{% elif app_native_currency and app_native_currency != "USD" and app_conversion_warning %}
+<div class="panel panel-tight warn-box conversion-banner">
+    {{ app_conversion_warning }}
+</div>
+{% endif %}
+
 {% if fund_summary_rows %}
 <div class="panel panel-tight">
     <h3>Fund Summary</h3>

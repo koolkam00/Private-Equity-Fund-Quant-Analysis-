@@ -540,6 +540,45 @@ def test_api_dashboard_series_qualitative_filters(client):
     assert payload["kpis"]["total_deals"] == 1
 
 
+def test_api_dashboard_series_scales_monetary_fields_when_fx_active(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
+    firm = Firm(
+        name="Scaled API Firm",
+        slug="scaled-api-firm",
+        base_currency="EUR",
+        fx_rate_to_usd=1.2,
+        fx_rate_date=date(2026, 2, 20),
+        fx_rate_source="Frankfurter (ECB)",
+        fx_last_status="ok",
+    )
+    db.session.add(firm)
+    db.session.flush()
+    db.session.add(TeamFirmAccess(team_id=membership.team_id, firm_id=firm.id))
+    db.session.add(
+        Deal(
+            company_name="Scaled API Deal",
+            fund_number="Fund API FX",
+            team_id=membership.team_id,
+            firm_id=firm.id,
+            equity_invested=100,
+            realized_value=150,
+            unrealized_value=0,
+        )
+    )
+    db.session.commit()
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm.id
+
+    response = client.get("/api/dashboard/series")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert abs(payload["kpis"]["total_equity"] - 120.0) < 1e-9
+    assert abs(payload["kpis"]["total_value"] - 180.0) < 1e-9
+
+
 def test_api_dashboard_series_schema(client):
     deal = Deal(
         company_name="API Co",
@@ -618,6 +657,58 @@ def test_api_deal_bridge_query_params(client):
     assert payload["fallback_reason"] is None
 
 
+def test_api_deal_bridge_scales_dollar_fields_under_fx_conversion(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
+    firm = Firm(
+        name="Bridge FX Firm",
+        slug="bridge-fx-firm",
+        base_currency="EUR",
+        fx_rate_to_usd=1.2,
+        fx_rate_date=date(2026, 2, 20),
+        fx_rate_source="Frankfurter (ECB)",
+        fx_last_status="ok",
+    )
+    db.session.add(firm)
+    db.session.flush()
+    db.session.add(TeamFirmAccess(team_id=membership.team_id, firm_id=firm.id))
+
+    deal = Deal(
+        company_name="Bridge FX Co",
+        team_id=membership.team_id,
+        firm_id=firm.id,
+        equity_invested=100,
+        realized_value=130,
+        unrealized_value=10,
+        entry_revenue=50,
+        exit_revenue=60,
+        entry_ebitda=10,
+        exit_ebitda=12,
+        entry_enterprise_value=100,
+        exit_enterprise_value=130,
+        entry_net_debt=30,
+        exit_net_debt=20,
+    )
+    db.session.add(deal)
+    db.session.commit()
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm.id
+
+    dollar_resp = client.get(f"/api/deals/{deal.id}/bridge?unit=dollar&basis=fund")
+    assert dollar_resp.status_code == 200
+    dollar_payload = dollar_resp.get_json()
+    assert abs(dollar_payload["start_dollar"] - 120.0) < 1e-9
+    assert abs(dollar_payload["equity_invested"] - 120.0) < 1e-9
+
+    moic_resp = client.get(f"/api/deals/{deal.id}/bridge?unit=moic&basis=fund")
+    assert moic_resp.status_code == 200
+    moic_payload = moic_resp.get_json()
+    assert moic_payload["start_value"] == 1.0
+    assert abs(moic_payload["end_value"] - 1.4) < 1e-9
+
+
 def test_api_deal_bridge_negative_ebitda_uses_fallback_method(client):
     deal = Deal(
         company_name="Bridge Fallback Co",
@@ -642,6 +733,32 @@ def test_api_deal_bridge_negative_ebitda_uses_fallback_method(client):
     assert payload["ready"] is True
     assert payload["calculation_method"] == "revenue_multiple_fallback"
     assert payload["fallback_reason"] == "negative_ebitda"
+
+
+def test_api_deal_bridge_missing_revenue_uses_ebitda_fallback_method(client):
+    deal = Deal(
+        company_name="Bridge Missing Revenue Co",
+        equity_invested=100,
+        realized_value=130,
+        unrealized_value=10,
+        entry_revenue=None,
+        exit_revenue=None,
+        entry_ebitda=10,
+        exit_ebitda=12,
+        entry_enterprise_value=100,
+        exit_enterprise_value=130,
+        entry_net_debt=30,
+        exit_net_debt=20,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get(f"/api/deals/{deal.id}/bridge?unit=moic&basis=fund")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ready"] is True
+    assert payload["calculation_method"] == "ebitda_multiple_fallback"
+    assert payload["fallback_reason"] == "missing_revenue"
 
 
 def test_api_deal_bridge_rejects_non_additive_model(client):
@@ -773,6 +890,82 @@ def test_rendered_pages_expose_active_currency_metadata(client):
     response = client.get("/dashboard")
     assert response.status_code == 200
     assert b'data-currency-code="USD"' in response.data
+
+
+def test_dashboard_conversion_banner_and_usd_reporting_metadata(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
+    firm = Firm(
+        name="EUR Reporting Firm",
+        slug="eur-reporting-firm",
+        base_currency="EUR",
+        fx_rate_to_usd=1.10,
+        fx_rate_date=date(2026, 2, 20),
+        fx_rate_source="Frankfurter (ECB)",
+        fx_last_status="ok",
+    )
+    db.session.add(firm)
+    db.session.flush()
+    db.session.add(TeamFirmAccess(team_id=membership.team_id, firm_id=firm.id))
+    db.session.add(
+        Deal(
+            company_name="EUR Deal",
+            fund_number="Fund FX",
+            team_id=membership.team_id,
+            firm_id=firm.id,
+            equity_invested=100,
+            realized_value=150,
+            unrealized_value=0,
+        )
+    )
+    db.session.commit()
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm.id
+
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"Converted from EUR to USD at 1.100000" in response.data
+    assert b'data-currency-code="USD"' in response.data
+
+
+def test_dashboard_native_currency_warning_when_fx_unavailable(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
+    firm = Firm(
+        name="EUR Native Firm",
+        slug="eur-native-firm",
+        base_currency="EUR",
+        fx_rate_to_usd=None,
+        fx_rate_date=None,
+        fx_rate_source="Frankfurter (ECB)",
+        fx_last_status="lookup_failed",
+    )
+    db.session.add(firm)
+    db.session.flush()
+    db.session.add(TeamFirmAccess(team_id=membership.team_id, firm_id=firm.id))
+    db.session.add(
+        Deal(
+            company_name="Native EUR Deal",
+            fund_number="Fund Native",
+            team_id=membership.team_id,
+            firm_id=firm.id,
+            equity_invested=80,
+            realized_value=100,
+            unrealized_value=0,
+        )
+    )
+    db.session.commit()
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm.id
+
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"FX unavailable; showing native EUR values." in response.data
+    assert b'data-currency-code="EUR"' in response.data
 
 
 def test_analysis_pages_render(client):
