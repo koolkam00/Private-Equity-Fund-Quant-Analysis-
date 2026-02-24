@@ -76,8 +76,6 @@ def _required_bridge_inputs(deal):
             deal.entry_net_debt,
             deal.exit_net_debt,
             deal.equity_invested,
-            deal.realized_value,
-            deal.unrealized_value,
         )
     )
 
@@ -145,7 +143,9 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
 
     fund = {k: v * ownership for k, v in company.items()}
 
-    fund_value_created = (deal.realized_value + deal.unrealized_value) - eq
+    realized = 0.0 if deal.realized_value is None else deal.realized_value
+    unrealized = 0.0 if deal.unrealized_value is None else deal.unrealized_value
+    fund_value_created = (realized + unrealized) - eq
     company_value_created = safe_divide(fund_value_created, ownership) if ownership > EPS else None
 
     base_map = _select_basis(company, fund, basis)

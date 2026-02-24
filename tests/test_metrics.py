@@ -136,6 +136,15 @@ def test_additive_bridge_reconciles_exactly():
     assert abs(total - expected) < 1e-6
 
 
+def test_additive_bridge_treats_missing_realized_unrealized_as_zero():
+    deal = _make_deal(id=14, realized_value=None, unrealized_value=None)
+    b = compute_bridge_view(deal, model="additive", basis="fund", unit="dollar", warnings=[])
+    assert b["ready"] is True
+    assert abs(b["fund_value_created"] - (-deal.equity_invested)) < 1e-9
+    subtotal = sum((b["drivers_dollar"].get(k) or 0.0) for k in ("revenue", "margin", "multiple", "leverage", "other"))
+    assert abs(subtotal - b["fund_value_created"]) < 1e-9
+
+
 def test_bridge_rejects_non_additive_model():
     deal = _make_deal()
     try:

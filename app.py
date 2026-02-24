@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.exc import OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -1183,6 +1183,143 @@ def _purge_fund_for_firm(firm_id, fund_name):
     return deleted_deals
 
 
+def _upload_batches_for_firm(firm_id, limit=30):
+    if firm_id is None:
+        return []
+
+    rows = (
+        db.session.query(
+            Deal.upload_batch.label("batch_id"),
+            db.func.count(Deal.id).label("deal_count"),
+            db.func.max(Deal.created_at).label("uploaded_at"),
+        )
+        .filter(
+            Deal.firm_id == firm_id,
+            Deal.upload_batch.isnot(None),
+            Deal.upload_batch != "",
+        )
+        .group_by(Deal.upload_batch)
+        .order_by(db.func.max(Deal.created_at).desc(), Deal.upload_batch.desc())
+        .limit(limit)
+        .all()
+    )
+    if not rows:
+        return []
+
+    batch_ids = [row.batch_id for row in rows if row.batch_id]
+    funds_by_batch = {}
+    if batch_ids:
+        fund_rows = (
+            db.session.query(Deal.upload_batch, Deal.fund_number)
+            .filter(
+                Deal.firm_id == firm_id,
+                Deal.upload_batch.in_(batch_ids),
+            )
+            .all()
+        )
+        for batch_id, fund_number in fund_rows:
+            if not batch_id or not fund_number:
+                continue
+            bucket = funds_by_batch.setdefault(batch_id, set())
+            bucket.add(fund_number)
+
+        issue_rows = (
+            db.session.query(UploadIssue.upload_batch, db.func.count(UploadIssue.id))
+            .filter(
+                UploadIssue.firm_id == firm_id,
+                UploadIssue.upload_batch.in_(batch_ids),
+            )
+            .group_by(UploadIssue.upload_batch)
+            .all()
+        )
+        issue_counts = {batch_id: int(count or 0) for batch_id, count in issue_rows}
+    else:
+        issue_counts = {}
+
+    history_rows = []
+    for row in rows:
+        batch_id = row.batch_id
+        fund_names = sorted(funds_by_batch.get(batch_id, set()))
+        history_rows.append(
+            {
+                "batch_id": batch_id,
+                "deal_count": int(row.deal_count or 0),
+                "uploaded_at": row.uploaded_at,
+                "fund_count": len(fund_names),
+                "fund_names": fund_names,
+                "issue_count": int(issue_counts.get(batch_id, 0)),
+            }
+        )
+    return history_rows
+
+
+def _delete_upload_batch_for_firm(firm_id, batch_id):
+    batch_id = (batch_id or "").strip()
+    if firm_id is None or not batch_id:
+        return {
+            "deals": 0,
+            "cashflows": 0,
+            "deal_quarterly": 0,
+            "fund_quarterly": 0,
+            "underwrite": 0,
+            "upload_issues": 0,
+        }
+
+    deal_ids = [
+        row[0]
+        for row in db.session.query(Deal.id)
+        .filter(
+            Deal.firm_id == firm_id,
+            Deal.upload_batch == batch_id,
+        )
+        .all()
+    ]
+
+    if deal_ids:
+        cashflow_scope = or_(DealCashflowEvent.upload_batch == batch_id, DealCashflowEvent.deal_id.in_(deal_ids))
+        deal_quarter_scope = or_(
+            DealQuarterSnapshot.upload_batch == batch_id,
+            DealQuarterSnapshot.deal_id.in_(deal_ids),
+        )
+        underwrite_scope = or_(
+            DealUnderwriteBaseline.upload_batch == batch_id,
+            DealUnderwriteBaseline.deal_id.in_(deal_ids),
+        )
+    else:
+        cashflow_scope = DealCashflowEvent.upload_batch == batch_id
+        deal_quarter_scope = DealQuarterSnapshot.upload_batch == batch_id
+        underwrite_scope = DealUnderwriteBaseline.upload_batch == batch_id
+
+    deleted_counts = {
+        "cashflows": DealCashflowEvent.query.filter(
+            DealCashflowEvent.firm_id == firm_id,
+            cashflow_scope,
+        ).delete(synchronize_session=False),
+        "deal_quarterly": DealQuarterSnapshot.query.filter(
+            DealQuarterSnapshot.firm_id == firm_id,
+            deal_quarter_scope,
+        ).delete(synchronize_session=False),
+        "underwrite": DealUnderwriteBaseline.query.filter(
+            DealUnderwriteBaseline.firm_id == firm_id,
+            underwrite_scope,
+        ).delete(synchronize_session=False),
+        "fund_quarterly": FundQuarterSnapshot.query.filter(
+            FundQuarterSnapshot.firm_id == firm_id,
+            FundQuarterSnapshot.upload_batch == batch_id,
+        ).delete(synchronize_session=False),
+        "upload_issues": UploadIssue.query.filter(
+            UploadIssue.firm_id == firm_id,
+            UploadIssue.upload_batch == batch_id,
+        ).delete(synchronize_session=False),
+        "deals": Deal.query.filter(
+            Deal.firm_id == firm_id,
+            Deal.upload_batch == batch_id,
+        ).delete(synchronize_session=False),
+    }
+    db.session.commit()
+    return deleted_counts
+
+
 @app.route("/healthz")
 def healthz():
     try:
@@ -1760,7 +1897,57 @@ def deal_bridge_api(deal_id):
 @app.route("/upload")
 @login_required
 def upload():
-    return render_template("upload.html")
+    _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    upload_batches = _upload_batches_for_firm(active_firm.id if active_firm is not None else None)
+    return render_template(
+        "upload.html",
+        upload_batches=upload_batches,
+        active_firm=active_firm,
+    )
+
+
+@app.route("/upload/batches/<batch_id>/delete", methods=["POST"])
+@login_required
+def delete_upload_batch(batch_id):
+    _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    if active_firm is None:
+        flash("No active firm selected. Choose a firm first.", "warning")
+        return redirect(url_for("upload"))
+
+    normalized_batch = (batch_id or "").strip()
+    if not normalized_batch:
+        flash("Upload batch id is required.", "warning")
+        return redirect(url_for("upload"))
+
+    try:
+        deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch)
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch)
+
+    total_deleted = sum(int(v or 0) for v in deleted.values())
+    if total_deleted == 0:
+        flash(
+            f"No records found for upload batch {normalized_batch} in {active_firm.name}.",
+            "warning",
+        )
+        return redirect(url_for("upload"))
+
+    flash(
+        f"Deleted upload batch {normalized_batch} from {active_firm.name}.",
+        "success",
+    )
+    flash(
+        "Removed "
+        f"{deleted['deals']} deals, {deleted['cashflows']} cashflow events, "
+        f"{deleted['deal_quarterly']} deal quarterly rows, {deleted['fund_quarterly']} fund quarterly rows, "
+        f"{deleted['underwrite']} underwrite rows, and {deleted['upload_issues']} upload issue rows.",
+        "info",
+    )
+    return redirect(url_for("upload"))
 
 
 @app.route("/upload/deals/template")

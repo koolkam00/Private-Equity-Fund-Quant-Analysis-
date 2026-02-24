@@ -29,17 +29,66 @@
                 Exit Type, Lead Partner, Security Type, Deal Type, Entry Channel. Optional track-record fields:
                 Fund Size, Net IRR, Net MOIC, DPI. Missing optional fields are auto-filled with default labels.
             </p>
+            <p class="tiny">
+                Optional multi-sheet support is available for advanced analysis pages: <strong>Cashflows</strong>,
+                <strong>Deal Quarterly</strong>, <strong>Fund Quarterly</strong>, and <strong>Underwrite</strong>.
+                The <strong>Deals</strong> sheet remains the only required sheet.
+            </p>
+            <p class="tiny">
+                Upload behavior: each workbook must contain exactly one Firm Name in the Deals sheet. If the firm does
+                not exist yet, it is created automatically. Fund replacement runs within that firm only.
+            </p>
+            <button type="submit" class="btn-upload">Upload Deals</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h3>Recent Uploads{% if active_firm %} — {{ active_firm.name }}{% endif %}</h3>
         <p class="tiny">
-            Optional multi-sheet support is available for advanced analysis pages: <strong>Cashflows</strong>,
-            <strong>Deal Quarterly</strong>, <strong>Fund Quarterly</strong>, and <strong>Underwrite</strong>.
-            The <strong>Deals</strong> sheet remains the only required sheet.
+            Delete removes the full upload batch in the active firm, including deals and linked supplemental rows.
         </p>
-        <p class="tiny">
-            Upload behavior: each workbook must contain exactly one Firm Name in the Deals sheet. If the firm does not
-            exist yet, it is created automatically. Fund replacement runs within that firm only.
-        </p>
-        <button type="submit" class="btn-upload">Upload Deals</button>
-    </form>
-</section>
+        {% if upload_batches %}
+        <table class="data-table compact upload-history-table">
+            <thead>
+                <tr>
+                    <th>Upload Batch</th>
+                    <th class="num">Deals</th>
+                    <th class="num">Funds</th>
+                    <th>Fund Names</th>
+                    <th>Uploaded At</th>
+                    <th class="num">Issues</th>
+                    <th class="num">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for batch in upload_batches %}
+                <tr>
+                    <td><span class="upload-batch-id">{{ batch.batch_id }}</span></td>
+                    <td class="num">{{ batch.deal_count }}</td>
+                    <td class="num">{{ batch.fund_count }}</td>
+                    <td>{{ batch.fund_names|join(", ") if batch.fund_names else "—" }}</td>
+                    <td>{{ batch.uploaded_at.strftime("%Y-%m-%d %H:%M") if batch.uploaded_at else "—" }}</td>
+                    <td class="num">{{ batch.issue_count }}</td>
+                    <td class="num">
+                        <form
+                            method="POST"
+                            action="{{ url_for('delete_upload_batch', batch_id=batch.batch_id) }}"
+                            class="inline-form"
+                            onsubmit="return confirm('Delete upload batch {{ batch.batch_id }} for {{ active_firm.name if active_firm else "the active firm" }}? This cannot be undone.');"
+                        >
+                            <button type="submit" class="btn-upload btn-sm btn-danger-soft">Delete Upload</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <h3>No uploads found for the active firm</h3>
+            <p>Upload a workbook to start analytics for this firm.</p>
+        </div>
+        {% endif %}
+    </section>
 </div>
 {% endblock %}

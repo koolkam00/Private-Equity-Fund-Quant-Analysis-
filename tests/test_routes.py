@@ -1,6 +1,18 @@
 from datetime import date
 
-from models import Deal, Firm, Team, TeamFirmAccess, TeamMembership, db
+from models import (
+    Deal,
+    DealCashflowEvent,
+    DealQuarterSnapshot,
+    DealUnderwriteBaseline,
+    Firm,
+    FundQuarterSnapshot,
+    Team,
+    TeamFirmAccess,
+    TeamMembership,
+    UploadIssue,
+    db,
+)
 
 
 def _with_active_scope(deal):
@@ -35,6 +47,127 @@ def test_upload_page(client):
     assert response.status_code == 200
     assert b"Upload Deal Template" in response.data
     assert b"Download Current Deal Template" in response.data
+    assert b"Recent Uploads" in response.data
+
+
+def test_upload_page_lists_recent_batches_for_active_firm(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).first()
+    assert access is not None
+
+    deal = Deal(
+        company_name="Upload History Co",
+        fund_number="Fund Hist",
+        team_id=membership.team_id,
+        firm_id=access.firm_id,
+        upload_batch="batchhist",
+        equity_invested=10,
+        realized_value=12,
+        unrealized_value=0,
+    )
+    db.session.add(deal)
+    db.session.commit()
+
+    response = client.get("/upload")
+    assert response.status_code == 200
+    assert b"batchhist" in response.data
+    assert b"Delete Upload" in response.data
+
+
+def test_delete_upload_batch_removes_only_active_firm_records(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).first()
+    assert access is not None
+    active_firm_id = access.firm_id
+    other_firm = Firm(name="Other Upload Firm", slug="other-upload-firm")
+    db.session.add(other_firm)
+    db.session.flush()
+
+    deal = Deal(
+        company_name="Delete Upload Co",
+        fund_number="Fund Del",
+        team_id=membership.team_id,
+        firm_id=active_firm_id,
+        upload_batch="deadbeef",
+        equity_invested=20,
+        realized_value=25,
+        unrealized_value=0,
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2023, 1, 1),
+    )
+    db.session.add(deal)
+    db.session.flush()
+    db.session.add_all(
+        [
+            DealCashflowEvent(
+                deal_id=deal.id,
+                event_date=date(2021, 1, 1),
+                event_type="Distribution",
+                amount=5,
+                team_id=membership.team_id,
+                firm_id=active_firm_id,
+                upload_batch="deadbeef",
+            ),
+            DealQuarterSnapshot(
+                deal_id=deal.id,
+                quarter_end=date(2022, 12, 31),
+                team_id=membership.team_id,
+                firm_id=active_firm_id,
+                upload_batch="deadbeef",
+            ),
+            DealUnderwriteBaseline(
+                deal_id=deal.id,
+                baseline_date=date(2020, 1, 1),
+                team_id=membership.team_id,
+                firm_id=active_firm_id,
+                upload_batch="deadbeef",
+            ),
+            FundQuarterSnapshot(
+                fund_number="Fund Del",
+                quarter_end=date(2022, 12, 31),
+                team_id=membership.team_id,
+                firm_id=active_firm_id,
+                upload_batch="deadbeef",
+            ),
+            UploadIssue(
+                issue_report_id="issue-del-1",
+                team_id=membership.team_id,
+                firm_id=active_firm_id,
+                upload_batch="deadbeef",
+                file_type="deals",
+                row_number=2,
+                severity="warning",
+                message="Synthetic issue",
+            ),
+        ]
+    )
+
+    foreign_deal = Deal(
+        company_name="Other Firm Batch Co",
+        fund_number="Fund X",
+        team_id=membership.team_id,
+        firm_id=other_firm.id,
+        upload_batch="deadbeef",
+        equity_invested=15,
+        realized_value=16,
+        unrealized_value=0,
+    )
+    db.session.add(foreign_deal)
+    db.session.commit()
+
+    response = client.post("/upload/batches/deadbeef/delete", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.location.endswith("/upload")
+
+    assert Deal.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert DealCashflowEvent.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert DealQuarterSnapshot.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert DealUnderwriteBaseline.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert FundQuarterSnapshot.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert UploadIssue.query.filter_by(firm_id=active_firm_id, upload_batch="deadbeef").count() == 0
+    assert Deal.query.filter_by(firm_id=other_firm.id, upload_batch="deadbeef").count() == 1
 
 
 def test_download_deal_template(client):
