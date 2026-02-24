@@ -1,0 +1,81 @@
+# Production Pre-Launch Checklist
+
+Use this checklist before opening the app to external users.
+
+## 1) Security Hardening
+
+- [ ] `SECRET_KEY` is set in production and is not the default value.
+- [ ] `FLASK_ENV=production` is set.
+- [ ] `DATABASE_URL` points to managed Postgres (not local SQLite).
+- [ ] HTTPS is enabled on the public domain (Render TLS active).
+- [ ] Login is required on protected routes (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`, `/methodology`).
+- [ ] Invite-only onboarding is enforced (`/team` invite flow only).
+- [ ] At least one owner/admin exists in each active team.
+- [ ] Bootstrap credentials are rotated after first admin login, or removed from env when no longer needed.
+- [ ] Session cookie settings are confirmed in production:
+- [ ] `SESSION_COOKIE_SECURE=True`
+- [ ] `SESSION_COOKIE_HTTPONLY=True`
+- [ ] `SESSION_COOKIE_SAMESITE=Lax`
+- [ ] Dependencies are pinned and installed from `requirements.txt`.
+- [ ] No test/debug credentials are present in deployed environment variables.
+- [ ] Upload size limits are acceptable (`MAX_CONTENT_LENGTH` policy reviewed).
+
+## 2) Data Backup and Recovery
+
+- [ ] Render Postgres automated snapshots/backups are enabled.
+- [ ] Backup retention policy is documented and accepted by stakeholders.
+- [ ] Manual backup test executed with `pg_dump`:
+
+```bash
+pg_dump "$DATABASE_URL" > prelaunch_backup.sql
+```
+
+- [ ] Restore drill completed at least once in a non-production database.
+- [ ] Verified team data isolation after restore (Team A cannot see Team B).
+- [ ] Confirmed re-upload behavior (`replace_fund`) only replaces the same fund within the same team.
+- [ ] Incident recovery owner is assigned (who performs restore if needed).
+
+## 3) Smoke Tests (Pre-Go-Live)
+
+Run these in a fresh browser session on the deployed URL.
+
+- [ ] `GET /healthz` returns HTTP `200` and `{"status":"ok"}`.
+- [ ] Login works with a valid user.
+- [ ] Invalid login is rejected.
+- [ ] Owner/admin can create an invite link on `/team`.
+- [ ] Invite acceptance flow creates a user and team membership.
+- [ ] Upload a workbook for `Fund A` and confirm data appears on dashboard.
+- [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
+- [ ] Upload `Fund B` and confirm both funds coexist in the same team.
+- [ ] Global fund selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
+- [ ] Query fund override still works and supersedes session fund for the current request.
+- [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to another team.
+- [ ] Track record PDF export works (`/track-record/pdf`).
+- [ ] IC memo print-to-PDF works via `window.print()`.
+
+## 4) Performance and Stability Checks
+
+- [ ] `pytest -q` passes on the release commit.
+- [ ] App boots with gunicorn:
+
+```bash
+gunicorn wsgi:app
+```
+
+- [ ] No startup errors in Render logs.
+- [ ] P95 page load time is acceptable for primary pages.
+- [ ] No repeated 5xx errors in first-hour monitoring after deploy.
+
+## 5) Launch Gate and Rollback
+
+- [ ] Release commit hash is recorded.
+- [ ] Deployment timestamp and operator are recorded.
+- [ ] Rollback plan is documented (previous Render deploy + DB restore point).
+- [ ] Final sign-off from product/ops/security stakeholders is captured.
+
+## 6) Day-1 Operations
+
+- [ ] Create initial team invites for pilot users.
+- [ ] Confirm support channel and owner for launch-day issues.
+- [ ] Schedule first post-launch backup verification.
+- [ ] Schedule first post-launch security review (credentials, access list, logs).
