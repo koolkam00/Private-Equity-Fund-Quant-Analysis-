@@ -69,8 +69,6 @@ def _required_bridge_inputs(deal):
         for v in (
             deal.entry_revenue,
             deal.exit_revenue,
-            deal.entry_ebitda,
-            deal.exit_ebitda,
             deal.entry_enterprise_value,
             deal.exit_enterprise_value,
             deal.entry_net_debt,
@@ -91,7 +89,10 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
         return _empty_bridge(unit=unit, basis=basis)
 
     r0, r1 = deal.entry_revenue, deal.exit_revenue
-    e0, e1 = deal.entry_ebitda, deal.exit_ebitda
+    # Treat missing EBITDA as zero so fallback bridge can still run from
+    # revenue multiples + leverage even when EBITDA is not provided.
+    e0 = 0.0 if deal.entry_ebitda is None else deal.entry_ebitda
+    e1 = 0.0 if deal.exit_ebitda is None else deal.exit_ebitda
     ev0, ev1 = deal.entry_enterprise_value, deal.exit_enterprise_value
     nd0, nd1 = deal.entry_net_debt, deal.exit_net_debt
 

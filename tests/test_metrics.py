@@ -223,6 +223,24 @@ def test_bridge_aggregate_tracks_fallback_ready_count():
     assert agg["fallback_ready_count"] == 1
 
 
+def test_bridge_fallback_when_ebitda_is_missing():
+    deal = _make_deal(id=29, entry_ebitda=None, exit_ebitda=None)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["bridge_ready"] is True
+    bridge = metrics["bridge_additive_fund"]
+    assert bridge["calculation_method"] == "revenue_multiple_fallback"
+    assert bridge["fallback_reason"] == "negative_ebitda"
+
+
+def test_bridge_fallback_when_ebitda_is_zero():
+    deal = _make_deal(id=30, entry_ebitda=0.0, exit_ebitda=0.0)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["bridge_ready"] is True
+    bridge = metrics["bridge_additive_fund"]
+    assert bridge["calculation_method"] == "revenue_multiple_fallback"
+    assert bridge["fallback_reason"] == "negative_ebitda"
+
+
 def test_data_quality_bridge_ready_uses_computed_metric_flag():
     d1 = _make_deal(id=26)
     d2 = _make_deal(id=27, entry_ebitda=-10, exit_ebitda=-5)
