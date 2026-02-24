@@ -218,6 +218,22 @@ class TeamMembership(db.Model):
         return f"<TeamMembership team={self.team_id} user={self.user_id} role={self.role}>"
 
 
+class TeamFirmAccess(db.Model):
+    __tablename__ = "team_firm_access"
+    __table_args__ = (
+        UniqueConstraint("team_id", "firm_id", name="uq_team_firm_access_team_firm"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<TeamFirmAccess team={self.team_id} firm={self.firm_id}>"
+
+
 class TeamInvite(db.Model):
     __tablename__ = "team_invites"
 
@@ -300,6 +316,7 @@ def ensure_schema_updates():
     User.__table__.create(bind=engine, checkfirst=True)
     Team.__table__.create(bind=engine, checkfirst=True)
     TeamMembership.__table__.create(bind=engine, checkfirst=True)
+    TeamFirmAccess.__table__.create(bind=engine, checkfirst=True)
     TeamInvite.__table__.create(bind=engine, checkfirst=True)
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
     DealQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
@@ -371,6 +388,8 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_fund_quarter_snapshots_team_id", "fund_quarter_snapshots", "team_id")
     _ensure_index(engine, "ix_deal_underwrite_baselines_team_id", "deal_underwrite_baselines", "team_id")
     _ensure_index(engine, "ix_upload_issues_team_id", "upload_issues", "team_id")
+    _ensure_index(engine, "ix_team_firm_access_team_id", "team_firm_access", "team_id")
+    _ensure_index(engine, "ix_team_firm_access_firm_id", "team_firm_access", "firm_id")
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

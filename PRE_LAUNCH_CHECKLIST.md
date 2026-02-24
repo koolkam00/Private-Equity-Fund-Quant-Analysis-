@@ -32,6 +32,7 @@ pg_dump "$DATABASE_URL" > prelaunch_backup.sql
 ```
 
 - [ ] Restore drill completed at least once in a non-production database.
+- [ ] Verified team-firm access behavior after restore (team sees only mapped firms).
 - [ ] Verified firm scope behavior after restore (switching active firm changes visible analytics dataset).
 - [ ] Confirmed re-upload behavior (`replace_fund`) only replaces the same fund within the same firm.
 - [ ] Incident recovery owner is assigned (who performs restore if needed).
@@ -50,8 +51,7 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
 - [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.
 - [ ] Global firm selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
-- [ ] Global fund selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
-- [ ] Query fund override still works and supersedes session fund for the current request.
+- [ ] Query fund filter still works as a request-level override for that page view.
 - [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to a non-active firm.
 - [ ] Track record PDF export works (`/track-record/pdf`).
 - [ ] IC memo print-to-PDF works via `window.print()`.

@@ -54,8 +54,6 @@
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
             <a href="{{ url_for('firms') }}" class="nav-item {% if request.endpoint == 'firms' %}active{% endif %}"><i
                     class="bi bi-building"></i> Manage Firms</a>
-            <a href="{{ url_for('funds') }}" class="nav-item {% if request.endpoint == 'funds' %}active{% endif %}"><i
-                    class="bi bi-diagram-3"></i> Manage Funds</a>
             <a href="{{ url_for('team') }}" class="nav-item {% if request.endpoint == 'team' %}active{% endif %}"><i
                     class="bi bi-people"></i> Team</a>
             <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
@@ -78,17 +76,6 @@
                         <select id="global-firm-select" name="firm_scope">
                             {% for firm in app_firms %}
                             <option value="{{ firm.id }}" {% if app_active_firm_id == firm.id %}selected{% endif %}>{{ firm.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                </form>
-                <form class="global-fund-form" id="global-fund-form" method="POST" action="{{ url_for('select_fund_scope', fund_name='__all__') }}">
-                    <label>
-                        <span>Active Fund</span>
-                        <select id="global-fund-select" name="fund_scope">
-                            <option value="">All Funds</option>
-                            {% for fund_name in app_funds %}
-                            <option value="{{ fund_name }}" {% if app_active_fund == fund_name %}selected{% endif %}>{{ fund_name }}</option>
                             {% endfor %}
                         </select>
                     </label>
@@ -132,15 +119,6 @@
                     firmForm.submit();
                 });
             }
-
-            const select = document.getElementById("global-fund-select");
-            const form = document.getElementById("global-fund-form");
-            if (!select || !form) return;
-            select.addEventListener("change", () => {
-                const val = select.value || "__all__";
-                form.action = `/funds/${encodeURIComponent(val)}/select`;
-                form.submit();
-            });
         })();
     </script>
 </body>

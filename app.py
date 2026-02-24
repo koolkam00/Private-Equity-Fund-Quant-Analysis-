@@ -23,6 +23,7 @@ from models import (
     Firm,
     FundQuarterSnapshot,
     Team,
+    TeamFirmAccess,
     TeamInvite,
     TeamMembership,
     UploadIssue,
@@ -191,14 +192,6 @@ def _is_team_admin(membership):
     return membership is not None and membership.role in {TEAM_ROLE_OWNER, TEAM_ROLE_ADMIN}
 
 
-def _active_fund_from_session():
-    return session.get("active_fund", "")
-
-
-def _set_active_fund_scope(fund_name):
-    session["active_fund"] = fund_name or ""
-
-
 def _active_firm_id_from_session():
     raw = session.get("active_firm_id")
     if raw in (None, ""):
@@ -216,30 +209,53 @@ def _set_active_firm_scope(firm_id):
     session["active_firm_id"] = int(firm_id)
 
 
-def _first_firm_with_data():
-    row = (
-        db.session.query(Deal.firm_id)
-        .filter(Deal.firm_id.isnot(None))
-        .order_by(Deal.firm_id.asc())
-        .first()
+def _accessible_firms_for_team(team_id):
+    if team_id is None:
+        return []
+    return (
+        db.session.query(Firm)
+        .join(TeamFirmAccess, TeamFirmAccess.firm_id == Firm.id)
+        .filter(TeamFirmAccess.team_id == team_id)
+        .order_by(Firm.name.asc(), Firm.id.asc())
+        .all()
     )
-    if row and row[0]:
-        return db.session.get(Firm, row[0])
-    return Firm.query.order_by(Firm.id.asc()).first()
 
 
-def _resolve_active_firm():
-    firm = None
+def _accessible_firms_for_current_team():
+    membership = _current_membership()
+    if membership is None:
+        return []
+    return _accessible_firms_for_team(membership.team_id)
+
+
+def _resolve_active_firm_for_team():
+    membership = _current_membership()
+    if membership is None:
+        return None
+
+    accessible = _accessible_firms_for_team(membership.team_id)
+    if not accessible:
+        session.pop("active_firm_id", None)
+        return None
+
     active_firm_id = _active_firm_id_from_session()
     if active_firm_id is not None:
-        firm = db.session.get(Firm, active_firm_id)
+        for firm in accessible:
+            if firm.id == active_firm_id:
+                return firm
 
-    if firm is None:
-        firm = _first_firm_with_data()
-        if firm is not None:
-            _set_active_firm_scope(firm.id)
-
-    return firm
+    accessible_ids = [firm.id for firm in accessible]
+    with_data_ids = {
+        row[0]
+        for row in db.session.query(Deal.firm_id)
+        .filter(Deal.firm_id.in_(accessible_ids))
+        .distinct()
+        .all()
+        if row[0] is not None
+    }
+    candidate = next((firm for firm in accessible if firm.id in with_data_ids), accessible[0])
+    _set_active_firm_scope(candidate.id)
+    return candidate
 
 
 def _bootstrap_identity():
@@ -296,6 +312,8 @@ def _bootstrap_identity():
         db.session.add(fallback_firm)
         db.session.commit()
 
+    changed = False
+
     # Map teams to firms by name (one-to-one bootstrap mapping).
     team_to_firm = {}
     for team in Team.query.order_by(Team.id.asc()).all():
@@ -307,7 +325,10 @@ def _bootstrap_identity():
             db.session.flush()
         team_to_firm[team.id] = firm.id
 
-    changed = False
+        if TeamFirmAccess.query.filter_by(team_id=team.id, firm_id=firm.id).first() is None:
+            db.session.add(TeamFirmAccess(team_id=team.id, firm_id=firm.id))
+            changed = True
+
     for model in (
         Deal,
         DealCashflowEvent,
@@ -337,6 +358,18 @@ def _bootstrap_identity():
             else:
                 row.firm_id = fallback_firm.id
             changed = True
+
+    # Backfill team-firm access from historical deals with explicit team and firm.
+    deal_pairs = (
+        db.session.query(Deal.team_id, Deal.firm_id)
+        .filter(Deal.team_id.isnot(None), Deal.firm_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    for team_id, firm_id in deal_pairs:
+        if TeamFirmAccess.query.filter_by(team_id=team_id, firm_id=firm_id).first() is None:
+            db.session.add(TeamFirmAccess(team_id=team_id, firm_id=firm_id))
+            changed = True
     if changed:
         db.session.commit()
         logger.info(
@@ -361,6 +394,7 @@ def _is_missing_table_error(exc):
             "users",
             "teams",
             "team_memberships",
+            "team_firm_access",
             "team_invites",
         )
     )
@@ -391,8 +425,6 @@ def inject_global_scope_context():
             "app_firms": [],
             "app_active_firm": None,
             "app_active_firm_id": None,
-            "app_funds": [],
-            "app_active_fund": "",
             "app_active_team": None,
             "app_active_membership": None,
             "app_team_is_admin": False,
@@ -400,32 +432,13 @@ def inject_global_scope_context():
 
     membership = _current_membership()
     team = db.session.get(Team, membership.team_id) if membership is not None else None
-    active_firm = _resolve_active_firm()
+    active_firm = _resolve_active_firm_for_team()
     active_firm_id = active_firm.id if active_firm is not None else None
-    firms = Firm.query.order_by(Firm.name.asc()).all()
-
-    try:
-        funds = sorted(
-            {
-                row[0]
-                for row in db.session.query(Deal.fund_number)
-                .filter(
-                    Deal.firm_id == active_firm_id,
-                    Deal.fund_number.isnot(None),
-                )
-                .distinct()
-                .all()
-                if row[0]
-            }
-        )
-    except OperationalError:
-        funds = []
+    firms = _accessible_firms_for_current_team()
     return {
         "app_firms": firms,
         "app_active_firm": active_firm,
         "app_active_firm_id": active_firm_id,
-        "app_funds": funds,
-        "app_active_fund": _active_fund_from_session(),
         "app_active_team": team,
         "app_active_membership": membership,
         "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
@@ -710,6 +723,8 @@ def _build_track_record_pdf(track_record):
 
 
 def _handle_upload(parse_func, redirect_route):
+    membership = _require_team_scope()
+
     if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("upload"))
@@ -731,6 +746,7 @@ def _handle_upload(parse_func, redirect_route):
         try:
             result = parse_func(
                 file_path,
+                team_id=membership.team_id,
                 uploader_user_id=current_user.id,
                 replace_mode="replace_fund",
             )
@@ -739,6 +755,7 @@ def _handle_upload(parse_func, redirect_route):
                 raise
             result = parse_func(
                 file_path,
+                team_id=membership.team_id,
                 uploader_user_id=current_user.id,
                 replace_mode="replace_fund",
             )
@@ -896,7 +913,7 @@ def _empty_dashboard_context():
 
 def _build_filtered_deals_context(fund_override=None):
     membership = _current_membership()
-    active_firm = _resolve_active_firm()
+    active_firm = _resolve_active_firm_for_team()
     firm_id = active_firm.id if active_firm is not None else None
 
     try:
@@ -926,11 +943,10 @@ def _build_filtered_deals_context(fund_override=None):
     current_fund = (
         fund_override
         if fund_override is not None
-        else request.args.get("fund", "") or _active_fund_from_session() or ""
+        else request.args.get("fund", "")
     )
-    if current_fund and current_fund not in funds and fund_override is None and not request.args.get("fund"):
+    if current_fund and current_fund not in funds:
         current_fund = ""
-        _set_active_fund_scope("")
     current_status = request.args.get("status", "")
     current_sector = request.args.get("sector", "")
     current_geography = request.args.get("geography", "")
@@ -1182,10 +1198,7 @@ def login():
         login_user(user)
         user.last_login_at = datetime.utcnow()
         session["active_team_id"] = membership.team_id
-        session.setdefault("active_fund", "")
-        first_firm = _first_firm_with_data()
-        if first_firm is not None:
-            session["active_firm_id"] = first_firm.id
+        _resolve_active_firm_for_team()
         db.session.commit()
 
         return redirect(next_url)
@@ -1200,7 +1213,6 @@ def logout():
     logout_user()
     session.pop("active_team_id", None)
     session.pop("active_firm_id", None)
-    session.pop("active_fund", None)
     flash("Signed out.", "info")
     return redirect(url_for("login"))
 
@@ -1329,10 +1341,7 @@ def accept_invite(token):
 
         login_user(user)
         session["active_team_id"] = invite.team_id
-        session["active_fund"] = ""
-        first_firm = _first_firm_with_data()
-        if first_firm is not None:
-            session["active_firm_id"] = first_firm.id
+        _resolve_active_firm_for_team()
         flash("Welcome. Your invite has been accepted.", "success")
         return redirect(url_for("dashboard"))
 
@@ -1342,11 +1351,8 @@ def accept_invite(token):
 @app.route("/firms")
 @login_required
 def firms():
-    firm_rows = (
-        db.session.query(Firm)
-        .order_by(Firm.name.asc())
-        .all()
-    )
+    membership = _require_team_scope()
+    firm_rows = _accessible_firms_for_team(membership.team_id)
     stats = {}
     for firm in firm_rows:
         deal_rows = (
@@ -1373,13 +1379,18 @@ def firms():
 @app.route("/firms/<int:firm_id>/select", methods=["POST"])
 @login_required
 def select_firm_scope(firm_id):
+    membership = _require_team_scope()
+    accessible_ids = {firm.id for firm in _accessible_firms_for_team(membership.team_id)}
+    if firm_id not in accessible_ids:
+        flash("Selected firm is not available for your team.", "warning")
+        return redirect(request.referrer or url_for("firms"))
+
     firm = db.session.get(Firm, firm_id)
     if firm is None:
         flash("Selected firm was not found.", "warning")
         return redirect(request.referrer or url_for("dashboard"))
 
     _set_active_firm_scope(firm.id)
-    _set_active_fund_scope("")
     flash(f"Switched active firm to {firm.name}.", "success")
     return redirect(request.referrer or url_for("dashboard"))
 
@@ -1387,83 +1398,24 @@ def select_firm_scope(firm_id):
 @app.route("/funds")
 @login_required
 def funds():
-    active_firm = _resolve_active_firm()
-    firm_id = active_firm.id if active_firm is not None else None
-    if firm_id is None:
-        rows = []
-    else:
-        rows = (
-            db.session.query(Deal)
-            .filter(Deal.firm_id == firm_id)
-            .order_by(Deal.fund_number.asc(), Deal.created_at.desc())
-            .all()
-        )
-    funds_map = {}
-    for deal in rows:
-        fund_name = deal.fund_number or "Unknown Fund"
-        entry = funds_map.setdefault(
-            fund_name,
-            {
-                "fund_name": fund_name,
-                "deal_count": 0,
-                "last_upload_batch": None,
-                "last_updated": None,
-            },
-        )
-        entry["deal_count"] += 1
-        if deal.upload_batch and entry["last_upload_batch"] is None:
-            entry["last_upload_batch"] = deal.upload_batch
-        if entry["last_updated"] is None or (deal.created_at and deal.created_at > entry["last_updated"]):
-            entry["last_updated"] = deal.created_at
-
-    fund_rows = sorted(funds_map.values(), key=lambda r: r["fund_name"])
-    return render_template(
-        "funds.html",
-        fund_rows=fund_rows,
-        active_firm=active_firm,
-        active_fund=_active_fund_from_session(),
-    )
+    flash("Manage Funds has been retired. Use Manage Firms to switch analytics scope.", "info")
+    return redirect(url_for("firms"))
 
 
 @app.route("/funds/<path:fund_name>/select", methods=["POST"])
 @login_required
 def select_fund_scope(fund_name):
-    active_firm = _resolve_active_firm()
-    firm_id = active_firm.id if active_firm is not None else None
-    decoded = fund_name
-    if decoded == "__all__":
-        _set_active_fund_scope("")
-        flash("Switched to All Funds scope.", "info")
-        return redirect(request.referrer or url_for("dashboard"))
-
-    exists = (
-        db.session.query(Deal.id)
-        .filter(Deal.firm_id == firm_id, Deal.fund_number == decoded)
-        .first()
-        is not None
-    )
-    if not exists:
-        flash("Selected fund was not found in the active firm.", "warning")
-        return redirect(request.referrer or url_for("dashboard"))
-
-    _set_active_fund_scope(decoded)
-    flash(f"Switched active fund to {decoded}.", "success")
-    return redirect(request.referrer or url_for("dashboard"))
+    flash("Global fund scope switching has been retired. Use page filters for fund cuts.", "info")
+    return redirect(request.referrer or url_for("firms"))
 
 
 @app.route("/funds/<path:fund_name>/delete", methods=["POST"])
 @login_required
 def delete_fund(fund_name):
-    active_firm = _resolve_active_firm()
-    if active_firm is None:
-        flash("No active firm selected.", "warning")
-        return redirect(url_for("funds"))
-
-    deleted = _purge_fund_for_firm(active_firm.id, fund_name)
-    if _active_fund_from_session() == fund_name:
-        _set_active_fund_scope("")
-    flash(f"Deleted fund '{fund_name}' in {active_firm.name} ({deleted} deal rows removed).", "warning")
-    return redirect(url_for("funds"))
+    return (
+        "Fund deletion endpoint has been retired. Replace data through uploads at firm scope.",
+        410,
+    )
 
 
 @app.route("/")
@@ -1699,7 +1651,7 @@ def methodology_alias():
 @app.route("/api/deals/<int:deal_id>/bridge")
 @login_required
 def deal_bridge_api(deal_id):
-    active_firm = _resolve_active_firm()
+    active_firm = _resolve_active_firm_for_team()
     firm_id = active_firm.id if active_firm is not None else None
     try:
         deal = Deal.query.filter_by(id=deal_id, firm_id=firm_id).first()

@@ -157,8 +157,12 @@ Global filters drive every KPI, table, and chart:
 - Access model: invite-only accounts (email/password).
 - Team and Firm are separate domains:
   - Team routes are for collaboration/admin membership.
-  - Analytics data scope is controlled by `firm_id`.
-- Firms are globally visible to authenticated users in this release.
+  - Analytics data scope is controlled by active firm selection.
+- Firm visibility is team-scoped via `team_firm_access`.
+- Join model:
+  - `team_firm_access(team_id, firm_id, created_by_user_id, created_at)`
+- Upload behavior:
+  - Uploading a new firm auto-grants access to the uploader’s team only.
 - Analytics-scoped entities (all include `firm_id`):
   - `deals`
   - `deal_cashflow_events`
@@ -178,14 +182,13 @@ Global filters drive every KPI, table, and chart:
 Fund selection precedence is deterministic:
 1. path fund override (e.g. `/ic-memo/<fund_name>`)
 2. query `fund` parameter
-3. session `active_fund` selected from global selector
-4. all funds in active firm
+3. all funds in active firm
 
 Applied consistently through `_build_filtered_deals_context(...)`.
 
 Active firm precedence:
 1. session `active_firm_id`
-2. first firm with data (fallback on empty/invalid session value)
+2. first accessible firm with data for current team (fallback)
 
 ### 9.2 Upload Replacement Rule
 - Upload parser default mode is `replace_fund`.
@@ -216,7 +219,7 @@ Active firm precedence:
   - open `/firms`, confirm active firm selection
   - open `/team`, generate invite link(s) for collaborators
   - upload first fund workbook at `/upload`
-  - switch active firm/fund using global header selectors
+  - switch active firm using global header selector
 5. Operations:
   - use managed Postgres snapshots/backups from Render dashboard
   - use `/healthz` for uptime checks

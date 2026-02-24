@@ -1,15 +1,19 @@
 from datetime import date
 
-from models import Deal, Firm, TeamMembership, db
+from models import Deal, Firm, Team, TeamFirmAccess, TeamMembership, db
 
 
 def _with_active_scope(deal):
     membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
     assert membership is not None
-    firm = Firm.query.order_by(Firm.id.asc()).first()
-    assert firm is not None
+    access = (
+        TeamFirmAccess.query.filter_by(team_id=membership.team_id)
+        .order_by(TeamFirmAccess.id.asc())
+        .first()
+    )
+    assert access is not None
     deal.team_id = membership.team_id
-    deal.firm_id = firm.id
+    deal.firm_id = access.firm_id
     return deal
 
 
@@ -497,10 +501,23 @@ def test_api_deal_bridge_firm_scope_returns_404_for_other_firm_deal(client):
 
 
 def test_manage_firms_page_and_scope_switch(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
     firm_a = Firm(name="Firm Scope A", slug="firm-scope-a")
     firm_b = Firm(name="Firm Scope B", slug="firm-scope-b")
+    firm_hidden = Firm(name="Firm Hidden", slug="firm-hidden")
     db.session.add_all([firm_a, firm_b])
     db.session.flush()
+    db.session.add(firm_hidden)
+    db.session.flush()
+
+    db.session.add_all(
+        [
+            TeamFirmAccess(team_id=membership.team_id, firm_id=firm_a.id),
+            TeamFirmAccess(team_id=membership.team_id, firm_id=firm_b.id),
+        ]
+    )
 
     db.session.add(
         Deal(
@@ -518,6 +535,7 @@ def test_manage_firms_page_and_scope_switch(client):
     assert page.status_code == 200
     assert b"Manage Firms" in page.data
     assert b"Firm Scope B" in page.data
+    assert b"Firm Hidden" not in page.data
 
     select = client.post(f"/firms/{firm_b.id}/select", follow_redirects=False)
     assert select.status_code == 302
@@ -528,6 +546,9 @@ def test_manage_firms_page_and_scope_switch(client):
     scoped = client.get("/deals")
     assert scoped.status_code == 200
     assert b"Firm Scope Deal B" in scoped.data
+
+    denied = client.post(f"/firms/{firm_hidden.id}/select", follow_redirects=False)
+    assert denied.status_code == 302
 
 
 def test_analysis_pages_render(client):
@@ -627,20 +648,13 @@ def test_protected_routes_redirect_when_not_logged_in(anonymous_client):
     assert "/auth/login" in response.location
 
 
-def test_manage_funds_page_and_scope_switch(client):
-    d1 = _with_active_scope(Deal(company_name="FundScope A", fund_number="Fund One", equity_invested=50, realized_value=80, unrealized_value=0))
-    d2 = _with_active_scope(Deal(company_name="FundScope B", fund_number="Fund Two", equity_invested=75, realized_value=0, unrealized_value=95))
-    db.session.add_all([d1, d2])
-    db.session.commit()
-
-    page = client.get("/funds")
-    assert page.status_code == 200
-    assert b"Manage Funds" in page.data
-    assert b"Fund One" in page.data
+def test_manage_funds_routes_are_deprecated(client):
+    page = client.get("/funds", follow_redirects=False)
+    assert page.status_code == 302
+    assert "/firms" in page.location
 
     select = client.post("/funds/Fund%20One/select", follow_redirects=False)
     assert select.status_code == 302
 
-    scoped = client.get("/dashboard")
-    assert scoped.status_code == 200
-    assert b"Fund One" in scoped.data
+    delete_resp = client.post("/funds/Fund%20One/delete", follow_redirects=False)
+    assert delete_resp.status_code == 410

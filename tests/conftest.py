@@ -10,7 +10,7 @@ TEST_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_run
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 from app import app, db
-from models import Firm, Team, TeamMembership, User
+from models import Firm, Team, TeamFirmAccess, TeamMembership, User
 
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
@@ -40,6 +40,7 @@ def client(anonymous_client):
         db.session.add_all([team, firm, user])
         db.session.flush()
         db.session.add(TeamMembership(team_id=team.id, user_id=user.id, role="owner"))
+        db.session.add(TeamFirmAccess(team_id=team.id, firm_id=firm.id, created_by_user_id=user.id))
         db.session.commit()
 
         user_id = user.id
@@ -51,7 +52,6 @@ def client(anonymous_client):
         sess["_fresh"] = True
         sess["active_team_id"] = team_id
         sess["active_firm_id"] = firm_id
-        sess["active_fund"] = ""
 
     return anonymous_client
 
