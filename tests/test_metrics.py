@@ -170,6 +170,24 @@ def test_portfolio_analytics_entry_exit_weighted():
     assert abs(p["entry"]["tev"]["wavg"] - 475.0) < 1e-9
 
 
+def test_negative_tev_multiples_are_treated_as_unavailable():
+    deal = _make_deal(id=20, entry_ebitda=-10, exit_ebitda=-5)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["entry_tev_ebitda"] is None
+    assert metrics["exit_tev_ebitda"] is None
+    assert metrics["bridge_ready"] is False
+    assert any("Negative TEV/EBITDA" in w for w in metrics["_warnings"])
+
+
+def test_negative_tev_ebitda_is_excluded_from_multiple_aggregates():
+    d1 = _make_deal(id=21, equity_invested=100, entry_enterprise_value=100, entry_ebitda=10)
+    d2 = _make_deal(id=22, equity_invested=300, entry_enterprise_value=600, entry_ebitda=-30)
+    metrics = {21: compute_deal_metrics(d1), 22: compute_deal_metrics(d2)}
+    out = compute_portfolio_analytics([d1, d2], metrics_by_id=metrics)
+    assert abs(out["entry"]["tev_ebitda"]["avg"] - 10.0) < 1e-9
+    assert abs(out["entry"]["tev_ebitda"]["wavg"] - 10.0) < 1e-9
+
+
 def test_bridge_aggregate_outputs_three_units():
     deals = [_make_deal(id=1), _make_deal(id=2, equity_invested=200, realized_value=420, unrealized_value=0)]
     agg = compute_bridge_aggregate(deals, basis="fund")

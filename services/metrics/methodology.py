@@ -181,7 +181,7 @@ def build_methodology_payload():
                     "safe_divide(enterprise_value, ebitda)",
                     ["Enterprise Value", "EBITDA"],
                     "Measures valuation multiple on operating earnings.",
-                    ["Returns None when EBITDA is zero/missing/invalid"],
+                    ["Returns None when input is missing/invalid, denominator is zero, or computed multiple is negative"],
                     "multiple (x)",
                     ["services/metrics/deal.py::compute_deal_metrics"],
                 ),
@@ -192,7 +192,7 @@ def build_methodology_payload():
                     "safe_divide(enterprise_value, revenue)",
                     ["Enterprise Value", "Revenue"],
                     "Measures valuation multiple on top-line revenue.",
-                    ["Returns None when revenue is zero/missing/invalid"],
+                    ["Returns None when input is missing/invalid, denominator is zero, or computed multiple is negative"],
                     "multiple (x)",
                     ["services/metrics/deal.py::compute_deal_metrics"],
                 ),
@@ -839,7 +839,7 @@ def build_methodology_payload():
         {
             "id": "rule-bridge-readiness",
             "name": "Bridge Readiness",
-            "rule": "Additive bridge requires non-missing required fields and non-near-zero entry/exit revenue+EBITDA.",
+            "rule": "Additive bridge requires non-missing required fields, non-near-zero entry/exit revenue+EBITDA, and non-negative entry/exit TEV/EBITDA multiples.",
             "source_refs": ["services/metrics/bridge.py::compute_additive_bridge"],
         },
         {

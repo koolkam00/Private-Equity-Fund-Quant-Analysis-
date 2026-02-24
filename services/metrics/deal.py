@@ -55,6 +55,15 @@ def _cagr_pct(exit_value, entry_value, hold_years):
     return (root - 1) * 100
 
 
+def _non_negative_multiple(value, warnings, label):
+    if value is None:
+        return None
+    if value < 0:
+        warnings.append(f"{label} is negative; treated as unavailable.")
+        return None
+    return value
+
+
 def compute_bridge_view(deal, model="additive", basis="fund", unit="dollar", warnings=None):
     warnings = warnings if warnings is not None else []
     if model not in {"additive", None}:
@@ -102,14 +111,30 @@ def compute_deal_metrics(deal, as_of_date=None):
     m["exit_net_debt"] = deal.exit_net_debt
 
     # Entry ratios
-    m["entry_tev_ebitda"] = safe_divide(deal.entry_enterprise_value, deal.entry_ebitda)
-    m["entry_tev_revenue"] = safe_divide(deal.entry_enterprise_value, deal.entry_revenue)
+    m["entry_tev_ebitda"] = _non_negative_multiple(
+        safe_divide(deal.entry_enterprise_value, deal.entry_ebitda),
+        m["_warnings"],
+        "Entry TEV/EBITDA",
+    )
+    m["entry_tev_revenue"] = _non_negative_multiple(
+        safe_divide(deal.entry_enterprise_value, deal.entry_revenue),
+        m["_warnings"],
+        "Entry TEV/Revenue",
+    )
     m["entry_net_debt_ebitda"] = safe_divide(deal.entry_net_debt, deal.entry_ebitda)
     m["entry_net_debt_tev"] = safe_divide(deal.entry_net_debt, deal.entry_enterprise_value)
 
     # Exit ratios
-    m["exit_tev_ebitda"] = safe_divide(deal.exit_enterprise_value, deal.exit_ebitda)
-    m["exit_tev_revenue"] = safe_divide(deal.exit_enterprise_value, deal.exit_revenue)
+    m["exit_tev_ebitda"] = _non_negative_multiple(
+        safe_divide(deal.exit_enterprise_value, deal.exit_ebitda),
+        m["_warnings"],
+        "Exit TEV/EBITDA",
+    )
+    m["exit_tev_revenue"] = _non_negative_multiple(
+        safe_divide(deal.exit_enterprise_value, deal.exit_revenue),
+        m["_warnings"],
+        "Exit TEV/Revenue",
+    )
     m["exit_net_debt_ebitda"] = safe_divide(deal.exit_net_debt, deal.exit_ebitda)
     m["exit_net_debt_tev"] = safe_divide(deal.exit_net_debt, deal.exit_enterprise_value)
 

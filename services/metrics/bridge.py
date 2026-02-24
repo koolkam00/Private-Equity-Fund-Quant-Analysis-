@@ -104,6 +104,10 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
     x0 = ev0 / e0
     x1 = ev1 / e1
 
+    if x0 < 0 or x1 < 0:
+        warnings.append("Negative TEV/EBITDA multiple prevents additive bridge.")
+        return _empty_bridge(unit=unit, basis=basis)
+
     company = {
         "revenue": (r1 - r0) * m0 * x0,
         "margin": r1 * (m1 - m0) * x0,
