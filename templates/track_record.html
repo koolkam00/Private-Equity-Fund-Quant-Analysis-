@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_years_1dp %}
+{% block title %}Deal Level Track Record — PE Portfolio Lab{% endblock %}
+{% block page_title %}Deal Level Track Record{% endblock %}
+{% block page_actions %}
+<div class="track-record-actions">
+    <a href="{{ url_for('download_track_record_pdf') }}" class="btn-upload btn-secondary">
+        <i class="bi bi-file-earmark-pdf"></i> Download Print PDF
+    </a>
+    <span class="record-count">{{ deals|length }} deals</span>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if track_record.funds %}
+<div class="panel track-record-panel">
+    <div class="track-record-scroll">
+        <table class="track-record-template">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Company</th>
+                    <th>Status</th>
+                    <th>Investment Date</th>
+                    <th>Exit Date</th>
+                    <th class="num">Hold Period</th>
+                    <th class="num">Ownership</th>
+                    <th class="num">% of Total Invested</th>
+                    <th class="num">% of Fund Size</th>
+                    <th class="num">Total Invested</th>
+                    <th class="num">Realized Value</th>
+                    <th class="num">Unrealized Value</th>
+                    <th class="num">Total Value</th>
+                    <th class="num">Gross IRR</th>
+                    <th class="num">Gross MOIC</th>
+                    <th class="num">Realized Gross MOIC</th>
+                    <th class="num">Unrealized Gross MOIC</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fund in track_record.funds %}
+                <tr class="tr-fund-header">
+                    <td colspan="17">
+                        {{ fund.fund_name }}
+                        {% if fund.fund_size is not none %} (${{ "%.1f"|format(fund.fund_size) }}MM){% endif %}
+                        {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
+                    </td>
+                </tr>
+
+                {% for row in fund.rows %}
+                <tr class="tr-detail">
+                    <td class="num">{{ row.row_num }}</td>
+                    <td>{{ row.company_name }}</td>
+                    <td>{{ row.status }}</td>
+                    <td>{{ fmt_date_monyy(row.investment_date) }}</td>
+                    <td>{{ fmt_date_monyy(row.exit_date) }}</td>
+                    <td class="num">{{ fmt_years_1dp(row.hold_period) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(row.ownership_pct) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(row.pct_total_invested) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(row.pct_fund_size) }}</td>
+                    <td class="num">{{ fmt_currency(row.invested_equity) }}</td>
+                    <td class="num">{{ fmt_currency(row.realized_value) }}</td>
+                    <td class="num">{{ fmt_currency(row.unrealized_value) }}</td>
+                    <td class="num">{{ fmt_currency(row.total_value) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(row.gross_irr) }}</td>
+                    <td class="num">{{ fmt_multiple(row.gross_moic) }}</td>
+                    <td class="num">{{ fmt_multiple(row.realized_gross_moic) }}</td>
+                    <td class="num">{{ fmt_multiple(row.unrealized_gross_moic) }}</td>
+                </tr>
+                {% endfor %}
+
+                {% for rollup in fund.status_rollups %}
+                <tr class="tr-rollup tr-rollup-status">
+                    <td colspan="3"><strong>{{ rollup.label }}</strong></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.realized_gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.unrealized_gross_moic) }}</strong></td>
+                </tr>
+                {% endfor %}
+
+                {% for rollup in fund.summary_rollups %}
+                <tr class="tr-rollup tr-rollup-summary">
+                    <td colspan="3"><strong>{{ rollup.label }}</strong></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.realized_gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.unrealized_gross_moic) }}</strong></td>
+                </tr>
+                {% endfor %}
+
+                <tr class="tr-net">
+                    <td colspan="13"><strong>{{ fund.fund_name }} Net Performance</strong></td>
+                    <td class="num"><strong>IRR:</strong></td>
+                    <td class="num">
+                        {% if fund.net_performance.conflicts.net_irr or fund.net_performance.net_irr is none %}N/A{% else %}{{ fmt_pct_1dp(fund.net_performance.net_irr) }}{% endif %}
+                    </td>
+                    <td class="num"><strong>Net MOIC:</strong></td>
+                    <td class="num">
+                        {% if fund.net_performance.conflicts.net_moic or fund.net_performance.net_moic is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_moic) }}{% endif %}
+                    </td>
+                </tr>
+                <tr class="tr-net tr-net-second">
+                    <td colspan="13"></td>
+                    <td class="num"><strong>DPI:</strong></td>
+                    <td class="num">
+                        {% if fund.net_performance.conflicts.net_dpi or fund.net_performance.net_dpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_dpi) }}{% endif %}
+                    </td>
+                    <td colspan="2"></td>
+                </tr>
+
+                <tr class="tr-gap"><td colspan="17"></td></tr>
+                {% endfor %}
+
+                <tr class="tr-fund-header tr-overall-header">
+                    <td colspan="17">All Funds Summary</td>
+                </tr>
+                {% for rollup in track_record.overall.status_rollups %}
+                <tr class="tr-rollup tr-rollup-status">
+                    <td colspan="3"><strong>{{ rollup.label }}</strong></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
+                    <td class="num">—</td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.realized_gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.unrealized_gross_moic) }}</strong></td>
+                </tr>
+                {% endfor %}
+
+                {% for rollup in track_record.overall.summary_rollups %}
+                <tr class="tr-rollup tr-rollup-overall">
+                    <td colspan="3"><strong>{{ rollup.label }}</strong></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
+                    <td class="num">—</td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.realized_gross_moic) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_multiple(rollup.totals.unrealized_gross_moic) }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <h3>No deals uploaded yet</h3>
+    <a href="{{ url_for('upload') }}" class="btn-link">Upload Data</a>
+</div>
+{% endif %}
+{% endblock %}

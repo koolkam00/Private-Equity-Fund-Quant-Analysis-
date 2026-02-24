@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Calculation Methodology & Audit — PE Portfolio Lab{% endblock %}
+{% block page_title %}Calculation Methodology & Audit{% endblock %}
+
+{% block page_actions %}
+<div class="track-record-actions">
+    <span class="record-count">As of {{ methodology.meta.as_of }}</span>
+    <button type="button" class="btn-upload btn-secondary methodology-print-btn" onclick="window.print()">Download as PDF</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="methodology-root">
+    <section class="panel method-intro">
+        <h3>{{ methodology.meta.title }}</h3>
+        <p>{{ methodology.meta.scope_note }}</p>
+    </section>
+
+    <section class="panel methodology-toc">
+        <h3>Contents</h3>
+        <div class="method-toc-grid">
+                {% for section in methodology.sections %}
+                <article class="method-toc-card">
+                    <a href="#{{ section.id }}"><strong>{{ section.title }}</strong></a>
+                    <p>{{ section.summary }}</p>
+                    <div class="method-toc-links">
+                    {% for item in section["items"] %}
+                    <a href="#{{ item.id }}">{{ item.name }}</a>
+                    {% endfor %}
+                    </div>
+                </article>
+                {% endfor %}
+        </div>
+    </section>
+
+    {% for section in methodology.sections %}
+    <details class="panel method-section" id="{{ section.id }}" open>
+        <summary>
+            <span class="method-section-title">{{ section.title }}</span>
+            <span class="method-section-subtitle">{{ section.summary }}</span>
+        </summary>
+
+        <div class="method-items">
+            {% for item in section["items"] %}
+            <article class="method-card" id="{{ item.id }}">
+                <div class="method-card-header">
+                    <h4>{{ item.name }}</h4>
+                    <a class="method-anchor-link" href="#{{ item.id }}">#</a>
+                </div>
+                <div class="formula-chip">{{ item.formula }}</div>
+                <pre class="formula-code"><code>{{ item.code_formula }}</code></pre>
+                <p class="method-note">{{ item.interpretation }}</p>
+
+                <div class="method-columns">
+                    <div>
+                        <h5>Variables</h5>
+                        <ul class="method-list">
+                            {% for variable in item.variables %}
+                            <li>{{ variable }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <div>
+                        <h5>Edge Cases</h5>
+                        <ul class="method-list">
+                            {% for edge_case in item.edge_cases %}
+                            <li>{{ edge_case }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <div>
+                        <h5>Units</h5>
+                        <p class="method-note">{{ item.units }}</p>
+                        <h5>Source</h5>
+                        <ul class="method-list method-source-list">
+                            {% for src in item.source_refs %}
+                            <li>{{ src }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </details>
+    {% endfor %}
+
+    <section class="panel method-section" id="rules-and-thresholds">
+        <h3>Rules and Thresholds</h3>
+        <table class="data-table compact ic-table">
+            <thead>
+                <tr>
+                    <th>Rule</th>
+                    <th>Description</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rule in methodology.rules %}
+                <tr id="{{ rule.id }}">
+                    <td>{{ rule.name }}</td>
+                    <td>{{ rule.rule }}</td>
+                    <td>
+                        {% for src in rule.source_refs %}
+                        <div>{{ src }}</div>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel method-section" id="metric-glossary">
+        <h3>Glossary</h3>
+        <table class="data-table compact ic-table">
+            <thead>
+                <tr>
+                    <th>Term</th>
+                    <th>Definition</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in methodology.glossary %}
+                <tr>
+                    <td>{{ row.term }}</td>
+                    <td>{{ row.definition }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

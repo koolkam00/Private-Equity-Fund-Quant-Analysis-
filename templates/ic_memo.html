@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency, fmt_multiple, fmt_pct_1dp %}
+{% block title %}IC Memo Presentation — PE Portfolio Lab{% endblock %}
+{% block page_title %}IC Memo Presentation{% endblock %}
+
+{% block page_actions %}
+<div class="track-record-actions">
+    <span class="record-count">Fund Scope: {{ memo.meta.fund_scope }}</span>
+    <button type="button" class="btn-upload btn-secondary ic-print-btn" onclick="window.print()">Download as PDF</button>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set form_action = url_for('ic_memo', fund_name=fund_scope_path) if fund_scope_path else url_for('ic_memo') %}
+<div class="panel panel-tight filter-panel ic-memo-toolbar">
+    <form class="filter-form" method="GET" action="{{ form_action }}">
+        <div class="filter-grid">
+            {% if not fund_scope_path %}
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in sectors %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Geography</span>
+                <select name="geography">
+                    <option value="">All Geographies</option>
+                    {% for g in geographies %}<option value="{{ g }}" {% if current_geography == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Vintage</span>
+                <select name="vintage">
+                    <option value="">All Vintages</option>
+                    {% for y in vintages %}<option value="{{ y }}" {% if current_vintage == y|string %}selected{% endif %}>{{ y }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Exit Type</span>
+                <select name="exit_type">
+                    <option value="">All Exit Types</option>
+                    {% for x in exit_types %}<option value="{{ x }}" {% if current_exit_type == x %}selected{% endif %}>{{ x }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Lead Partner</span>
+                <select name="lead_partner">
+                    <option value="">All Lead Partners</option>
+                    {% for lp in lead_partners %}<option value="{{ lp }}" {% if current_lead_partner == lp %}selected{% endif %}>{{ lp }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Deal Type</span>
+                <select name="deal_type">
+                    <option value="">All Deal Types</option>
+                    {% for dt in deal_types %}<option value="{{ dt }}" {% if current_deal_type == dt %}selected{% endif %}>{{ dt }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Entry Channel</span>
+                <select name="entry_channel">
+                    <option value="">All Entry Channels</option>
+                    {% for ec in entry_channels %}<option value="{{ ec }}" {% if current_entry_channel == ec %}selected{% endif %}>{{ ec }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            <a class="btn-upload btn-filter-clear" href="{{ form_action }}"><i class="bi bi-x-circle"></i> Clear</a>
+        </div>
+    </form>
+</div>
+
+<div class="ic-memo-root">
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 1. Executive Summary & Fund Overview</h2>
+                <p>As of {{ memo.meta.as_of }} | Fund Scope: {{ memo.meta.fund_scope }} | Deals: {{ memo.meta.deal_count }}</p>
+            </div>
+        </div>
+
+        {% if memo.meta.deal_count == 0 %}
+        <div class="empty-state">No deals available for this IC memo filter set.</div>
+        {% else %}
+        <div class="ic-kpi-grid">
+            <article class="kpi-card"><span>Total Equity Invested</span><strong>{{ fmt_currency(memo.executive.total_equity) }}</strong></article>
+            <article class="kpi-card"><span>Gross MOIC</span><strong>{{ fmt_multiple(memo.executive.gross_moic) }}</strong></article>
+            <article class="kpi-card"><span>Implied IRR (Wtd)</span><strong>{{ fmt_pct_1dp(memo.executive.implied_irr_wtd) }}</strong></article>
+            <article class="kpi-card"><span>Total Value Created</span><strong>{{ fmt_currency(memo.executive.total_value_created) }}</strong></article>
+            <article class="kpi-card"><span>Realized / Unrealized</span><strong>{{ fmt_pct_1dp(memo.executive.realized_pct_of_value) }} / {{ fmt_pct_1dp(memo.executive.unrealized_pct_of_value) }}</strong></article>
+        </div>
+
+        <div class="ic-grid-2">
+            <div class="panel">
+                <h3>Top 5 Deals by Value Created</h3>
+                <table class="data-table compact ic-table">
+                    <thead>
+                        <tr>
+                            <th>Company</th>
+                            <th>Fund</th>
+                            <th>Status</th>
+                            <th class="num">Value Created</th>
+                            <th class="num">MOIC</th>
+                            <th class="num">Implied IRR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in memo.executive.top_5_deals %}
+                        <tr>
+                            <td>{{ row.company_name }}</td>
+                            <td>{{ row.fund_number }}</td>
+                            <td>{{ row.status }}</td>
+                            <td class="num">{{ fmt_currency(row.value_created) }}</td>
+                            <td class="num">{{ fmt_multiple(row.moic) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(row.implied_irr) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="num">No deals available.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="panel">
+                <h3>Bottom 5 Deals by Value Created</h3>
+                <table class="data-table compact ic-table">
+                    <thead>
+                        <tr>
+                            <th>Company</th>
+                            <th>Fund</th>
+                            <th>Status</th>
+                            <th class="num">Value Created</th>
+                            <th class="num">MOIC</th>
+                            <th class="num">Implied IRR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in memo.executive.bottom_5_deals %}
+                        <tr>
+                            <td>{{ row.company_name }}</td>
+                            <td>{{ row.fund_number }}</td>
+                            <td>{{ row.status }}</td>
+                            <td class="num">{{ fmt_currency(row.value_created) }}</td>
+                            <td class="num">{{ fmt_multiple(row.moic) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(row.implied_irr) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="num">No deals available.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 2. Value Creation Engine (Attribution)</h2>
+                <p>Additive bridge across the full memo data cut.</p>
+            </div>
+        </div>
+        <div class="panel chart-panel">
+            <canvas id="icBridgeChart"></canvas>
+        </div>
+        <div class="panel">
+            <h3>Bridge Attribution Table</h3>
+            <table class="data-table compact ic-table">
+                <thead>
+                    <tr>
+                        <th>Driver</th>
+                        <th class="num">Dollar ($M)</th>
+                        <th class="num">MOIC Impact</th>
+                        <th class="num">% of Value Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in memo.bridge.table_rows %}
+                    <tr>
+                        <td>{{ row.label }}</td>
+                        <td class="num">{{ fmt_currency(row.dollar) }}</td>
+                        <td class="num">{{ fmt_multiple(row.moic) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.pct) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 3. Portfolio Risk & Capital Preservation</h2>
+                <p>Loss ratio diagnostics and leverage evolution from entry to exit.</p>
+            </div>
+        </div>
+        <div class="ic-grid-2">
+            <div class="panel">
+                <h3>Loss Ratios</h3>
+                {% set loss_count = memo.risk.loss_ratio_count_pct if memo.risk.loss_ratio_count_pct is not none else 0 %}
+                {% set loss_cap = memo.risk.loss_ratio_capital_pct if memo.risk.loss_ratio_capital_pct is not none else 0 %}
+                <div class="ic-progress-row">
+                    <span>Count-Based Loss Ratio</span>
+                    <strong>{{ "%.1f%%"|format(loss_count) if memo.risk.loss_ratio_count_pct is not none else "—" }}</strong>
+                </div>
+                <div class="ic-progress"><div class="ic-progress-fill" style="width: {{ loss_count }}%;"></div></div>
+                <div class="ic-progress-row">
+                    <span>Capital-Based Loss Ratio</span>
+                    <strong>{{ "%.1f%%"|format(loss_cap) if memo.risk.loss_ratio_capital_pct is not none else "—" }}</strong>
+                </div>
+                <div class="ic-progress"><div class="ic-progress-fill ic-progress-fill-risk" style="width: {{ loss_cap }}%;"></div></div>
+                <p class="tiny">Losing deals: {{ memo.risk.loss_count }} / {{ memo.risk.loss_total }}</p>
+            </div>
+            <div class="panel">
+                <h3>Leverage Snapshot</h3>
+                <table class="data-table compact ic-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th class="num">Entry Avg</th>
+                            <th class="num">Exit Avg</th>
+                            <th class="num">Entry Wtd</th>
+                            <th class="num">Exit Wtd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Net Debt / EBITDA</td>
+                            <td class="num">{{ fmt_multiple(memo.risk.leverage_entry_exit.net_debt_ebitda.entry_avg) }}</td>
+                            <td class="num">{{ fmt_multiple(memo.risk.leverage_entry_exit.net_debt_ebitda.exit_avg) }}</td>
+                            <td class="num">{{ fmt_multiple(memo.risk.leverage_entry_exit.net_debt_ebitda.entry_wtd) }}</td>
+                            <td class="num">{{ fmt_multiple(memo.risk.leverage_entry_exit.net_debt_ebitda.exit_wtd) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Net Debt / TEV</td>
+                            <td class="num">{{ fmt_pct_1dp(memo.risk.leverage_entry_exit.net_debt_tev.entry_avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(memo.risk.leverage_entry_exit.net_debt_tev.exit_avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(memo.risk.leverage_entry_exit.net_debt_tev.entry_wtd) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(memo.risk.leverage_entry_exit.net_debt_tev.exit_wtd) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="ic-chart-grid">
+            <div class="panel chart-panel"><h3>Net Debt / EBITDA (Entry vs Exit)</h3><canvas id="icLeverageEbitdaChart"></canvas></div>
+            <div class="panel chart-panel"><h3>Net Debt / TEV (Entry vs Exit)</h3><canvas id="icLeverageTevChart"></canvas></div>
+        </div>
+    </section>
+
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 4. Operating Consistency & Multiples</h2>
+                <p>Entry/exit quality and growth efficiency diagnostics.</p>
+            </div>
+        </div>
+        <div class="ic-chart-grid">
+            <div class="panel chart-panel"><h3>TEV Multiples (Entry vs Exit)</h3><canvas id="icOperatingMultiplesChart"></canvas></div>
+            <div class="panel chart-panel"><h3>EBITDA Margin (Entry vs Exit)</h3><canvas id="icOperatingMarginChart"></canvas></div>
+        </div>
+        <div class="panel chart-panel"><h3>Growth Metrics (Avg vs Wtd)</h3><canvas id="icGrowthChart"></canvas></div>
+    </section>
+
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 5. Dispersion & Performance Slicing</h2>
+                <p>Top and bottom deciles by equity-weighted MOIC across core dimensions.</p>
+            </div>
+        </div>
+        <div class="ic-chart-grid">
+            <div class="panel chart-panel"><h3>Vintage Year (Weighted MOIC)</h3><canvas id="icVintageChart"></canvas></div>
+            <div class="panel chart-panel"><h3>Sector (Weighted MOIC)</h3><canvas id="icSectorChart"></canvas></div>
+        </div>
+        <div class="panel chart-panel"><h3>Geography (Weighted MOIC)</h3><canvas id="icGeographyChart"></canvas></div>
+        <div class="panel">
+            <h3>Dimension Decile Summary</h3>
+            <table class="data-table compact ic-table">
+                <thead>
+                    <tr>
+                        <th>Dimension</th>
+                        <th>Top Decile</th>
+                        <th>Bottom Decile</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dim_key, dim_payload in memo.slicing.dimensions.items() %}
+                    <tr>
+                        <td>{{ dim_key.replace("_", " ").title() }}</td>
+                        <td>
+                            {% for row in dim_payload.top_decile %}
+                                <span class="ic-badge">{{ row.label }} ({{ fmt_multiple(row.weighted_moic) }})</span>
+                            {% else %}
+                                —
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% for row in dim_payload.bottom_decile %}
+                                <span class="ic-badge ic-badge-risk">{{ row.label }} ({{ fmt_multiple(row.weighted_moic) }})</span>
+                            {% else %}
+                                —
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="ic-page">
+        <div class="ic-title-row">
+            <div>
+                <h2>Page 6. Team & Execution</h2>
+                <p>Capital deployment and value concentration by lead partner and entry channel.</p>
+            </div>
+        </div>
+        <div class="ic-grid-2">
+            <div class="panel">
+                <h3>Lead Partner Ranking</h3>
+                <table class="data-table compact ic-table">
+                    <thead>
+                        <tr>
+                            <th>Lead Partner</th>
+                            <th class="num">Deals</th>
+                            <th class="num">Capital Deployed</th>
+                            <th class="num">Value Created</th>
+                            <th class="num">Weighted MOIC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in memo.team.lead_partner_table %}
+                        <tr>
+                            <td>{{ row.lead_partner }}</td>
+                            <td class="num">{{ row.deal_count }}</td>
+                            <td class="num">{{ fmt_currency(row.capital_deployed) }}</td>
+                            <td class="num">{{ fmt_currency(row.value_created) }}</td>
+                            <td class="num">{{ fmt_multiple(row.weighted_moic) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="num">No lead partner rows in current cut.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="panel">
+                <h3>Entry Channel Ranking</h3>
+                <table class="data-table compact ic-table">
+                    <thead>
+                        <tr>
+                            <th>Entry Channel</th>
+                            <th class="num">Deals</th>
+                            <th class="num">Capital Deployed</th>
+                            <th class="num">Value Created</th>
+                            <th class="num">Weighted MOIC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in memo.team.entry_channel_table %}
+                        <tr>
+                            <td>{{ row.entry_channel }}</td>
+                            <td class="num">{{ row.deal_count }}</td>
+                            <td class="num">{{ fmt_currency(row.capital_deployed) }}</td>
+                            <td class="num">{{ fmt_currency(row.value_created) }}</td>
+                            <td class="num">{{ fmt_multiple(row.weighted_moic) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="num">No entry channel rows in current cut.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script id="ic-memo-payload" type="application/json">{{ memo|tojson }}</script>
+{% endblock %}

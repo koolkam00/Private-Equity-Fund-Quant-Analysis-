@@ -1,52 +1,255 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency %}
+{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp %}
 {% block title %}Deals — PE Portfolio Lab{% endblock %}
 {% block page_title %}Deals{% endblock %}
 {% block page_actions %}<span class="record-count">{{ deals|length }} deals</span>{% endblock %}
 
+{% macro render_rollup_row(rollup, row_class="") -%}
+{% set detail = rollup_details.get(rollup.row_key) if rollup and rollup.row_key else none %}
+{% set entry = detail.entry_exit.entry if detail else {} %}
+{% set exit = detail.entry_exit.exit if detail else {} %}
+{% set growth = detail.entry_exit.growth if detail else {} %}
+{% set returns = detail.entry_exit.returns if detail else {} %}
+<tr class="deals-rollup {{ row_class }}">
+    <td>
+        <button class="expand-btn rollup-expand-btn" data-rollup-key="{{ rollup.row_key }}" onclick="toggleRollupDetail(this)">
+            <i class="bi bi-chevron-right"></i>
+        </button>
+    </td>
+    <td colspan="6"><strong>{{ rollup.label }}</strong></td>
+    <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
+    <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
+    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+    <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
+    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+</tr>
+<tr class="detail-row rollup-detail-row" id="rollup-detail-{{ rollup.row_key }}" style="display:none;">
+    <td colspan="12">
+        <div class="detail-layout">
+            <div>
+                <h4>Entry vs Exit Comparison</h4>
+                <table class="compact-table compare-table rollup-compare-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th class="num">Entry Avg</th>
+                            <th class="num">Exit Avg</th>
+                            <th class="num">Entry Wtd</th>
+                            <th class="num">Exit Wtd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Revenue ($M)</td>
+                            <td class="num">{{ fmt_currency(entry.revenue.avg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.revenue.avg) }}</td>
+                            <td class="num">{{ fmt_currency(entry.revenue.wavg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.revenue.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>EBITDA ($M)</td>
+                            <td class="num">{{ fmt_currency(entry.ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_currency(entry.ebitda.wavg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.ebitda.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>TEV ($M)</td>
+                            <td class="num">{{ fmt_currency(entry.tev.avg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.tev.avg) }}</td>
+                            <td class="num">{{ fmt_currency(entry.tev.wavg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.tev.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Net Debt ($M)</td>
+                            <td class="num">{{ fmt_currency(entry.net_debt.avg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.net_debt.avg) }}</td>
+                            <td class="num">{{ fmt_currency(entry.net_debt.wavg) }}</td>
+                            <td class="num">{{ fmt_currency(exit.net_debt.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>TEV / EBITDA</td>
+                            <td class="num">{{ fmt_multiple(entry.tev_ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.tev_ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(entry.tev_ebitda.wavg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.tev_ebitda.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>TEV / Revenue</td>
+                            <td class="num">{{ fmt_multiple(entry.tev_revenue.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.tev_revenue.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(entry.tev_revenue.wavg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.tev_revenue.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Net Debt / EBITDA</td>
+                            <td class="num">{{ fmt_multiple(entry.net_debt_ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.net_debt_ebitda.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(entry.net_debt_ebitda.wavg) }}</td>
+                            <td class="num">{{ fmt_multiple(exit.net_debt_ebitda.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Net Debt / TEV</td>
+                            <td class="num">{{ fmt_pct_1dp(entry.net_debt_tev.avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(exit.net_debt_tev.avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(entry.net_debt_tev.wavg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(exit.net_debt_tev.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>EBITDA Margin</td>
+                            <td class="num">{{ "%.1f%%"|format(entry.ebitda_margin.avg) if entry.ebitda_margin.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(exit.ebitda_margin.avg) if exit.ebitda_margin.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(entry.ebitda_margin.wavg) if entry.ebitda_margin.wavg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(exit.ebitda_margin.wavg) if exit.ebitda_margin.wavg is not none else "—" }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4 class="rollup-subsection-title">Growth & Returns (Avg + Wtd)</h4>
+                <table class="compact-table compare-table rollup-growth-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th class="num">Avg</th>
+                            <th class="num">Wtd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Revenue Growth</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.revenue_growth.avg) if growth.revenue_growth.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.revenue_growth.wavg) if growth.revenue_growth.wavg is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <td>Revenue CAGR</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.revenue_cagr.avg) if growth.revenue_cagr.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.revenue_cagr.wavg) if growth.revenue_cagr.wavg is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <td>EBITDA Growth</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_growth.avg) if growth.ebitda_growth.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_growth.wavg) if growth.ebitda_growth.wavg is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <td>EBITDA CAGR</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_cagr.avg) if growth.ebitda_cagr.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_cagr.wavg) if growth.ebitda_cagr.wavg is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <td>Gross MOIC</td>
+                            <td class="num">{{ fmt_multiple(returns.gross_moic.avg) }}</td>
+                            <td class="num">{{ fmt_multiple(returns.gross_moic.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Implied IRR</td>
+                            <td class="num">{{ fmt_pct_1dp(returns.implied_irr.avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(returns.implied_irr.wavg) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Hold Period</td>
+                            <td class="num">{{ "%.1f"|format(returns.hold_period.avg) if returns.hold_period.avg is not none else "—" }}</td>
+                            <td class="num">{{ "%.1f"|format(returns.hold_period.wavg) if returns.hold_period.wavg is not none else "—" }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div>
+                <div class="bridge-toolbar">
+                    <h4>Rollup Bridge (Fund Pro-Rata)</h4>
+                    <div class="bridge-controls bridge-controls-small">
+                        <label>Unit
+                            <select class="rollup-bridge-unit" data-rollup-key="{{ rollup.row_key }}">
+                                <option value="moic">MOIC</option>
+                                <option value="dollar">$</option>
+                                <option value="pct">%</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <canvas class="deal-waterfall deal-chart"
+                    id="rollup-waterfall-{{ rollup.row_key }}"
+                    data-rollup-key="{{ rollup.row_key }}"></canvas>
+                <div class="bridge-diagnostics" id="rollup-bridge-diagnostics-{{ rollup.row_key }}"></div>
+                <table class="data-table compact bridge-lever-table">
+                    <thead>
+                        <tr>
+                            <th>Lever</th>
+                            <th class="num">Dollar ($M)</th>
+                            <th class="num">MOIC Impact</th>
+                            <th class="num">% of Value Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rollup-bridge-table-{{ rollup.row_key }}">
+                        <tr><td colspan="4" class="num">Expand row to load bridge table…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </td>
+</tr>
+{%- endmacro %}
+
 {% block content %}
 {% if deals %}
 <div class="panel">
-    <table class="data-table sortable" id="deals-table">
+    <table class="data-table deals-grouped-table" id="deals-table">
         <thead>
             <tr>
                 <th></th>
-                <th data-sort="string">Company</th>
-                <th data-sort="string">Fund</th>
-                <th data-sort="string">Geography</th>
-                <th data-sort="number">Vintage</th>
-                <th data-sort="number">Gross MOIC</th>
-                <th data-sort="number">Value Created</th>
-                <th data-sort="number">Implied IRR</th>
-                <th data-sort="string">Status</th>
+                <th>Company</th>
+                <th>Status</th>
+                <th>Sector</th>
+                <th>Geo</th>
+                <th>Investment Date</th>
+                <th>Exit Date</th>
+                <th class="num">Invested Equity</th>
+                <th class="num">Realized Value</th>
+                <th class="num">Unrealized Value</th>
+                <th class="num">Gross MOIC</th>
+                <th class="num">Implied IRR</th>
             </tr>
         </thead>
         <tbody>
-            {% for deal in deals %}
-            {% set m = deal_metrics[deal.id] %}
-            {% set vintage = deal.year_invested if deal.year_invested is not none else (deal.investment_date.year if deal.investment_date else none) %}
+            {% for fund in track_record.funds %}
+            <tr class="deals-fund-header">
+                <td colspan="12">{{ fund.fund_name }}</td>
+            </tr>
+
+            {% for row in fund.rows %}
+            {% set deal = deals_by_id.get(row.deal_id) %}
+            {% if deal %}
+            {% set m = deal_metrics[row.deal_id] %}
             <tr class="deal-row" data-deal-id="{{ deal.id }}">
                 <td><button class="expand-btn" onclick="toggleDetail(this)"><i class="bi bi-chevron-right"></i></button></td>
                 <td>{{ deal.company_name }}</td>
-                <td>{{ deal.fund_number or "—" }}</td>
-                <td>{{ deal.geography or "Unknown" }}</td>
-                <td class="num">{{ vintage if vintage is not none else "—" }}</td>
-                <td class="num {% if m.moic is not none and m.moic >= 1 %}value-positive{% elif m.moic is not none %}value-negative{% endif %}">{{ "%.2fx"|format(m.moic) if m.moic is not none else "—" }}</td>
-                <td class="num {% if m.value_created is not none and m.value_created >= 0 %}value-positive{% elif m.value_created is not none %}value-negative{% endif %}">{{ fmt_currency(m.value_created) }}</td>
-                <td class="num {% if m.implied_irr is not none and m.implied_irr >= 0 %}value-positive{% elif m.implied_irr is not none %}value-negative{% endif %}">{{ "%.1f%%"|format((m.implied_irr or 0) * 100) if m.implied_irr is not none else "—" }}</td>
                 {% set status_norm = (deal.status or "Unrealized")|lower|replace(' ', '-') %}
                 <td><span class="status-badge status-{{ status_norm }}">{{ deal.status or "Unrealized" }}</span></td>
+                <td>{{ deal.sector or "Unknown" }}</td>
+                <td>{{ deal.geography or "Unknown" }}</td>
+                <td>{{ fmt_date_monyy(deal.investment_date) }}</td>
+                <td>{{ fmt_date_monyy(deal.exit_date) }}</td>
+                <td class="num">{{ fmt_currency(m.equity) }}</td>
+                <td class="num">{{ fmt_currency(m.realized) }}</td>
+                <td class="num">{{ fmt_currency(m.unrealized) }}</td>
+                <td class="num {% if m.moic is not none and m.moic >= 1 %}value-positive{% elif m.moic is not none %}value-negative{% endif %}">{{ fmt_multiple(m.moic) }}</td>
+                <td class="num {% if m.implied_irr is not none and m.implied_irr >= 0 %}value-positive{% elif m.implied_irr is not none %}value-negative{% endif %}">{{ fmt_pct_1dp(m.implied_irr) }}</td>
             </tr>
             <tr class="detail-row" id="detail-{{ deal.id }}" style="display:none;">
-                <td colspan="9">
+                <td colspan="12">
                     <div class="detail-layout">
                         <div>
                             <h4>Entry vs Exit Comparison</h4>
                             <table class="compact-table">
-                                <tr><td>TEV / EBITDA</td><td class="num">{{ "%.2fx"|format(m.entry_tev_ebitda) if m.entry_tev_ebitda is not none else "—" }} → {{ "%.2fx"|format(m.exit_tev_ebitda) if m.exit_tev_ebitda is not none else "—" }}</td></tr>
-                                <tr><td>TEV / Revenue</td><td class="num">{{ "%.2fx"|format(m.entry_tev_revenue) if m.entry_tev_revenue is not none else "—" }} → {{ "%.2fx"|format(m.exit_tev_revenue) if m.exit_tev_revenue is not none else "—" }}</td></tr>
-                                <tr><td>Net Debt / EBITDA</td><td class="num">{{ "%.2fx"|format(m.entry_net_debt_ebitda) if m.entry_net_debt_ebitda is not none else "—" }} → {{ "%.2fx"|format(m.exit_net_debt_ebitda) if m.exit_net_debt_ebitda is not none else "—" }}</td></tr>
-                                <tr><td>Net Debt / TEV</td><td class="num">{{ "%.1f%%"|format((m.entry_net_debt_tev or 0) * 100) if m.entry_net_debt_tev is not none else "—" }} → {{ "%.1f%%"|format((m.exit_net_debt_tev or 0) * 100) if m.exit_net_debt_tev is not none else "—" }}</td></tr>
+                                <tr><td>Revenue ($M)</td><td class="num">{{ fmt_currency(deal.entry_revenue) }} → {{ fmt_currency(deal.exit_revenue) }}</td></tr>
+                                <tr><td>EBITDA ($M)</td><td class="num">{{ fmt_currency(deal.entry_ebitda) }} → {{ fmt_currency(deal.exit_ebitda) }}</td></tr>
+                                <tr><td>TEV ($M)</td><td class="num">{{ fmt_currency(deal.entry_enterprise_value) }} → {{ fmt_currency(deal.exit_enterprise_value) }}</td></tr>
+                                <tr><td>Net Debt ($M)</td><td class="num">{{ fmt_currency(deal.entry_net_debt) }} → {{ fmt_currency(deal.exit_net_debt) }}</td></tr>
+                                <tr><td>TEV / EBITDA</td><td class="num">{{ fmt_multiple(m.entry_tev_ebitda) }} → {{ fmt_multiple(m.exit_tev_ebitda) }}</td></tr>
+                                <tr><td>TEV / Revenue</td><td class="num">{{ fmt_multiple(m.entry_tev_revenue) }} → {{ fmt_multiple(m.exit_tev_revenue) }}</td></tr>
+                                <tr><td>Net Debt / EBITDA</td><td class="num">{{ fmt_multiple(m.entry_net_debt_ebitda) }} → {{ fmt_multiple(m.exit_net_debt_ebitda) }}</td></tr>
+                                <tr><td>Net Debt / TEV</td><td class="num">{{ fmt_pct_1dp(m.entry_net_debt_tev) }} → {{ fmt_pct_1dp(m.exit_net_debt_tev) }}</td></tr>
+                                <tr><td>EBITDA Margin</td><td class="num">{{ "%.1f%%"|format(m.entry_ebitda_margin) if m.entry_ebitda_margin is not none else "—" }} → {{ "%.1f%%"|format(m.exit_ebitda_margin) if m.exit_ebitda_margin is not none else "—" }}</td></tr>
                                 <tr><td>Revenue Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }} / {{ "%.1f%%"|format(m.revenue_cagr) if m.revenue_cagr is not none else "—" }}</td></tr>
                                 <tr><td>EBITDA Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.ebitda_growth) if m.ebitda_growth is not none else "—" }} / {{ "%.1f%%"|format(m.ebitda_cagr) if m.ebitda_cagr is not none else "—" }}</td></tr>
                             </table>
@@ -60,25 +263,13 @@
 
                         <div>
                             <div class="bridge-toolbar">
-                                <h4>Deal Bridge</h4>
+                                <h4>Deal Bridge (Fund Pro-Rata)</h4>
                                 <div class="bridge-controls bridge-controls-small">
-                                    <label>Model
-                                        <select class="deal-bridge-model" data-deal-id="{{ deal.id }}">
-                                            <option value="additive">Additive</option>
-                                            <option value="multiplicative">Multiplicative</option>
-                                        </select>
-                                    </label>
                                     <label>Unit
                                         <select class="deal-bridge-unit" data-deal-id="{{ deal.id }}">
                                             <option value="moic">MOIC</option>
                                             <option value="dollar">$</option>
                                             <option value="pct">%</option>
-                                        </select>
-                                    </label>
-                                    <label>Basis
-                                        <select class="deal-bridge-basis" data-deal-id="{{ deal.id }}">
-                                            <option value="fund">Fund Pro-Rata</option>
-                                            <option value="company">Company</option>
                                         </select>
                                     </label>
                                 </div>
@@ -87,14 +278,67 @@
                                 data-deal-id="{{ deal.id }}"
                                 data-url="{{ url_for('deal_bridge_api', deal_id=deal.id) }}"></canvas>
                             <div class="bridge-diagnostics" id="deal-bridge-diagnostics-{{ deal.id }}"></div>
+                            <table class="data-table compact bridge-lever-table">
+                                <thead>
+                                    <tr>
+                                        <th>Lever</th>
+                                        <th class="num">Dollar ($M)</th>
+                                        <th class="num">MOIC Impact</th>
+                                        <th class="num">% of Value Created</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="deal-bridge-table-{{ deal.id }}">
+                                    <tr><td colspan="4" class="num">Expand row to load bridge table…</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </td>
             </tr>
+            {% endif %}
+            {% endfor %}
+
+            {% set fund_rollup_dedupe = namespace(seen_labels=[]) %}
+            {% for rollup in fund.status_rollups %}
+            {% set rollup_key = (rollup.label or "")|trim|lower %}
+            {% if rollup_key not in fund_rollup_dedupe.seen_labels %}
+            {{ render_rollup_row(rollup, "deals-rollup-status") }}
+            {% set fund_rollup_dedupe.seen_labels = fund_rollup_dedupe.seen_labels + [rollup_key] %}
+            {% endif %}
+            {% endfor %}
+
+            {% for rollup in fund.summary_rollups %}
+            {% set rollup_key = (rollup.label or "")|trim|lower %}
+            {% if rollup_key not in fund_rollup_dedupe.seen_labels %}
+            {{ render_rollup_row(rollup, "deals-rollup-summary") }}
+            {% set fund_rollup_dedupe.seen_labels = fund_rollup_dedupe.seen_labels + [rollup_key] %}
+            {% endif %}
+            {% endfor %}
+            {% endfor %}
+
+            <tr class="deals-overall-header">
+                <td colspan="12">All Funds Summary</td>
+            </tr>
+            {% set overall_rollup_dedupe = namespace(seen_labels=[]) %}
+            {% for rollup in track_record.overall.status_rollups %}
+            {% set rollup_key = (rollup.label or "")|trim|lower %}
+            {% if rollup_key not in overall_rollup_dedupe.seen_labels %}
+            {{ render_rollup_row(rollup, "deals-rollup-status") }}
+            {% set overall_rollup_dedupe.seen_labels = overall_rollup_dedupe.seen_labels + [rollup_key] %}
+            {% endif %}
+            {% endfor %}
+
+            {% for rollup in track_record.overall.summary_rollups %}
+            {% set rollup_key = (rollup.label or "")|trim|lower %}
+            {% if rollup_key not in overall_rollup_dedupe.seen_labels %}
+            {{ render_rollup_row(rollup, "deals-rollup-summary deals-rollup-overall") }}
+            {% set overall_rollup_dedupe.seen_labels = overall_rollup_dedupe.seen_labels + [rollup_key] %}
+            {% endif %}
             {% endfor %}
         </tbody>
     </table>
 </div>
+<script id="deals-rollup-details-payload" type="application/json">{{ (rollup_details or {}) | tojson }}</script>
 {% else %}
 <div class="empty-state">
     <h3>No deals uploaded yet</h3>

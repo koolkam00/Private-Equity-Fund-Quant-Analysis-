@@ -1,16 +1,15 @@
-"""Value creation bridge models for deal-only analytics."""
+"""Value creation bridge model for deal-only analytics."""
 
 from __future__ import annotations
 
-from services.metrics.common import EPS, safe_divide, safe_log
+from services.metrics.common import EPS, safe_divide
 
 DRIVERS = ("revenue", "margin", "multiple", "leverage", "other")
 
 
-def _empty_bridge(unit="dollar", basis="fund", low_confidence=False):
+def _empty_bridge(unit="dollar", basis="fund"):
     return {
         "ready": False,
-        "low_confidence_bridge": low_confidence,
         "basis": basis,
         "unit": unit,
         "ownership_pct": None,
@@ -139,7 +138,6 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
 
     return {
         "ready": True,
-        "low_confidence_bridge": False,
         "basis": basis,
         "unit": unit,
         "ownership_pct": ownership,
@@ -153,87 +151,8 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
     }
 
 
-def compute_multiplicative_bridge(deal, warnings, basis="fund", unit="dollar"):
-    if not _required_bridge_inputs(deal):
-        warnings.append("Insufficient entry/exit data for multiplicative bridge.")
-        return _empty_bridge(unit=unit, basis=basis)
-
-    eq = deal.equity_invested
-    if eq is None or eq <= 0:
-        warnings.append("Equity invested <= 0; multiplicative bridge unavailable.")
-        return _empty_bridge(unit=unit, basis=basis)
-
-    r0, r1 = deal.entry_revenue, deal.exit_revenue
-    e0, e1 = deal.entry_ebitda, deal.exit_ebitda
-    ev0, ev1 = deal.entry_enterprise_value, deal.exit_enterprise_value
-    nd0, nd1 = deal.entry_net_debt, deal.exit_net_debt
-
-    if min(r0, r1, e0, e1, ev0, ev1) <= 0:
-        warnings.append("Non-positive values prevent multiplicative/log bridge.")
-        return _empty_bridge(unit=unit, basis=basis, low_confidence=True)
-
-    ln_total = safe_log(ev1 / ev0)
-    ln_rev = safe_log(r1 / r0)
-    ln_margin = safe_log((e1 / r1) / (e0 / r0))
-    ln_multiple = safe_log((ev1 / e1) / (ev0 / e0))
-
-    if any(v is None for v in (ln_total, ln_rev, ln_margin, ln_multiple)) or abs(ln_total) < EPS:
-        warnings.append("Low-confidence multiplicative bridge (log decomposition unstable).")
-        return _empty_bridge(unit=unit, basis=basis, low_confidence=True)
-
-    company_ev_change = ev1 - ev0
-    company = {
-        "revenue": company_ev_change * (ln_rev / ln_total),
-        "margin": company_ev_change * (ln_margin / ln_total),
-        "multiple": company_ev_change * (ln_multiple / ln_total),
-        "leverage": nd0 - nd1,
-    }
-
-    ownership = _derive_ownership(deal, warnings)
-    if ownership is None:
-        return _empty_bridge(unit=unit, basis=basis, low_confidence=True)
-
-    fund = {k: v * ownership for k, v in company.items()}
-
-    fund_value_created = (deal.realized_value + deal.unrealized_value) - eq
-    company_value_created = safe_divide(fund_value_created, ownership) if ownership > EPS else None
-
-    base_map = _select_basis(company, fund, basis)
-    target_value_created = company_value_created if basis == "company" else fund_value_created
-
-    subtotal = sum(base_map.values())
-    other = target_value_created - subtotal if target_value_created is not None else None
-
-    company_full = dict(company)
-    fund_full = dict(fund)
-    company_full["other"] = (
-        company_value_created - sum(company.values()) if company_value_created is not None else None
-    )
-    fund_full["other"] = fund_value_created - sum(fund.values())
-
-    selected_dollars = dict(base_map)
-    selected_dollars["other"] = other
-
-    return {
-        "ready": True,
-        "low_confidence_bridge": False,
-        "basis": basis,
-        "unit": unit,
-        "ownership_pct": ownership,
-        "drivers": _normalize_unit(selected_dollars, unit, eq, target_value_created),
-        "drivers_dollar": selected_dollars,
-        "value_created": target_value_created,
-        "fund_value_created": fund_value_created,
-        "company_value_created": company_value_created,
-        "fund_drivers_dollar": fund_full,
-        "company_drivers_dollar": company_full,
-    }
-
-
-def compute_bridge_diagnostics(additive_bridge, multiplicative_bridge):
+def compute_bridge_diagnostics(additive_bridge):
     out = {
-        "driver_delta_dollar": {k: None for k in DRIVERS},
-        "low_confidence_bridge": bool(multiplicative_bridge.get("low_confidence_bridge")),
         "ownership_sensitivity": {
             "ownership_base": additive_bridge.get("ownership_pct"),
             "driver_subtotal_base": None,
@@ -241,15 +160,8 @@ def compute_bridge_diagnostics(additive_bridge, multiplicative_bridge):
             "driver_subtotal_down_10": None,
             "other_up_10": None,
             "other_down_10": None,
-        },
+        }
     }
-
-    if additive_bridge.get("ready") and multiplicative_bridge.get("ready"):
-        a = additive_bridge.get("fund_drivers_dollar", {})
-        m = multiplicative_bridge.get("fund_drivers_dollar", {})
-        for k in DRIVERS:
-            if a.get(k) is not None and m.get(k) is not None:
-                out["driver_delta_dollar"][k] = m[k] - a[k]
 
     if additive_bridge.get("ready"):
         ownership = additive_bridge.get("ownership_pct")

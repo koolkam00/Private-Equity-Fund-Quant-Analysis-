@@ -5,7 +5,6 @@ from __future__ import annotations
 from services.metrics.bridge import (
     compute_additive_bridge,
     compute_bridge_diagnostics,
-    compute_multiplicative_bridge,
 )
 from services.metrics.common import deal_hold_years, safe_divide, safe_power
 
@@ -44,11 +43,9 @@ def _cagr_pct(exit_value, entry_value, hold_years):
 
 def compute_bridge_view(deal, model="additive", basis="fund", unit="dollar", warnings=None):
     warnings = warnings if warnings is not None else []
-    if model == "additive":
-        return compute_additive_bridge(deal, warnings=warnings, basis=basis, unit=unit)
-    if model == "multiplicative":
-        return compute_multiplicative_bridge(deal, warnings=warnings, basis=basis, unit=unit)
-    raise ValueError(f"Unsupported model '{model}'")
+    if model not in {"additive", None}:
+        raise ValueError("Only additive bridge model is supported.")
+    return compute_additive_bridge(deal, warnings=warnings, basis=basis, unit=unit)
 
 
 def compute_deal_metrics(deal, as_of_date=None):
@@ -80,6 +77,16 @@ def compute_deal_metrics(deal, as_of_date=None):
     m["revenue_cagr"] = _cagr_pct(deal.exit_revenue, deal.entry_revenue, m["hold_period"])
     m["ebitda_cagr"] = _cagr_pct(deal.exit_ebitda, deal.entry_ebitda, m["hold_period"])
 
+    # Raw entry/exit operating values
+    m["entry_revenue"] = deal.entry_revenue
+    m["entry_ebitda"] = deal.entry_ebitda
+    m["entry_enterprise_value"] = deal.entry_enterprise_value
+    m["entry_net_debt"] = deal.entry_net_debt
+    m["exit_revenue"] = deal.exit_revenue
+    m["exit_ebitda"] = deal.exit_ebitda
+    m["exit_enterprise_value"] = deal.exit_enterprise_value
+    m["exit_net_debt"] = deal.exit_net_debt
+
     # Entry ratios
     m["entry_tev_ebitda"] = safe_divide(deal.entry_enterprise_value, deal.entry_ebitda)
     m["entry_tev_revenue"] = safe_divide(deal.entry_enterprise_value, deal.entry_revenue)
@@ -104,11 +111,9 @@ def compute_deal_metrics(deal, as_of_date=None):
         m["_warnings"].append(f"MOIC {m['moic']:.1f}x appears implausible")
 
     additive_fund = compute_additive_bridge(deal, warnings=m["_warnings"], basis="fund", unit="dollar")
-    multiplicative_fund = compute_multiplicative_bridge(deal, warnings=m["_warnings"], basis="fund", unit="dollar")
 
     m["bridge_ready"] = bool(additive_fund.get("ready"))
     m["bridge_additive_fund"] = additive_fund
-    m["bridge_multiplicative_fund"] = multiplicative_fund
-    m["bridge_diagnostics"] = compute_bridge_diagnostics(additive_fund, multiplicative_fund)
+    m["bridge_diagnostics"] = compute_bridge_diagnostics(additive_fund)
 
     return m

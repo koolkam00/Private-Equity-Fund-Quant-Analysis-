@@ -6,6 +6,14 @@
 <div class="upload-grid single-upload">
     <section class="panel">
         <h3>Deal-Level File</h3>
+        <div class="upload-actions">
+            <a href="{{ url_for('download_deal_template') }}" class="btn-upload btn-secondary">
+                <i class="bi bi-download"></i> Download Current Deal Template
+            </a>
+        </div>
+        <p class="tiny">
+            The download includes generated example data so users can see exactly how to populate each field.
+        </p>
         <form method="POST" action="{{ url_for('upload_deals') }}" enctype="multipart/form-data">
             <label class="drop-zone">
                 <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
@@ -17,8 +25,14 @@
                 Realized Value, Unrealized Value, Entry/Exit Revenue, EBITDA, TEV, Net Debt.
             </p>
             <p class="tiny">
-                New fields: Geography, Year Invested, Ownership %. If Geography or Year Invested is missing,
-                fallback is applied automatically.
+                Additional qualitative fields supported for filtering: Geography, Year Invested, Ownership %,
+                Exit Type, Lead Partner, Security Type, Deal Type, Entry Channel. Optional track-record fields:
+                Fund Size, Net IRR, Net MOIC, DPI. Missing optional fields are auto-filled with default labels.
+            </p>
+            <p class="tiny">
+                Optional multi-sheet support is available for advanced analysis pages: <strong>Cashflows</strong>,
+                <strong>Deal Quarterly</strong>, <strong>Fund Quarterly</strong>, and <strong>Underwrite</strong>.
+                The <strong>Deals</strong> sheet remains the only required sheet.
             </p>
             <button type="submit" class="btn-upload">Upload Deals</button>
         </form>

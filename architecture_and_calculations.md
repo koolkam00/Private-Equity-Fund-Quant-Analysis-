@@ -70,14 +70,7 @@ Ownership scaling:
 Fund residual closure:
 - `Other = ValueCreated_fund - (Revenue + Margin + Multiple + Leverage)`
 
-### 4.5 Value Creation Bridge (Multiplicative)
-When values are positive, use log decomposition:
-- `ln(TEV1/TEV0) = ln(R1/R0) + ln(m1/m0) + ln(x1/x0)`
-
-Allocate EV change by factor shares, then add leverage and residual to reconcile exactly.
-Low-confidence flag is raised when log decomposition is numerically invalid.
-
-### 4.6 Bridge Views
+### 4.5 Bridge Views
 All bridge drivers are available in:
 - Dollar ($M)
 - MOIC contribution (`driver_$ / equity_invested`)
@@ -90,6 +83,11 @@ Global filters drive every KPI, table, and chart:
 - Sector
 - Geography
 - Vintage year
+- Exit type
+- Lead partner
+- Security type
+- Deal type
+- Entry channel
 
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`
@@ -97,3 +95,60 @@ Global filters drive every KPI, table, and chart:
   - Missing geography -> `Unknown`
   - Missing year invested -> derived from investment date
 - If a legacy time-series table exists from earlier versions, it is archived and ignored by runtime analytics
+
+## 7. IC Memo Presentation
+- Routes:
+  - `GET /ic-memo`
+  - `GET /ic-memo/<fund_name>`
+- Route behavior:
+  - Supports global filter semantics from dashboard/query parameters.
+  - Path `fund_name` is authoritative when present; other query filters still apply.
+- Payload contract:
+  - Built by `compute_ic_memo_payload(...)` in `services/metrics/ic_memo.py`.
+  - Contains `meta`, `executive`, `bridge`, `risk`, `operating`, `slicing`, and `team` sections.
+
+### 7.1 Decile Ranking Method
+- Dimension groups are ranked by `weighted_moic` (default).
+- Group metrics include:
+  - `deal_count`
+  - `invested_equity`
+  - `total_value`
+  - `value_created`
+  - `weighted_moic`
+  - `weighted_implied_irr`
+- Deciles use strict sizing:
+  - `n = max(1, ceil(group_count * 0.10))`
+  - `top_decile = top n groups`
+  - `bottom_decile = bottom n groups`
+
+### 7.2 PDF / Print Behavior
+- Export mechanism is browser-native print-to-PDF (`window.print()`), not server-side PDF generation.
+- IC memo print defaults:
+  - US Letter landscape layout.
+  - Multi-page sections with explicit page breaks.
+  - Non-report UI elements are hidden in print.
+  - Charts and tables use print-safe sizing and color-adjust settings.
+
+## 8. Methodology & Audit Page
+- Routes:
+  - `GET /methodology` (canonical)
+  - `GET /audit` (alias redirect to `/methodology`)
+- Payload contract:
+  - Built by `build_methodology_payload()` in `services/metrics/methodology.py`.
+  - Includes `meta`, `sections`, `glossary`, and `rules`.
+  - Sections contain metric-level fields:
+    - `id`, `name`, `formula`, `code_formula`, `variables`, `interpretation`, `edge_cases`, `units`, `source_refs`.
+- Scope:
+  - Mirrors backend formula and rule behavior across:
+    - shared numeric/date helpers
+    - deal metrics
+    - portfolio aggregation
+    - bridge attribution
+    - loss/risk analytics
+    - track record logic
+    - analysis modules
+    - IC memo grouping/deciles
+- Maintenance contract:
+  - Any formula or threshold change in `services/metrics/*` should be reflected in `services/metrics/methodology.py` and covered by tests.
+- Print/PDF behavior:
+  - Browser-native print (`window.print()`), with page classes and print CSS tuned for audit readability.

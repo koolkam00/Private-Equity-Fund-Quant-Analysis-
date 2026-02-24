@@ -9,3 +9,19 @@
 {% macro fmt_pct(value) -%}
     {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value) }}{%- endif -%}
 {%- endmacro %}
+
+{% macro fmt_date_monyy(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ value.strftime("%b-%y") }}{%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_years_1dp(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ "%.1f"|format(value) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_pct_1dp(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value * 100) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro audit_link(anchor_id, text="Methodology") -%}
+    <a class="metric-audit-link" href="{{ url_for('methodology') }}#{{ anchor_id }}" title="View methodology">{{ text }}</a>
+{%- endmacro %}
