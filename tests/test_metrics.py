@@ -86,6 +86,45 @@ def test_deal_metrics_core_identity():
     assert m["implied_irr"] is not None
 
 
+def test_ebitda_growth_handles_negative_entry_base():
+    deal = _make_deal(
+        id=11,
+        entry_ebitda=-10,
+        exit_ebitda=-5,
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2022, 1, 1),
+    )
+    m = compute_deal_metrics(deal)
+    assert abs(m["ebitda_growth"] - 50.0) < 1e-9
+
+
+def test_ebitda_cagr_handles_negative_to_negative_paths():
+    deal = _make_deal(
+        id=12,
+        entry_ebitda=-10,
+        exit_ebitda=-5,
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2022, 1, 1),
+    )
+    m = compute_deal_metrics(deal)
+    assert m["ebitda_cagr"] is not None
+    expected = ((abs(deal.entry_ebitda) / abs(deal.exit_ebitda)) ** (1.0 / m["hold_period"]) - 1.0) * 100.0
+    assert abs(m["ebitda_cagr"] - expected) < 1e-9
+
+
+def test_ebitda_cagr_is_none_on_sign_flip():
+    deal = _make_deal(
+        id=13,
+        entry_ebitda=-10,
+        exit_ebitda=5,
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2022, 1, 1),
+    )
+    m = compute_deal_metrics(deal)
+    assert m["ebitda_growth"] is not None
+    assert m["ebitda_cagr"] is None
+
+
 def test_additive_bridge_reconciles_exactly():
     deal = _make_deal()
     b = compute_bridge_view(deal, model="additive", basis="fund", unit="dollar", warnings=[])

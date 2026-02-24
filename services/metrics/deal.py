@@ -21,7 +21,10 @@ def _implied_irr(moic, hold_years):
 def _growth_pct(exit_value, entry_value):
     if entry_value is None or exit_value is None or entry_value == 0:
         return None
-    out = safe_divide(exit_value - entry_value, entry_value)
+    # For negative starting values, use absolute entry base so improvements
+    # (moving toward or above zero) have intuitive positive sign.
+    denom = abs(entry_value) if entry_value < 0 else entry_value
+    out = safe_divide(exit_value - entry_value, denom)
     return out * 100 if out is not None else None
 
 
@@ -31,11 +34,22 @@ def _cagr_pct(exit_value, entry_value, hold_years):
         or exit_value is None
         or hold_years is None
         or hold_years <= 0
-        or entry_value <= 0
-        or exit_value <= 0
+        or entry_value == 0
+        or exit_value == 0
     ):
         return None
-    root = safe_power(exit_value / entry_value, 1.0 / hold_years)
+
+    if entry_value > 0 and exit_value > 0:
+        ratio = exit_value / entry_value
+    elif entry_value < 0 and exit_value < 0:
+        # For negative-to-negative EBITDA paths, define CAGR as the annualized
+        # change in loss magnitude: improving losses => positive CAGR.
+        ratio = abs(entry_value) / abs(exit_value)
+    else:
+        # Sign-flip trajectories are not compounding-comparable.
+        return None
+
+    root = safe_power(ratio, 1.0 / hold_years)
     if root is None:
         return None
     return (root - 1) * 100
