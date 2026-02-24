@@ -11,12 +11,13 @@ let dealsRollupDetailsPayload = null;
 
 const DRIVER_LABELS = {
     revenue: 'Revenue Growth',
+    ebitda_growth: 'EBITDA Growth',
     margin: 'Margin Expansion',
     multiple: 'Multiple Expansion',
     leverage: 'Leverage / Debt Paydown',
     other: 'Residual / Other',
 };
-const BRIDGE_DRIVER_KEYS = ['revenue', 'margin', 'multiple', 'leverage', 'other'];
+const LEGACY_BRIDGE_DRIVER_KEYS = ['revenue', 'margin', 'multiple', 'leverage', 'other'];
 
 const AXIS_GRID = 'rgba(20, 35, 33, 0.10)';
 const AXIS_TICK = '#435854';
@@ -174,9 +175,10 @@ function resolveBridgeSeries(payload, unit, isAggregate) {
 
 function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options = {}) {
     const isAggregate = Boolean(options.isAggregate);
-    const { valuesMap, startValue, endValue } = resolveBridgeSeries(payload, controls.unit, isAggregate);
-    const leverLabels = BRIDGE_DRIVER_KEYS.map((k) => DRIVER_LABELS[k]);
-    const leverValues = BRIDGE_DRIVER_KEYS.map((k) => valuesMap[k]);
+    const { startValue, endValue } = resolveBridgeSeries(payload, controls.unit, isAggregate);
+    const displayRows = getBridgeDisplayRows(payload, isAggregate);
+    const leverLabels = displayRows.map((row) => row.label);
+    const leverValues = displayRows.map((row) => row[controls.unit]);
     const wf = buildWaterfallSeries(controls.unit, leverLabels, leverValues, startValue, endValue);
     const colors = wf.kinds.map((kind, i) => {
         if (kind === 'start') return '#2f5d50';
@@ -301,6 +303,7 @@ function shortBridgeAxisLabel(label) {
     if (raw.startsWith('Start:')) return 'Start';
     if (raw.startsWith('End:')) return 'End';
     if (raw === 'Revenue Growth') return ['Revenue', 'Growth'];
+    if (raw === 'EBITDA Growth') return ['EBITDA', 'Growth'];
     if (raw === 'Margin Expansion') return ['Margin', 'Expansion'];
     if (raw === 'Multiple Expansion') return ['Multiple', 'Expansion'];
     if (raw === 'Leverage / Debt Paydown') return ['Leverage', 'Debt Paydown'];
@@ -396,7 +399,7 @@ function normalizeBridgeTriples(payload, isAggregate) {
     if (isAggregate) {
         const moicSource = payload?.drivers?.moic || {};
         const pctSource = payload?.drivers?.pct || {};
-        BRIDGE_DRIVER_KEYS.forEach((key) => {
+        LEGACY_BRIDGE_DRIVER_KEYS.forEach((key) => {
             dollar[key] = toOptionalNumber(dollarSource[key]);
             moic[key] = toOptionalNumber(moicSource[key]);
             pct[key] = toOptionalNumber(pctSource[key]);
@@ -406,12 +409,36 @@ function normalizeBridgeTriples(payload, isAggregate) {
 
     const equity = toOptionalNumber(payload?.equity_invested);
     const valueCreated = toOptionalNumber(payload?.value_created);
-    BRIDGE_DRIVER_KEYS.forEach((key) => {
+    LEGACY_BRIDGE_DRIVER_KEYS.forEach((key) => {
         dollar[key] = toOptionalNumber(dollarSource[key]);
         moic[key] = safeBridgeRatio(dollar[key], equity);
         pct[key] = safeBridgeRatio(dollar[key], valueCreated);
     });
     return { dollar, moic, pct };
+}
+
+function getBridgeDisplayRows(payload, isAggregate) {
+    if (Array.isArray(payload?.display_drivers) && payload.display_drivers.length) {
+        return payload.display_drivers.map((row) => {
+            const key = String(row?.key || '').trim() || 'other';
+            return {
+                key,
+                label: row?.label || DRIVER_LABELS[key] || key,
+                dollar: toOptionalNumber(row?.dollar),
+                moic: toOptionalNumber(row?.moic),
+                pct: toOptionalNumber(row?.pct),
+            };
+        });
+    }
+
+    const triples = normalizeBridgeTriples(payload, isAggregate);
+    return LEGACY_BRIDGE_DRIVER_KEYS.map((key) => ({
+        key,
+        label: DRIVER_LABELS[key] || key,
+        dollar: triples.dollar[key],
+        moic: triples.moic[key],
+        pct: triples.pct[key],
+    }));
 }
 
 function renderBridgeLeverTable(tableBodyEl, payload, options = {}) {
@@ -423,28 +450,28 @@ function renderBridgeLeverTable(tableBodyEl, payload, options = {}) {
         return;
     }
 
-    const triples = normalizeBridgeTriples(payload, isAggregate);
+    const displayRows = getBridgeDisplayRows(payload, isAggregate);
     tableBodyEl.innerHTML = '';
 
-    BRIDGE_DRIVER_KEYS.forEach((key) => {
+    displayRows.forEach((row) => {
         const tr = document.createElement('tr');
         const label = document.createElement('td');
-        label.textContent = DRIVER_LABELS[key];
+        label.textContent = row.label;
         tr.appendChild(label);
 
         const dollar = document.createElement('td');
         dollar.className = 'num';
-        dollar.textContent = formatBridgeValue(triples.dollar[key], 'dollar');
+        dollar.textContent = formatBridgeValue(row.dollar, 'dollar');
         tr.appendChild(dollar);
 
         const moic = document.createElement('td');
         moic.className = 'num';
-        moic.textContent = formatBridgeValue(triples.moic[key], 'moic');
+        moic.textContent = formatBridgeValue(row.moic, 'moic');
         tr.appendChild(moic);
 
         const pct = document.createElement('td');
         pct.className = 'num';
-        pct.textContent = formatBridgeValue(triples.pct[key], 'pct');
+        pct.textContent = formatBridgeValue(row.pct, 'pct');
         tr.appendChild(pct);
 
         tableBodyEl.appendChild(tr);
@@ -1018,11 +1045,11 @@ function renderBridgeAggregate() {
     if (!dashboardBridgePayload) return;
 
     const unit = document.getElementById('bridgeUnit')?.value || 'moic';
-    const drivers = ((dashboardBridgePayload.drivers || {})[unit]) || {};
+    const displayRows = getBridgeDisplayRows(dashboardBridgePayload, true);
     const startEnd = ((dashboardBridgePayload.start_end || {})[unit]) || {};
 
-    const leverLabels = BRIDGE_DRIVER_KEYS.map((k) => DRIVER_LABELS[k]);
-    const leverValues = BRIDGE_DRIVER_KEYS.map((k) => drivers[k]);
+    const leverLabels = displayRows.map((row) => row.label);
+    const leverValues = displayRows.map((row) => row[unit]);
     const wf = buildWaterfallSeries(unit, leverLabels, leverValues, startEnd.start, startEnd.end);
     const colors = wf.kinds.map((kind, i) => {
         if (kind === 'start') return '#2f5d50';
@@ -1116,10 +1143,10 @@ function renderIcMemoBridgeChart(payload) {
     const el = document.getElementById('icBridgeChart');
     if (!el) return;
 
-    const drivers = payload.bridge?.drivers?.moic || {};
+    const displayRows = getBridgeDisplayRows(payload.bridge || {}, true);
     const startEnd = payload.bridge?.start_end?.moic || {};
-    const labels = BRIDGE_DRIVER_KEYS.map((k) => DRIVER_LABELS[k]);
-    const values = BRIDGE_DRIVER_KEYS.map((k) => drivers[k]);
+    const labels = displayRows.map((row) => row.label);
+    const values = displayRows.map((row) => row.moic);
     const wf = buildWaterfallSeries('moic', labels, values, startEnd.start, startEnd.end);
     const colors = wf.kinds.map((kind, i) => {
         if (kind === 'start') return '#2f5d50';

@@ -759,6 +759,9 @@ def test_api_deal_bridge_missing_revenue_uses_ebitda_fallback_method(client):
     assert payload["ready"] is True
     assert payload["calculation_method"] == "ebitda_multiple_fallback"
     assert payload["fallback_reason"] == "missing_revenue"
+    display_keys = [row.get("key") for row in payload.get("display_drivers") or []]
+    assert display_keys[:3] == ["ebitda_growth", "multiple", "leverage"]
+    assert "margin" not in display_keys
 
 
 def test_api_deal_bridge_rejects_non_additive_model(client):

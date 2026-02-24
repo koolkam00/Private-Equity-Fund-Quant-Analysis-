@@ -352,7 +352,10 @@ def build_methodology_payload():
                     "m0 = e0 / r0; m1 = e1 / r1; x0 = ev0 / e0; x1 = ev1 / e1",
                     ["r0", "r1", "e0", "e1", "ev0", "ev1"],
                     "Defines the operating and valuation bases used for additive decomposition.",
-                    ["When entry/exit EBITDA <= 0, bridge switches to revenue-multiple fallback using rm0=ev0/r0 and rm1=ev1/r1"],
+                    [
+                        "When entry/exit EBITDA <= 0 with valid revenue, bridge switches to revenue-multiple fallback using rm0=ev0/r0 and rm1=ev1/r1",
+                        "When both entry and exit revenue are missing/near-zero, bridge switches to EBITDA-multiple fallback with explicit EBITDA Growth lever",
+                    ],
                     "ratios and multiples",
                     ["services/metrics/bridge.py::compute_additive_bridge"],
                 ),
@@ -397,6 +400,21 @@ def build_methodology_payload():
                     ["r0", "r1", "ev0", "ev1", "nd0", "nd1"],
                     "Keeps bridge attribution available for negative-EBITDA cases by using revenue-multiple decomposition.",
                     ["Requires non-near-zero revenues and complete EV/revenue/debt inputs"],
+                    "$M",
+                    ["services/metrics/bridge.py::compute_additive_bridge"],
+                ),
+                _metric(
+                    "metric-bridge-fallback-missing-revenue",
+                    "Missing Revenue Fallback Method ($)",
+                    "If Entry Revenue and Exit Revenue are missing/near-zero: EBITDA Growth = (e1 - e0) * x0; Multiple = (x1 - x0) * e1; Leverage = nd0 - nd1",
+                    "x0 = ev0 / e0; x1 = ev1 / e1; fallback company drivers when r0 and r1 are missing/near-zero",
+                    ["e0", "e1", "ev0", "ev1", "nd0", "nd1"],
+                    "Keeps bridge attribution available without revenue history by using EBITDA growth plus multiple and leverage decomposition.",
+                    [
+                        "Requires valid non-near-zero EBITDA and EV/debt inputs",
+                        "Display rows hide Margin for this fallback and show explicit EBITDA Growth lever",
+                        "Legacy payload compatibility aliases EBITDA Growth into revenue with margin fixed at 0",
+                    ],
                     "$M",
                     ["services/metrics/bridge.py::compute_additive_bridge"],
                 ),
@@ -850,7 +868,7 @@ def build_methodology_payload():
         {
             "id": "rule-bridge-readiness",
             "name": "Bridge Readiness",
-            "rule": "Bridge is ready with complete required fields and non-near-zero revenues. Uses EBITDA-additive method when entry/exit EBITDA are positive; otherwise uses revenue-multiple fallback for non-positive EBITDA.",
+            "rule": "Bridge is ready with required EV/debt/equity fields plus method-specific inputs. Uses EBITDA-additive when revenues and EBITDA are valid, revenue-multiple fallback when EBITDA is non-positive, and EBITDA-multiple fallback when both revenues are missing/near-zero.",
             "source_refs": ["services/metrics/bridge.py::compute_additive_bridge"],
         },
         {

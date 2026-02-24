@@ -120,7 +120,7 @@ def _firm_currency_code(firm):
     return normalize_currency_code(getattr(firm, "base_currency", None), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
 
 
-MONETARY_DRIVER_KEYS = ("revenue", "margin", "multiple", "leverage", "other")
+MONETARY_DRIVER_KEYS = ("revenue", "ebitda_growth", "margin", "multiple", "leverage", "other")
 DEAL_METRIC_MONEY_KEYS = (
     "equity",
     "realized",
@@ -237,11 +237,17 @@ def _scale_bridge_view_payload(bridge, scale):
         if not isinstance(drivers, dict):
             continue
         for driver in MONETARY_DRIVER_KEYS:
-            drivers[driver] = _scale_money(drivers.get(driver), scale)
+            if driver in drivers:
+                drivers[driver] = _scale_money(drivers.get(driver), scale)
 
     if bridge.get("unit") == "dollar" and isinstance(bridge.get("drivers"), dict):
         for driver in MONETARY_DRIVER_KEYS:
-            bridge["drivers"][driver] = _scale_money(bridge["drivers"].get(driver), scale)
+            if driver in bridge["drivers"]:
+                bridge["drivers"][driver] = _scale_money(bridge["drivers"].get(driver), scale)
+
+    for row in bridge.get("display_drivers") or []:
+        if isinstance(row, dict):
+            row["dollar"] = _scale_money(row.get("dollar"), scale)
 
     start_end = bridge.get("start_end")
     if isinstance(start_end, dict) and isinstance(start_end.get("dollar"), dict):
@@ -258,7 +264,12 @@ def _scale_bridge_aggregate_payload(aggregate, scale):
     drivers = aggregate.get("drivers")
     if isinstance(drivers, dict) and isinstance(drivers.get("dollar"), dict):
         for driver in MONETARY_DRIVER_KEYS:
-            drivers["dollar"][driver] = _scale_money(drivers["dollar"].get(driver), scale)
+            if driver in drivers["dollar"]:
+                drivers["dollar"][driver] = _scale_money(drivers["dollar"].get(driver), scale)
+
+    for row in aggregate.get("display_drivers") or []:
+        if isinstance(row, dict):
+            row["dollar"] = _scale_money(row.get("dollar"), scale)
 
     start_end = aggregate.get("start_end")
     if isinstance(start_end, dict) and isinstance(start_end.get("dollar"), dict):
@@ -2344,11 +2355,15 @@ def deal_bridge_api(deal_id):
         start_value, end_value = start_dollar, end_dollar
     elif unit == "moic":
         start_value = 1.0
-        driver_vals = bridge.get("drivers", {})
-        if all(driver_vals.get(k) is not None for k in ("revenue", "margin", "multiple", "leverage", "other")):
-            end_value = start_value + sum(driver_vals[k] for k in ("revenue", "margin", "multiple", "leverage", "other"))
+        display_drivers = bridge.get("display_drivers") or []
+        if display_drivers and all(row.get("moic") is not None for row in display_drivers):
+            end_value = start_value + sum(row.get("moic") or 0.0 for row in display_drivers)
         else:
-            end_value = None
+            driver_vals = bridge.get("drivers", {})
+            if all(driver_vals.get(k) is not None for k in ("revenue", "margin", "multiple", "leverage", "other")):
+                end_value = start_value + sum(driver_vals[k] for k in ("revenue", "margin", "multiple", "leverage", "other"))
+            else:
+                end_value = None
     else:  # pct
         start_value = 0.0
         end_value = 1.0 if bridge.get("ready") else None
@@ -2369,6 +2384,7 @@ def deal_bridge_api(deal_id):
             "end_dollar": end_dollar,
             "drivers": bridge.get("drivers"),
             "drivers_dollar": bridge.get("drivers_dollar"),
+            "display_drivers": bridge.get("display_drivers") or [],
             "value_created": bridge.get("value_created"),
             "fund_value_created": bridge.get("fund_value_created"),
             "company_value_created": bridge.get("company_value_created"),

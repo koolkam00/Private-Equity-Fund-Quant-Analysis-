@@ -6,7 +6,12 @@ from collections import defaultdict
 import math
 import re
 
-from services.metrics.bridge import DRIVERS
+from services.metrics.bridge import (
+    AGGREGATE_DISPLAY_DRIVER_ORDER,
+    DISPLAY_DRIVER_LABELS,
+    DRIVERS,
+    STANDARD_DISPLAY_DRIVER_KEYS,
+)
 from services.metrics.deal import compute_bridge_view, compute_deal_metrics
 from services.metrics.common import EPS, safe_divide
 
@@ -208,8 +213,11 @@ def compute_portfolio_analytics(deals, metrics_by_id=None):
 
 def compute_bridge_aggregate(deals, basis="fund"):
     sums = {k: 0.0 for k in DRIVERS}
+    canonical_sums = {k: 0.0 for k in AGGREGATE_DISPLAY_DRIVER_ORDER}
     ready_count = 0
     fallback_ready_count = 0
+    has_missing_revenue_fallback = False
+    has_non_missing_revenue_method = False
     total_equity = 0.0
     total_value_created = 0.0
 
@@ -230,6 +238,11 @@ def compute_bridge_aggregate(deals, basis="fund"):
             continue
 
         ready_count += 1
+        method = bridge.get("calculation_method")
+        if method == "ebitda_multiple_fallback":
+            has_missing_revenue_fallback = True
+        else:
+            has_non_missing_revenue_method = True
         if (bridge.get("calculation_method") or "").endswith("_fallback"):
             fallback_ready_count += 1
         for k in DRIVERS:
@@ -237,11 +250,58 @@ def compute_bridge_aggregate(deals, basis="fund"):
             if v is not None:
                 sums[k] += v
 
+        display_rows = bridge.get("display_drivers") or []
+        if display_rows:
+            for row in display_rows:
+                key = row.get("key")
+                value = row.get("dollar")
+                if key in canonical_sums and value is not None:
+                    canonical_sums[key] += value
+        else:
+            drivers_dollar = bridge.get("drivers_dollar") or {}
+            if method == "ebitda_multiple_fallback":
+                for key in ("multiple", "leverage", "other"):
+                    value = drivers_dollar.get(key)
+                    if value is not None:
+                        canonical_sums[key] += value
+                if drivers_dollar.get("revenue") is not None:
+                    canonical_sums["ebitda_growth"] += drivers_dollar["revenue"]
+            else:
+                for key in ("revenue", "margin", "multiple", "leverage", "other"):
+                    value = drivers_dollar.get(key)
+                    if value is not None:
+                        canonical_sums[key] += value
+
     moic = {k: (safe_divide(v, total_equity) if total_equity > 0 else None) for k, v in sums.items()}
     pct = {
         k: (safe_divide(v, total_value_created) if abs(total_value_created) > EPS else None)
         for k, v in sums.items()
     }
+
+    if not ready_count:
+        display_keys = list(STANDARD_DISPLAY_DRIVER_KEYS)
+    else:
+        display_keys = []
+        if has_non_missing_revenue_method or abs(canonical_sums["revenue"]) > EPS:
+            display_keys.append("revenue")
+        if has_missing_revenue_fallback or abs(canonical_sums["ebitda_growth"]) > EPS:
+            display_keys.append("ebitda_growth")
+        if has_non_missing_revenue_method or abs(canonical_sums["margin"]) > EPS:
+            display_keys.append("margin")
+        display_keys.extend(["multiple", "leverage", "other"])
+
+    display_drivers = []
+    for key in display_keys:
+        dollar = canonical_sums.get(key)
+        display_drivers.append(
+            {
+                "key": key,
+                "label": DISPLAY_DRIVER_LABELS.get(key, key),
+                "dollar": dollar,
+                "moic": safe_divide(dollar, total_equity) if dollar is not None else None,
+                "pct": safe_divide(dollar, total_value_created) if dollar is not None else None,
+            }
+        )
 
     start_end = {
         "dollar": {
@@ -268,6 +328,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
             "moic": moic,
             "pct": pct,
         },
+        "display_drivers": display_drivers,
         "total_value_created": total_value_created,
         "total_equity": total_equity,
         "start_end": start_end,

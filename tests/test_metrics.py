@@ -248,10 +248,21 @@ def test_bridge_fallback_when_revenue_is_zero_but_ebitda_is_available():
     bridge = metrics["bridge_additive_fund"]
     assert bridge["calculation_method"] == "ebitda_multiple_fallback"
     assert bridge["fallback_reason"] == "missing_revenue"
-    assert bridge["drivers_dollar"]["revenue"] == 0.0
+    assert bridge["display_drivers"][0]["key"] == "ebitda_growth"
+    assert all(row["key"] != "margin" for row in bridge["display_drivers"])
+    assert bridge["drivers_dollar"]["revenue"] == bridge["display_drivers"][0]["dollar"]
     assert bridge["drivers_dollar"]["margin"] == 0.0
-    subtotal = sum((bridge["drivers_dollar"].get(k) or 0.0) for k in ("revenue", "margin", "multiple", "leverage", "other"))
+    subtotal = sum((row.get("dollar") or 0.0) for row in bridge["display_drivers"])
     assert abs(subtotal - metrics["value_created"]) < 1e-9
+
+
+def test_bridge_missing_revenue_fallback_requires_both_revenues_missing_or_zero():
+    deal = _make_deal(id=34, entry_revenue=0.0, exit_revenue=120.0, entry_ebitda=10.0, exit_ebitda=20.0)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["bridge_ready"] is False
+    bridge = metrics["bridge_additive_fund"]
+    assert bridge["calculation_method"] is None
+    assert any("Partial revenue history" in warning for warning in metrics["_warnings"])
 
 
 def test_bridge_aggregate_counts_both_fallback_methods():
@@ -260,6 +271,9 @@ def test_bridge_aggregate_counts_both_fallback_methods():
     agg = compute_bridge_aggregate([d1, d2], basis="fund")
     assert agg["ready_count"] == 2
     assert agg["fallback_ready_count"] == 2
+    display_keys = {row["key"] for row in agg["display_drivers"]}
+    assert "revenue" in display_keys
+    assert "ebitda_growth" in display_keys
 
 
 def test_data_quality_bridge_ready_uses_computed_metric_flag():
@@ -535,9 +549,11 @@ def test_ic_memo_payload_schema_and_bridge_consistency():
 
     agg = compute_bridge_aggregate(deals, basis="fund")
     by_driver = {row["driver"]: row for row in out["bridge"]["table_rows"]}
-    for driver in ("revenue", "margin", "multiple", "leverage", "other"):
-        assert abs((by_driver[driver]["dollar"] or 0.0) - (agg["drivers"]["dollar"][driver] or 0.0)) < 1e-9
-        assert abs((by_driver[driver]["moic"] or 0.0) - (agg["drivers"]["moic"][driver] or 0.0)) < 1e-9
+    expected_rows = {row["key"]: row for row in agg["display_drivers"]}
+    assert set(by_driver.keys()) == set(expected_rows.keys())
+    for driver, expected in expected_rows.items():
+        assert abs((by_driver[driver]["dollar"] or 0.0) - (expected["dollar"] or 0.0)) < 1e-9
+        assert abs((by_driver[driver]["moic"] or 0.0) - (expected["moic"] or 0.0)) < 1e-9
 
 
 def test_ic_memo_status_rollup_and_decile_rule():
@@ -601,6 +617,7 @@ def test_methodology_payload_contains_canonical_formula_strings():
     assert by_id["metric-loss-ratio-capital"]["formula"] == "(Equity invested in deals with MOIC < 1.0x / Total evaluated equity) * 100"
     assert by_id["metric-bridge-revenue"]["formula"] == "(Exit Revenue - Entry Revenue) * m0 * x0"
     assert "Entry EBITDA <= 0 or Exit EBITDA <= 0" in by_id["metric-bridge-fallback-negative-ebitda"]["formula"]
+    assert "Entry Revenue and Exit Revenue are missing/near-zero" in by_id["metric-bridge-fallback-missing-revenue"]["formula"]
     assert by_id["metric-tvpi"]["formula"] == "(Distributed + NAV) / Paid-In"
     assert "Stressed EBITDA = max(0, Current EBITDA * (1 + EBITDA Shock))" in by_id["metric-stress-lab-core"]["formula"]
 

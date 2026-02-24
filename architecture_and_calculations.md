@@ -90,6 +90,17 @@ Negative-EBITDA fallback bridge:
   - Leverage: `NetDebt0 - NetDebt1`
 - Residual still closes to observed value created, and ownership scaling remains unchanged.
 
+Missing-revenue fallback bridge:
+- Trigger: both `Entry Revenue` and `Exit Revenue` are missing/near-zero
+- Definitions: `x0 = TEV0 / EBITDA0`, `x1 = TEV1 / EBITDA1`
+- Drivers (company basis):
+  - EBITDA Growth: `(EBITDA1 - EBITDA0) * x0`
+  - Multiple: `(x1 - x0) * EBITDA1`
+  - Leverage: `NetDebt0 - NetDebt1`
+- Display policy:
+  - Margin row is hidden for this fallback.
+  - Legacy payload compatibility keeps `revenue` alias equal to EBITDA Growth and `margin = 0`.
+
 ### 4.5 Bridge Views
 All bridge drivers are available in:
 - Dollar ($M)

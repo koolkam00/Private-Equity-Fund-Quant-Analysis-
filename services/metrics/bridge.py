@@ -5,6 +5,17 @@ from __future__ import annotations
 from services.metrics.common import EPS, safe_divide
 
 DRIVERS = ("revenue", "margin", "multiple", "leverage", "other")
+STANDARD_DISPLAY_DRIVER_KEYS = ("revenue", "margin", "multiple", "leverage", "other")
+MISSING_REVENUE_DISPLAY_DRIVER_KEYS = ("ebitda_growth", "multiple", "leverage", "other")
+AGGREGATE_DISPLAY_DRIVER_ORDER = ("revenue", "ebitda_growth", "margin", "multiple", "leverage", "other")
+DISPLAY_DRIVER_LABELS = {
+    "revenue": "Revenue Growth",
+    "ebitda_growth": "EBITDA Growth",
+    "margin": "Margin Expansion",
+    "multiple": "Multiple Expansion",
+    "leverage": "Leverage / Debt Paydown",
+    "other": "Residual / Other",
+}
 
 
 def _empty_bridge(unit="dollar", basis="fund"):
@@ -17,6 +28,7 @@ def _empty_bridge(unit="dollar", basis="fund"):
         "ownership_pct": None,
         "drivers": {k: None for k in DRIVERS},
         "drivers_dollar": {k: None for k in DRIVERS},
+        "display_drivers": [],
         "value_created": None,
         "fund_value_created": None,
         "company_value_created": None,
@@ -30,13 +42,53 @@ def _normalize_unit(drivers_dollar, unit, equity, value_created):
         return drivers_dollar
     if unit == "moic":
         if equity is None or equity <= 0:
-            return {k: None for k in DRIVERS}
+            return {k: None for k in drivers_dollar}
         return {k: safe_divide(v, equity) if v is not None else None for k, v in drivers_dollar.items()}
     if unit == "pct":
         if value_created is None or abs(value_created) < EPS:
-            return {k: None for k in DRIVERS}
+            return {k: None for k in drivers_dollar}
         return {k: safe_divide(v, value_created) if v is not None else None for k, v in drivers_dollar.items()}
     raise ValueError(f"Unsupported unit: {unit}")
+
+
+def _display_driver_order(calculation_method):
+    if calculation_method == "ebitda_multiple_fallback":
+        return MISSING_REVENUE_DISPLAY_DRIVER_KEYS
+    return STANDARD_DISPLAY_DRIVER_KEYS
+
+
+def _legacy_alias_map(canonical_drivers, calculation_method):
+    if calculation_method == "ebitda_multiple_fallback":
+        return {
+            "revenue": canonical_drivers.get("ebitda_growth"),
+            "margin": 0.0,
+            "multiple": canonical_drivers.get("multiple"),
+            "leverage": canonical_drivers.get("leverage"),
+            "other": canonical_drivers.get("other"),
+        }
+    return {
+        "revenue": canonical_drivers.get("revenue"),
+        "margin": canonical_drivers.get("margin"),
+        "multiple": canonical_drivers.get("multiple"),
+        "leverage": canonical_drivers.get("leverage"),
+        "other": canonical_drivers.get("other"),
+    }
+
+
+def _build_display_drivers(canonical_dollars, equity, value_created, calculation_method):
+    rows = []
+    for key in _display_driver_order(calculation_method):
+        dollar = canonical_dollars.get(key)
+        rows.append(
+            {
+                "key": key,
+                "label": DISPLAY_DRIVER_LABELS.get(key, key),
+                "dollar": dollar,
+                "moic": safe_divide(dollar, equity) if dollar is not None else None,
+                "pct": safe_divide(dollar, value_created) if dollar is not None else None,
+            }
+        )
+    return rows
 
 
 def _derive_ownership(deal, warnings):
@@ -95,6 +147,7 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
     nd0, nd1 = deal.entry_net_debt, deal.exit_net_debt
 
     revenue_available = all(v is not None and abs(v) >= EPS for v in (r0, r1))
+    missing_revenue_both = all(v is None or abs(v) < EPS for v in (r0, r1))
 
     if revenue_available and (e0 <= 0 or e1 <= 0):
         rm0 = safe_divide(ev0, r0)
@@ -103,7 +156,7 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
             warnings.append("Invalid EV/Revenue prevents revenue-multiple fallback bridge.")
             return _empty_bridge(unit=unit, basis=basis)
 
-        company = {
+        company_canonical = {
             "revenue": (r1 - r0) * rm0,
             "margin": 0.0,
             "multiple": (rm1 - rm0) * r1,
@@ -125,7 +178,7 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
             warnings.append("Negative TEV/EBITDA multiple prevents additive bridge.")
             return _empty_bridge(unit=unit, basis=basis)
 
-        company = {
+        company_canonical = {
             "revenue": (r1 - r0) * m0 * x0,
             "margin": r1 * (m1 - m0) * x0,
             "multiple": (x1 - x0) * e1,
@@ -133,7 +186,7 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
         }
         calculation_method = "ebitda_additive"
         fallback_reason = None
-    else:
+    elif missing_revenue_both:
         if any(abs(v) < EPS for v in (e0, e1)):
             warnings.append("Insufficient revenue and non-positive EBITDA prevent additive bridge.")
             return _empty_bridge(unit=unit, basis=basis)
@@ -147,41 +200,46 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
             warnings.append("Negative TEV/EBITDA multiple prevents EBITDA-multiple fallback bridge.")
             return _empty_bridge(unit=unit, basis=basis)
 
-        company = {
-            "revenue": 0.0,
-            "margin": 0.0,
+        company_canonical = {
+            "ebitda_growth": (e1 - e0) * x0,
             "multiple": (x1 - x0) * e1,
             "leverage": nd0 - nd1,
         }
         calculation_method = "ebitda_multiple_fallback"
         fallback_reason = "missing_revenue"
+    else:
+        warnings.append("Partial revenue history prevents additive bridge fallback.")
+        return _empty_bridge(unit=unit, basis=basis)
 
     ownership = _derive_ownership(deal, warnings)
     if ownership is None:
         return _empty_bridge(unit=unit, basis=basis)
 
-    fund = {k: v * ownership for k, v in company.items()}
+    fund_canonical = {k: v * ownership for k, v in company_canonical.items()}
 
     realized = 0.0 if deal.realized_value is None else deal.realized_value
     unrealized = 0.0 if deal.unrealized_value is None else deal.unrealized_value
     fund_value_created = (realized + unrealized) - eq
     company_value_created = safe_divide(fund_value_created, ownership) if ownership > EPS else None
 
-    base_map = _select_basis(company, fund, basis)
+    base_map_canonical = _select_basis(company_canonical, fund_canonical, basis)
     target_value_created = company_value_created if basis == "company" else fund_value_created
 
-    subtotal = sum(base_map.values())
+    subtotal = sum(base_map_canonical.values())
     other = target_value_created - subtotal if target_value_created is not None else None
 
-    company_full = dict(company)
-    fund_full = dict(fund)
-    company_full["other"] = (
-        company_value_created - sum(company.values()) if company_value_created is not None else None
+    company_full_canonical = dict(company_canonical)
+    fund_full_canonical = dict(fund_canonical)
+    company_full_canonical["other"] = (
+        company_value_created - sum(company_canonical.values()) if company_value_created is not None else None
     )
-    fund_full["other"] = fund_value_created - sum(fund.values())
+    fund_full_canonical["other"] = fund_value_created - sum(fund_canonical.values())
 
-    selected_dollars = dict(base_map)
-    selected_dollars["other"] = other
+    selected_canonical_dollars = dict(base_map_canonical)
+    selected_canonical_dollars["other"] = other
+    selected_legacy_dollars = _legacy_alias_map(selected_canonical_dollars, calculation_method)
+    company_legacy_dollars = _legacy_alias_map(company_full_canonical, calculation_method)
+    fund_legacy_dollars = _legacy_alias_map(fund_full_canonical, calculation_method)
 
     return {
         "ready": True,
@@ -190,13 +248,19 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
         "calculation_method": calculation_method,
         "fallback_reason": fallback_reason,
         "ownership_pct": ownership,
-        "drivers": _normalize_unit(selected_dollars, unit, eq, target_value_created),
-        "drivers_dollar": selected_dollars,
+        "drivers": _normalize_unit(selected_legacy_dollars, unit, eq, target_value_created),
+        "drivers_dollar": selected_legacy_dollars,
+        "display_drivers": _build_display_drivers(
+            selected_canonical_dollars,
+            eq,
+            target_value_created,
+            calculation_method,
+        ),
         "value_created": target_value_created,
         "fund_value_created": fund_value_created,
         "company_value_created": company_value_created,
-        "fund_drivers_dollar": fund_full,
-        "company_drivers_dollar": company_full,
+        "fund_drivers_dollar": fund_legacy_dollars,
+        "company_drivers_dollar": company_legacy_dollars,
     }
 
 

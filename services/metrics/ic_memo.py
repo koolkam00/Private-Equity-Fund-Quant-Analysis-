@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date
 import math
 
-from services.metrics.bridge import DRIVERS
+from services.metrics.bridge import STANDARD_DISPLAY_DRIVER_KEYS
 from services.metrics.common import safe_divide
 from services.metrics.deal import compute_deal_metrics
 from services.metrics.portfolio import (
@@ -19,6 +19,7 @@ from services.metrics.risk import compute_loss_and_distribution
 
 DRIVER_LABELS = {
     "revenue": "Revenue Growth",
+    "ebitda_growth": "EBITDA Growth",
     "margin": "Margin Expansion",
     "multiple": "Multiple Expansion",
     "leverage": "Leverage / Debt Paydown",
@@ -252,16 +253,30 @@ def compute_ic_memo_payload(deals, metrics_by_id=None, ranking_basis="weighted_m
     total_value = portfolio["total_value"]
 
     bridge_table_rows = []
-    for driver in DRIVERS:
-        bridge_table_rows.append(
-            {
-                "driver": driver,
-                "label": DRIVER_LABELS[driver],
-                "dollar": bridge["drivers"]["dollar"].get(driver),
-                "moic": bridge["drivers"]["moic"].get(driver),
-                "pct": bridge["drivers"]["pct"].get(driver),
-            }
-        )
+    display_drivers = bridge.get("display_drivers") or []
+    if display_drivers:
+        for row in display_drivers:
+            key = row.get("key")
+            bridge_table_rows.append(
+                {
+                    "driver": key,
+                    "label": row.get("label") or DRIVER_LABELS.get(key, key),
+                    "dollar": row.get("dollar"),
+                    "moic": row.get("moic"),
+                    "pct": row.get("pct"),
+                }
+            )
+    else:
+        for driver in STANDARD_DISPLAY_DRIVER_KEYS:
+            bridge_table_rows.append(
+                {
+                    "driver": driver,
+                    "label": DRIVER_LABELS[driver],
+                    "dollar": bridge["drivers"]["dollar"].get(driver),
+                    "moic": bridge["drivers"]["moic"].get(driver),
+                    "pct": bridge["drivers"]["pct"].get(driver),
+                }
+            )
 
     return {
         "meta": {
@@ -289,6 +304,7 @@ def compute_ic_memo_payload(deals, metrics_by_id=None, ranking_basis="weighted_m
             "ready_count": bridge["ready_count"],
             "start_end": bridge["start_end"],
             "drivers": bridge["drivers"],
+            "display_drivers": bridge.get("display_drivers") or [],
             "table_rows": bridge_table_rows,
         },
         "risk": {
