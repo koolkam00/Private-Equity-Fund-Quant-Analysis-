@@ -444,6 +444,7 @@ def test_dashboard_fund_summary_table(client):
         company_name="Alpha",
         fund_number="Fund I",
         status="Unrealized",
+        investment_date=date(2017, 1, 1),
         equity_invested=100,
         realized_value=0,
         unrealized_value=140,
@@ -456,6 +457,7 @@ def test_dashboard_fund_summary_table(client):
         company_name="Beta",
         fund_number="Fund II",
         status="Fully Realized",
+        investment_date=date(2019, 1, 1),
         equity_invested=120,
         realized_value=210,
         unrealized_value=0,
@@ -470,12 +472,15 @@ def test_dashboard_fund_summary_table(client):
     response = client.get("/dashboard")
     assert response.status_code == 200
     assert b"Fund Summary" in response.data
+    assert b"Vintage Year" in response.data
     assert b"Fund Size" in response.data
     assert b"Net IRR" in response.data
     assert b"Net MOIC" in response.data
     assert b"Net DPI" in response.data
     assert b"Fund I" in response.data
     assert b"Fund II" in response.data
+    assert b"2017" in response.data
+    assert b"2019" in response.data
     assert b"14.0%" in response.data
     assert b"1.80x" in response.data
     assert b"0.40x" in response.data

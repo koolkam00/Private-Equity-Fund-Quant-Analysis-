@@ -98,6 +98,7 @@
         <thead>
             <tr>
                 <th>Fund</th>
+                <th class="num">Vintage Year</th>
                 <th class="num">Fund Size</th>
                 <th class="num">Net IRR</th>
                 <th class="num">Net MOIC</th>
@@ -108,6 +109,7 @@
             {% for row in fund_summary_rows %}
             <tr>
                 <td>{{ row.fund_name }}</td>
+                <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
                 <td class="num">{% if row.conflicts.fund_size %}N/A{% else %}{{ fmt_currency(row.fund_size) }}{% endif %}</td>
                 <td class="num">{% if row.conflicts.net_irr %}N/A{% else %}{{ fmt_pct_1dp(row.net_irr) }}{% endif %}</td>
                 <td class="num">{% if row.conflicts.net_moic %}N/A{% else %}{{ fmt_multiple(row.net_moic) }}{% endif %}</td>

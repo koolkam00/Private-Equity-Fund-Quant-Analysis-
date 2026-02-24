@@ -1017,6 +1017,15 @@ def _build_filtered_deals_context(fund_override=None):
 
 def _build_dashboard_payload(filtered_deals):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
+    fund_vintage_years = {}
+    for deal in filtered_deals:
+        fund_name = deal.fund_number or "Unknown Fund"
+        year = _deal_vintage_year(deal)
+        if year is None:
+            continue
+        existing = fund_vintage_years.get(fund_name)
+        if existing is None or year < existing:
+            fund_vintage_years[fund_name] = year
 
     portfolio = compute_portfolio_analytics(filtered_deals, metrics_by_id=metrics_by_id)
     risk = compute_loss_and_distribution(filtered_deals, metrics_by_id=metrics_by_id)
@@ -1045,6 +1054,7 @@ def _build_dashboard_payload(filtered_deals):
         fund_summary_rows.append(
             {
                 "fund_name": fund.get("fund_name"),
+                "vintage_year": fund_vintage_years.get(fund.get("fund_name")),
                 "fund_size": fund.get("fund_size"),
                 "net_irr": net.get("net_irr"),
                 "net_moic": net.get("net_moic"),
