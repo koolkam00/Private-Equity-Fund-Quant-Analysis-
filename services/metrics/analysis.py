@@ -334,7 +334,7 @@ def compute_underwrite_outcome_analysis(deals, metrics_by_id=None):
         target_rev_cagr = _as_rate(baseline.target_revenue_cagr)
         target_ebitda_cagr = _as_rate(baseline.target_ebitda_cagr)
 
-        actual_irr = deal.irr if deal.irr is not None else metrics.get("implied_irr")
+        actual_irr = deal.irr
         actual_moic = metrics.get("moic")
         actual_hold = metrics.get("hold_period")
         actual_exit_multiple = metrics.get("exit_tev_ebitda")

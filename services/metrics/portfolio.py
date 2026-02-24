@@ -159,6 +159,7 @@ def compute_portfolio_analytics(deals, metrics_by_id=None):
 
     returns = {
         "gross_moic": {"avg": gross_moic, "wavg": gross_moic},
+        "gross_irr": _metric_aggregate(metrics, "gross_irr"),
         "implied_irr": _metric_aggregate(metrics, "implied_irr"),
         "hold_period": _metric_aggregate(metrics, "hold_period"),
     }
@@ -468,7 +469,7 @@ def compute_deal_track_record(deals, metrics_by_id=None):
         ownership_pct = d.ownership_pct
         if ownership_pct is None:
             ownership_pct = (metric.get("bridge_additive_fund") or {}).get("ownership_pct")
-        gross_irr = d.irr if d.irr is not None else metric.get("implied_irr")
+        gross_irr = d.irr
 
         row = {
             "deal_id": d.id,

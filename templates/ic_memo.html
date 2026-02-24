@@ -103,7 +103,7 @@
         <div class="ic-kpi-grid">
             <article class="kpi-card"><span>Total Equity Invested</span><strong>{{ fmt_currency(memo.executive.total_equity) }}</strong></article>
             <article class="kpi-card"><span>Gross MOIC</span><strong>{{ fmt_multiple(memo.executive.gross_moic) }}</strong></article>
-            <article class="kpi-card"><span>Implied IRR (Wtd)</span><strong>{{ fmt_pct_1dp(memo.executive.implied_irr_wtd) }}</strong></article>
+            <article class="kpi-card"><span>Gross IRR (Wtd)</span><strong>{{ fmt_pct_1dp(memo.executive.gross_irr_wtd) }}</strong></article>
             <article class="kpi-card"><span>Total Value Created</span><strong>{{ fmt_currency(memo.executive.total_value_created) }}</strong></article>
             <article class="kpi-card"><span>Realized / Unrealized</span><strong>{{ fmt_pct_1dp(memo.executive.realized_pct_of_value) }} / {{ fmt_pct_1dp(memo.executive.unrealized_pct_of_value) }}</strong></article>
         </div>
@@ -119,7 +119,7 @@
                             <th>Status</th>
                             <th class="num">Value Created</th>
                             <th class="num">MOIC</th>
-                            <th class="num">Implied IRR</th>
+                            <th class="num">Gross IRR</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -130,7 +130,7 @@
                             <td>{{ row.status }}</td>
                             <td class="num">{{ fmt_currency(row.value_created) }}</td>
                             <td class="num">{{ fmt_multiple(row.moic) }}</td>
-                            <td class="num">{{ fmt_pct_1dp(row.implied_irr) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(row.gross_irr) }}</td>
                         </tr>
                         {% else %}
                         <tr><td colspan="6" class="num">No deals available.</td></tr>
@@ -148,7 +148,7 @@
                             <th>Status</th>
                             <th class="num">Value Created</th>
                             <th class="num">MOIC</th>
-                            <th class="num">Implied IRR</th>
+                            <th class="num">Gross IRR</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -159,7 +159,7 @@
                             <td>{{ row.status }}</td>
                             <td class="num">{{ fmt_currency(row.value_created) }}</td>
                             <td class="num">{{ fmt_multiple(row.moic) }}</td>
-                            <td class="num">{{ fmt_pct_1dp(row.implied_irr) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(row.gross_irr) }}</td>
                         </tr>
                         {% else %}
                         <tr><td colspan="6" class="num">No deals available.</td></tr>

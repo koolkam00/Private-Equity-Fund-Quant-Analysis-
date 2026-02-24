@@ -836,6 +836,7 @@ def _empty_dashboard_context():
         },
         "returns": {
             "gross_moic": metric_pair,
+            "gross_irr": metric_pair,
             "implied_irr": metric_pair,
             "hold_period": metric_pair,
         },
@@ -848,7 +849,7 @@ def _empty_dashboard_context():
             "total_value": 0,
             "total_value_created": 0,
             "gross_moic": None,
-            "implied_irr": None,
+            "gross_irr": None,
         },
         "loss": {"count_pct": None, "capital_pct": None, "loss_count": 0, "total_count": 0},
         "moic_distribution": [],
@@ -1063,7 +1064,7 @@ def _build_dashboard_payload(filtered_deals):
         "total_value": portfolio["total_value"],
         "total_value_created": portfolio["total_value_created"],
         "gross_moic": portfolio["returns"]["gross_moic"]["avg"],
-        "implied_irr": portfolio["returns"]["implied_irr"]["wavg"],
+        "gross_irr": portfolio["returns"]["gross_irr"]["wavg"],
     }
 
     return {

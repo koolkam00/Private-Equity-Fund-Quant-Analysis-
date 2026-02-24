@@ -90,6 +90,8 @@ def compute_deal_metrics(deal, as_of_date=None):
 
     m["hold_period"] = deal_hold_years(deal, as_of_date=as_of_date)
     m["implied_irr"] = _implied_irr(m["moic"], m["hold_period"])
+    # Primary IRR for analytics/reporting is uploaded gross IRR from the deal sheet.
+    m["gross_irr"] = deal.irr
 
     if deal.equity_invested is not None and deal.equity_invested < 0:
         m["_warnings"].append("Negative equity invested")

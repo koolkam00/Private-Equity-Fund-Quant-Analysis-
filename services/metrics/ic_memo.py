@@ -61,7 +61,9 @@ def build_top_bottom_deals_by_value_created(deals, metrics_by_id, n=5):
                 "total_value": metrics.get("value_total") or 0.0,
                 "value_created": metrics.get("value_created") or 0.0,
                 "moic": metrics.get("moic"),
-                "implied_irr": metrics.get("implied_irr"),
+                "gross_irr": metrics.get("gross_irr"),
+                # Backward compatibility alias.
+                "implied_irr": metrics.get("gross_irr"),
             }
         )
 
@@ -85,7 +87,7 @@ def _update_group_bucket(bucket, metrics):
     equity = metrics.get("equity") or 0.0
     value_total = metrics.get("value_total") or 0.0
     value_created = metrics.get("value_created") or 0.0
-    irr = metrics.get("implied_irr")
+    irr = metrics.get("gross_irr")
 
     bucket["deal_count"] += 1
     bucket["invested_equity"] += equity
@@ -105,6 +107,8 @@ def _finalize_group_bucket(label, bucket):
         "total_value": bucket["total_value"],
         "value_created": bucket["value_created"],
         "weighted_moic": safe_divide(bucket["total_value"], invested),
+        "weighted_gross_irr": safe_divide(bucket["_irr_num"], bucket["_irr_den"]),
+        # Backward compatibility alias.
         "weighted_implied_irr": safe_divide(bucket["_irr_num"], bucket["_irr_den"]),
     }
 
@@ -177,6 +181,7 @@ def _build_entry_channel_table(dimension_groups):
             "capital_deployed": row["invested_equity"],
             "value_created": row["value_created"],
             "weighted_moic": row["weighted_moic"],
+            "weighted_gross_irr": row["weighted_gross_irr"],
             "weighted_implied_irr": row["weighted_implied_irr"],
         }
         for row in sorted(rows, key=lambda row: row["invested_equity"], reverse=True)
@@ -271,7 +276,9 @@ def compute_ic_memo_payload(deals, metrics_by_id=None, ranking_basis="weighted_m
             "unrealized_value": unrealized_value,
             "total_value": total_value,
             "gross_moic": portfolio["returns"]["gross_moic"]["avg"],
-            "implied_irr_wtd": portfolio["returns"]["implied_irr"]["wavg"],
+            "gross_irr_wtd": portfolio["returns"]["gross_irr"]["wavg"],
+            # Backward compatibility alias.
+            "implied_irr_wtd": portfolio["returns"]["gross_irr"]["wavg"],
             "total_value_created": portfolio["total_value_created"],
             "realized_pct_of_value": safe_divide(realized_value, total_value),
             "unrealized_pct_of_value": safe_divide(unrealized_value, total_value),

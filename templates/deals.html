@@ -145,9 +145,9 @@
                             <td class="num">{{ fmt_multiple(returns.gross_moic.wavg) }}</td>
                         </tr>
                         <tr>
-                            <td>Implied IRR</td>
-                            <td class="num">{{ fmt_pct_1dp(returns.implied_irr.avg) }}</td>
-                            <td class="num">{{ fmt_pct_1dp(returns.implied_irr.wavg) }}</td>
+                            <td>Gross IRR</td>
+                            <td class="num">{{ fmt_pct_1dp(returns.gross_irr.avg) }}</td>
+                            <td class="num">{{ fmt_pct_1dp(returns.gross_irr.wavg) }}</td>
                         </tr>
                         <tr>
                             <td>Hold Period</td>
@@ -209,7 +209,7 @@
                 <th class="num">Realized Value</th>
                 <th class="num">Unrealized Value</th>
                 <th class="num">Gross MOIC</th>
-                <th class="num">Implied IRR</th>
+                <th class="num">Gross IRR</th>
                 <th class="num">Revenue CAGR</th>
                 <th class="num">Revenue Cumulative</th>
                 <th class="num">EBITDA CAGR</th>
@@ -237,7 +237,7 @@
                 <td class="num">{{ fmt_currency(m.realized) }}</td>
                 <td class="num">{{ fmt_currency(m.unrealized) }}</td>
                 <td class="num {% if m.moic is not none and m.moic >= 1 %}value-positive{% elif m.moic is not none %}value-negative{% endif %}">{{ fmt_multiple(m.moic) }}</td>
-                <td class="num {% if m.implied_irr is not none and m.implied_irr >= 0 %}value-positive{% elif m.implied_irr is not none %}value-negative{% endif %}">{{ fmt_pct_1dp(m.implied_irr) }}</td>
+                <td class="num {% if m.gross_irr is not none and m.gross_irr >= 0 %}value-positive{% elif m.gross_irr is not none %}value-negative{% endif %}">{{ fmt_pct_1dp(m.gross_irr) }}</td>
                 <td class="num">{{ fmt_growth_pct(m.revenue_cagr) }}</td>
                 <td class="num">{{ fmt_growth_pct(m.revenue_growth) }}</td>
                 <td class="num">{{ fmt_growth_pct(m.ebitda_cagr) }}</td>

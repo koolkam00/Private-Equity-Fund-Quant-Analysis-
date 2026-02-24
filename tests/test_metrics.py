@@ -322,13 +322,12 @@ def test_track_record_gross_irr_prefers_uploaded_irr():
     assert abs(row["gross_irr"] - 0.25) < 1e-9
 
 
-def test_track_record_gross_irr_falls_back_to_implied_irr():
-    deal = _make_deal(id=1, company_name="Implied IRR Co", irr=None, equity_invested=100, realized_value=170, unrealized_value=0)
+def test_track_record_gross_irr_uses_uploaded_only():
+    deal = _make_deal(id=1, company_name="No Uploaded Gross IRR Co", irr=None, equity_invested=100, realized_value=170, unrealized_value=0)
     metrics = {deal.id: compute_deal_metrics(deal)}
     out = compute_deal_track_record([deal], metrics_by_id=metrics)
     row = out["funds"][0]["rows"][0]
-    assert row["gross_irr"] is not None
-    assert abs(row["gross_irr"] - metrics[deal.id]["implied_irr"]) < 1e-9
+    assert row["gross_irr"] is None
 
 
 def test_track_record_percent_columns_use_fund_invested_and_fund_size():
@@ -633,6 +632,7 @@ def test_underwrite_outcome_uses_deltas_and_coverage(app_context):
         equity_invested=100,
         realized_value=180,
         unrealized_value=0,
+        irr=0.15,
     )
     db.session.add(
         DealUnderwriteBaseline(
