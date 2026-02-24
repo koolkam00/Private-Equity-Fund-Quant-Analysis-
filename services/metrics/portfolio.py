@@ -208,6 +208,7 @@ def compute_portfolio_analytics(deals, metrics_by_id=None):
 def compute_bridge_aggregate(deals, basis="fund"):
     sums = {k: 0.0 for k in DRIVERS}
     ready_count = 0
+    fallback_ready_count = 0
     total_equity = 0.0
     total_value_created = 0.0
 
@@ -228,6 +229,8 @@ def compute_bridge_aggregate(deals, basis="fund"):
             continue
 
         ready_count += 1
+        if bridge.get("calculation_method") == "revenue_multiple_fallback":
+            fallback_ready_count += 1
         for k in DRIVERS:
             v = bridge["drivers_dollar"].get(k)
             if v is not None:
@@ -258,6 +261,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
         "model": "additive",
         "basis": basis,
         "ready_count": ready_count,
+        "fallback_ready_count": fallback_ready_count,
         "drivers": {
             "dollar": sums,
             "moic": moic,

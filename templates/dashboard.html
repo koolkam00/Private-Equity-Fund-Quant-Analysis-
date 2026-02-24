@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, audit_link, fmt_growth_pct %}
+{% from "_macros.html" import fmt_currency, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct %}
 {% block title %}Dashboard — PE Portfolio Lab{% endblock %}
 {% block page_title %}Portfolio Dashboard{% endblock %}
 
@@ -90,6 +90,34 @@
         </div>
     </form>
 </div>
+
+{% if fund_summary_rows %}
+<div class="panel panel-tight">
+    <h3>Fund Summary</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th class="num">Fund Size</th>
+                <th class="num">Net IRR</th>
+                <th class="num">Net MOIC</th>
+                <th class="num">Net DPI</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in fund_summary_rows %}
+            <tr>
+                <td>{{ row.fund_name }}</td>
+                <td class="num">{% if row.conflicts.fund_size %}N/A{% else %}{{ fmt_currency(row.fund_size) }}{% endif %}</td>
+                <td class="num">{% if row.conflicts.net_irr %}N/A{% else %}{{ fmt_pct_1dp(row.net_irr) }}{% endif %}</td>
+                <td class="num">{% if row.conflicts.net_moic %}N/A{% else %}{{ fmt_multiple(row.net_moic) }}{% endif %}</td>
+                <td class="num">{% if row.conflicts.net_dpi %}N/A{% else %}{{ fmt_multiple(row.net_dpi) }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 
 <div class="kpi-grid kpi-grid-wide">
     <div class="kpi-card"><span>Total Deals</span><strong>{{ kpis.total_deals }}</strong></div>

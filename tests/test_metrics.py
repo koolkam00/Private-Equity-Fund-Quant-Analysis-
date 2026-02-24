@@ -18,6 +18,7 @@ from services.metrics import (
     compute_deal_metrics,
     compute_ic_memo_payload,
     compute_deal_track_record,
+    compute_data_quality,
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
     compute_fund_liquidity_analysis,
@@ -175,17 +176,51 @@ def test_negative_tev_multiples_are_treated_as_unavailable():
     metrics = compute_deal_metrics(deal)
     assert metrics["entry_tev_ebitda"] is None
     assert metrics["exit_tev_ebitda"] is None
-    assert metrics["bridge_ready"] is False
-    assert any("Negative TEV/EBITDA" in w for w in metrics["_warnings"])
+    assert metrics["bridge_ready"] is True
+    bridge = metrics["bridge_additive_fund"]
+    assert bridge["calculation_method"] == "revenue_multiple_fallback"
+    assert bridge["fallback_reason"] == "negative_ebitda"
+    assert bridge["drivers_dollar"]["margin"] == 0.0
+    subtotal = sum((bridge["drivers_dollar"].get(k) or 0.0) for k in ("revenue", "margin", "multiple", "leverage", "other"))
+    assert abs(subtotal - metrics["value_created"]) < 1e-9
+    assert any("TEV/EBITDA" in w for w in metrics["_warnings"])
 
 
 def test_negative_tev_ebitda_is_excluded_from_multiple_aggregates():
-    d1 = _make_deal(id=21, equity_invested=100, entry_enterprise_value=100, entry_ebitda=10)
-    d2 = _make_deal(id=22, equity_invested=300, entry_enterprise_value=600, entry_ebitda=-30)
+    d1 = _make_deal(id=21, equity_invested=100, entry_enterprise_value=100, entry_ebitda=10, entry_revenue=10)
+    d2 = _make_deal(id=22, equity_invested=300, entry_enterprise_value=600, entry_ebitda=-30, entry_revenue=-30)
     metrics = {21: compute_deal_metrics(d1), 22: compute_deal_metrics(d2)}
     out = compute_portfolio_analytics([d1, d2], metrics_by_id=metrics)
     assert abs(out["entry"]["tev_ebitda"]["avg"] - 10.0) < 1e-9
     assert abs(out["entry"]["tev_ebitda"]["wavg"] - 10.0) < 1e-9
+    assert abs(out["entry"]["tev_revenue"]["avg"] - (-5.0)) < 1e-9
+    assert abs(out["entry"]["tev_revenue"]["wavg"] - (-12.5)) < 1e-9
+
+
+def test_signed_leverage_ratios_are_preserved():
+    deal = _make_deal(id=23, entry_enterprise_value=100, entry_net_debt=-20, exit_enterprise_value=110, exit_net_debt=-10)
+    metrics = compute_deal_metrics(deal)
+    assert metrics["entry_net_debt_tev"] is not None
+    assert metrics["exit_net_debt_tev"] is not None
+    assert metrics["entry_net_debt_tev"] < 0
+    assert metrics["exit_net_debt_tev"] < 0
+
+
+def test_bridge_aggregate_tracks_fallback_ready_count():
+    d1 = _make_deal(id=24)
+    d2 = _make_deal(id=25, entry_ebitda=-8, exit_ebitda=-4)
+    agg = compute_bridge_aggregate([d1, d2], basis="fund")
+    assert agg["ready_count"] == 2
+    assert agg["fallback_ready_count"] == 1
+
+
+def test_data_quality_bridge_ready_uses_computed_metric_flag():
+    d1 = _make_deal(id=26)
+    d2 = _make_deal(id=27, entry_ebitda=-10, exit_ebitda=-5)
+    d3 = _make_deal(id=28, entry_enterprise_value=-100, exit_enterprise_value=130, entry_ebitda=10, exit_ebitda=12)
+    metrics = {d.id: compute_deal_metrics(d) for d in (d1, d2, d3)}
+    quality = compute_data_quality([d1, d2, d3], metrics)
+    assert quality["bridge_ready"] == 2
 
 
 def test_bridge_aggregate_outputs_three_units():
@@ -518,6 +553,7 @@ def test_methodology_payload_contains_canonical_formula_strings():
     assert by_id["metric-loss-ratio-count"]["formula"] == "(Deals with MOIC < 1.0x / Deals with valid MOIC) * 100"
     assert by_id["metric-loss-ratio-capital"]["formula"] == "(Equity invested in deals with MOIC < 1.0x / Total evaluated equity) * 100"
     assert by_id["metric-bridge-revenue"]["formula"] == "(Exit Revenue - Entry Revenue) * m0 * x0"
+    assert "Entry EBITDA <= 0 or Exit EBITDA <= 0" in by_id["metric-bridge-fallback-negative-ebitda"]["formula"]
     assert by_id["metric-tvpi"]["formula"] == "(Distributed + NAV) / Paid-In"
     assert "Stressed EBITDA = max(0, Current EBITDA * (1 + EBITDA Shock))" in by_id["metric-stress-lab-core"]["formula"]
 

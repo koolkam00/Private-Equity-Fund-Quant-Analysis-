@@ -857,6 +857,7 @@ def _empty_dashboard_context():
             "model": "additive",
             "basis": "fund",
             "ready_count": 0,
+            "fallback_ready_count": 0,
             "drivers": {"dollar": {}, "moic": {}, "pct": {}},
             "total_value_created": 0,
             "total_equity": 0,
@@ -888,6 +889,7 @@ def _empty_dashboard_context():
         "deal_metrics": {},
         "deals": [],
         "data_quality": {"total_deals": 0, "complete_deals": 0, "bridge_ready": 0, "warnings": []},
+        "fund_summary_rows": [],
         "funds": [],
         "statuses": [],
         "sectors": [],
@@ -1033,6 +1035,27 @@ def _build_dashboard_payload(filtered_deals):
     exit_type_performance = compute_exit_type_performance(filtered_deals, metrics_by_id=metrics_by_id)
     lead_partner_scorecard = compute_lead_partner_scorecard(filtered_deals, metrics_by_id=metrics_by_id)
     quality = compute_data_quality(filtered_deals, metrics_by_id)
+    track_record = compute_deal_track_record(filtered_deals, metrics_by_id=metrics_by_id)
+
+    fund_summary_rows = []
+    for fund in track_record.get("funds", []):
+        net = fund.get("net_performance") or {}
+        conflicts = net.get("conflicts") or {}
+        fund_summary_rows.append(
+            {
+                "fund_name": fund.get("fund_name"),
+                "fund_size": fund.get("fund_size"),
+                "net_irr": net.get("net_irr"),
+                "net_moic": net.get("net_moic"),
+                "net_dpi": net.get("net_dpi"),
+                "conflicts": {
+                    "fund_size": bool(fund.get("fund_size_conflict")),
+                    "net_irr": bool(conflicts.get("net_irr")),
+                    "net_moic": bool(conflicts.get("net_moic")),
+                    "net_dpi": bool(conflicts.get("net_dpi")),
+                },
+            }
+        )
 
     kpis = {
         "total_deals": len(filtered_deals),
@@ -1063,6 +1086,7 @@ def _build_dashboard_payload(filtered_deals):
         "lead_partner_scorecard": lead_partner_scorecard,
         "deal_metrics": metrics_by_id,
         "data_quality": quality,
+        "fund_summary_rows": fund_summary_rows,
     }
 
 
@@ -1442,6 +1466,7 @@ def dashboard():
             vintage_series=payload["vintage_series"],
             deal_metrics=payload["deal_metrics"],
             data_quality=payload["data_quality"],
+            fund_summary_rows=payload["fund_summary_rows"],
             funds=filter_ctx["funds"],
             statuses=filter_ctx["statuses"],
             sectors=filter_ctx["sectors"],
@@ -1482,6 +1507,7 @@ def dashboard():
             vintage_series=payload["vintage_series"],
             deal_metrics=payload["deal_metrics"],
             data_quality=payload["data_quality"],
+            fund_summary_rows=payload["fund_summary_rows"],
             funds=filter_ctx["funds"],
             statuses=filter_ctx["statuses"],
             sectors=filter_ctx["sectors"],
@@ -1723,6 +1749,8 @@ def deal_bridge_api(deal_id):
             "value_created": bridge.get("value_created"),
             "fund_value_created": bridge.get("fund_value_created"),
             "company_value_created": bridge.get("company_value_created"),
+            "calculation_method": bridge.get("calculation_method"),
+            "fallback_reason": bridge.get("fallback_reason"),
             "diagnostics": bridge.get("diagnostics", {}),
             "warnings": warnings,
         }

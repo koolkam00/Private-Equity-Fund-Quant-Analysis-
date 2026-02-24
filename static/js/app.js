@@ -253,8 +253,17 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
         if (isAggregate) {
             const readyCount = payload?.ready_count;
             txt += ` | Ready deals: ${Number.isFinite(Number(readyCount)) ? Number(readyCount) : 0}`;
-        } else if (payload.ownership_pct !== null && payload.ownership_pct !== undefined) {
-            txt += ` | Ownership ${(payload.ownership_pct * 100).toFixed(1)}%`;
+            const fallbackReadyCount = Number(payload?.fallback_ready_count);
+            if (Number.isFinite(fallbackReadyCount) && fallbackReadyCount > 0) {
+                txt += ` | Fallback deals: ${fallbackReadyCount}`;
+            }
+        } else {
+            if (payload?.calculation_method === 'revenue_multiple_fallback') {
+                txt += ' | FALLBACK: REVENUE-MULTIPLE METHOD (NEG EBITDA)';
+            }
+            if (payload.ownership_pct !== null && payload.ownership_pct !== undefined) {
+                txt += ` | Ownership ${(payload.ownership_pct * 100).toFixed(1)}%`;
+            }
         }
         diagnosticsEl.textContent = txt;
     }

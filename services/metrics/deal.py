@@ -116,11 +116,7 @@ def compute_deal_metrics(deal, as_of_date=None):
         m["_warnings"],
         "Entry TEV/EBITDA",
     )
-    m["entry_tev_revenue"] = _non_negative_multiple(
-        safe_divide(deal.entry_enterprise_value, deal.entry_revenue),
-        m["_warnings"],
-        "Entry TEV/Revenue",
-    )
+    m["entry_tev_revenue"] = safe_divide(deal.entry_enterprise_value, deal.entry_revenue)
     m["entry_net_debt_ebitda"] = safe_divide(deal.entry_net_debt, deal.entry_ebitda)
     m["entry_net_debt_tev"] = safe_divide(deal.entry_net_debt, deal.entry_enterprise_value)
 
@@ -130,11 +126,7 @@ def compute_deal_metrics(deal, as_of_date=None):
         m["_warnings"],
         "Exit TEV/EBITDA",
     )
-    m["exit_tev_revenue"] = _non_negative_multiple(
-        safe_divide(deal.exit_enterprise_value, deal.exit_revenue),
-        m["_warnings"],
-        "Exit TEV/Revenue",
-    )
+    m["exit_tev_revenue"] = safe_divide(deal.exit_enterprise_value, deal.exit_revenue)
     m["exit_net_debt_ebitda"] = safe_divide(deal.exit_net_debt, deal.exit_ebitda)
     m["exit_net_debt_tev"] = safe_divide(deal.exit_net_debt, deal.exit_enterprise_value)
 

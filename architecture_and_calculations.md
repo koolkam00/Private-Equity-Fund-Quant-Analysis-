@@ -51,6 +51,10 @@ All portfolio statistics include both:
 - Simple averages
 - Equity-weighted averages
 
+Signed-ratio policy:
+- Negative `TEV / EBITDA` is treated as unavailable (`None`).
+- `TEV / Revenue`, `Net Debt / EBITDA`, and `Net Debt / TEV` remain signed when computable.
+
 ### 4.4 Value Creation Bridge (Additive)
 Definitions:
 - `m0 = EBITDA0 / Revenue0`, `m1 = EBITDA1 / Revenue1`
@@ -69,6 +73,16 @@ Ownership scaling:
 
 Fund residual closure:
 - `Other = ValueCreated_fund - (Revenue + Margin + Multiple + Leverage)`
+
+Negative-EBITDA fallback bridge:
+- Trigger: `Entry EBITDA <= 0` or `Exit EBITDA <= 0`
+- Definitions: `rm0 = TEV0 / Revenue0`, `rm1 = TEV1 / Revenue1`
+- Drivers (company basis):
+  - Revenue: `(Revenue1 - Revenue0) * rm0`
+  - Margin: `0`
+  - Multiple: `(rm1 - rm0) * Revenue1`
+  - Leverage: `NetDebt0 - NetDebt1`
+- Residual still closes to observed value created, and ownership scaling remains unchanged.
 
 ### 4.5 Bridge Views
 All bridge drivers are available in:

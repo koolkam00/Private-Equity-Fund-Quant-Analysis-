@@ -25,6 +25,10 @@ def compute_data_quality(deals, metrics_by_id):
     return {
         "total_deals": len(deals),
         "complete_deals": sum(1 for d in deals if d.equity_invested is not None and d.equity_invested > 0),
-        "bridge_ready": sum(1 for d in deals if all(getattr(d, f) is not None for f in BRIDGE_FIELDS)),
+        "bridge_ready": sum(
+            1
+            for d in deals
+            if (metrics_by_id.get(d.id) or {}).get("bridge_ready")
+        ),
         "warnings": warnings,
     }

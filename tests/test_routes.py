@@ -306,6 +306,48 @@ def test_dashboard_filter_context(client):
     assert b"All Exit Types" in response.data
 
 
+def test_dashboard_fund_summary_table(client):
+    d1 = Deal(
+        company_name="Alpha",
+        fund_number="Fund I",
+        status="Unrealized",
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=140,
+        fund_size=500,
+        net_irr=0.14,
+        net_moic=1.8,
+        net_dpi=0.4,
+    )
+    d2 = Deal(
+        company_name="Beta",
+        fund_number="Fund II",
+        status="Fully Realized",
+        equity_invested=120,
+        realized_value=210,
+        unrealized_value=0,
+        fund_size=600,
+        net_irr=0.22,
+        net_moic=2.1,
+        net_dpi=1.1,
+    )
+    db.session.add_all([_with_active_scope(d1), _with_active_scope(d2)])
+    db.session.commit()
+
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"Fund Summary" in response.data
+    assert b"Fund Size" in response.data
+    assert b"Net IRR" in response.data
+    assert b"Net MOIC" in response.data
+    assert b"Net DPI" in response.data
+    assert b"Fund I" in response.data
+    assert b"Fund II" in response.data
+    assert b"14.0%" in response.data
+    assert b"1.80x" in response.data
+    assert b"0.40x" in response.data
+
+
 def test_api_dashboard_series_qualitative_filters(client):
     d1 = Deal(
         company_name="Gamma",
@@ -396,6 +438,7 @@ def test_api_dashboard_series_schema(client):
     mix = payload["value_creation_mix"]
     assert mix["current"] == "fund"
     assert set(mix["series"].keys()) == {"fund", "sector", "exit_type"}
+    assert "fallback_ready_count" in payload["bridge_aggregate"]
 
 
 def test_api_deal_bridge_query_params(client):
@@ -425,6 +468,34 @@ def test_api_deal_bridge_query_params(client):
     assert payload["basis"] == "fund"
     assert payload["start_value"] == 0.0
     assert payload["end_value"] == 1.0
+    assert payload["calculation_method"] == "ebitda_additive"
+    assert payload["fallback_reason"] is None
+
+
+def test_api_deal_bridge_negative_ebitda_uses_fallback_method(client):
+    deal = Deal(
+        company_name="Bridge Fallback Co",
+        equity_invested=100,
+        realized_value=130,
+        unrealized_value=10,
+        entry_revenue=50,
+        exit_revenue=60,
+        entry_ebitda=-10,
+        exit_ebitda=-8,
+        entry_enterprise_value=100,
+        exit_enterprise_value=130,
+        entry_net_debt=30,
+        exit_net_debt=20,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get(f"/api/deals/{deal.id}/bridge?unit=moic&basis=fund")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ready"] is True
+    assert payload["calculation_method"] == "revenue_multiple_fallback"
+    assert payload["fallback_reason"] == "negative_ebitda"
 
 
 def test_api_deal_bridge_rejects_non_additive_model(client):
