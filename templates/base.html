@@ -24,8 +24,8 @@
                 <div class="brand-subtitle">Deal-Level Analytics</div>
             </div>
         </div>
-        {% if app_active_team %}
-        <div class="team-chip">{{ app_active_team.name }}</div>
+        {% if app_active_firm %}
+        <div class="team-chip">{{ app_active_firm.name }}</div>
         {% endif %}
         <nav class="nav">
             <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}"><i
@@ -52,6 +52,8 @@
                     class="bi bi-file-earmark-richtext"></i> IC Memo</a>
             <a href="{{ url_for('methodology') }}" class="nav-item nav-sub {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
+            <a href="{{ url_for('firms') }}" class="nav-item {% if request.endpoint == 'firms' %}active{% endif %}"><i
+                    class="bi bi-building"></i> Manage Firms</a>
             <a href="{{ url_for('funds') }}" class="nav-item {% if request.endpoint == 'funds' %}active{% endif %}"><i
                     class="bi bi-diagram-3"></i> Manage Funds</a>
             <a href="{{ url_for('team') }}" class="nav-item {% if request.endpoint == 'team' %}active{% endif %}"><i
@@ -70,6 +72,16 @@
             </div>
             <div class="header-actions">
                 {% if current_user.is_authenticated %}
+                <form class="global-fund-form" id="global-firm-form" method="POST" action="{{ url_for('select_firm_scope', firm_id=0) }}">
+                    <label>
+                        <span>Active Firm</span>
+                        <select id="global-firm-select" name="firm_scope">
+                            {% for firm in app_firms %}
+                            <option value="{{ firm.id }}" {% if app_active_firm_id == firm.id %}selected{% endif %}>{{ firm.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </form>
                 <form class="global-fund-form" id="global-fund-form" method="POST" action="{{ url_for('select_fund_scope', fund_name='__all__') }}">
                     <label>
                         <span>Active Fund</span>
@@ -110,6 +122,17 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script>
         (function () {
+            const firmSelect = document.getElementById("global-firm-select");
+            const firmForm = document.getElementById("global-firm-form");
+            if (firmSelect && firmForm) {
+                firmSelect.addEventListener("change", () => {
+                    const val = firmSelect.value;
+                    if (!val) return;
+                    firmForm.action = `/firms/${encodeURIComponent(val)}/select`;
+                    firmForm.submit();
+                });
+            }
+
             const select = document.getElementById("global-fund-select");
             const form = document.getElementById("global-fund-form");
             if (!select || !form) return;

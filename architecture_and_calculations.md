@@ -154,36 +154,47 @@ Global filters drive every KPI, table, and chart:
   - Browser-native print (`window.print()`), with page classes and print CSS tuned for audit readability.
 
 ## 9. Tenancy, Authentication, and Scope
-- Access model: invite-only, team-scoped workspaces.
-- Authentication: email/password login.
-- Team isolation: all core tables are scoped by `team_id`.
-- Team-scoped entities:
+- Access model: invite-only accounts (email/password).
+- Team and Firm are separate domains:
+  - Team routes are for collaboration/admin membership.
+  - Analytics data scope is controlled by `firm_id`.
+- Firms are globally visible to authenticated users in this release.
+- Analytics-scoped entities (all include `firm_id`):
   - `deals`
   - `deal_cashflow_events`
   - `deal_quarter_snapshots`
   - `fund_quarter_snapshots`
   - `deal_underwrite_baselines`
   - `upload_issues`
-- Team management routes:
+- Team collaboration routes:
   - `GET /team`
   - `POST /team/invites`
   - `GET/POST /auth/accept-invite/<token>`
+- Firm management/scope routes:
+  - `GET /firms`
+  - `POST /firms/<id>/select`
 
 ### 9.1 Global Fund Scope Precedence
 Fund selection precedence is deterministic:
 1. path fund override (e.g. `/ic-memo/<fund_name>`)
 2. query `fund` parameter
 3. session `active_fund` selected from global selector
-4. all funds in current team
+4. all funds in active firm
 
 Applied consistently through `_build_filtered_deals_context(...)`.
 
+Active firm precedence:
+1. session `active_firm_id`
+2. first firm with data (fallback on empty/invalid session value)
+
 ### 9.2 Upload Replacement Rule
 - Upload parser default mode is `replace_fund`.
+- Deals sheet requires `Firm Name` and workbook must contain exactly one distinct firm.
+- Unknown firm names are auto-created.
 - For each fund found in uploaded Deals sheet:
-  - delete prior team-scoped deals for that fund
+  - delete prior firm-scoped deals for that fund
   - delete dependent supplemental rows for those deals
-  - delete team-scoped fund-quarter snapshots for that fund
+  - delete firm-scoped fund-quarter snapshots for that fund
   - insert newly uploaded rows atomically in one transaction
 - `upload_batch` and `upload_issues` history are preserved for auditability.
 
@@ -198,12 +209,14 @@ Applied consistently through `_build_filtered_deals_context(...)`.
 3. Startup behavior:
   - schema bootstrap via `db.create_all()` + `ensure_schema_updates()`
   - identity bootstrap creates initial admin user/team when no users exist
-  - legacy rows without `team_id` are backfilled to seeded Admin Team
+  - legacy rows without `team_id` are backfilled to seeded Admin Team (compatibility)
+  - legacy rows without `firm_id` are backfilled via team->firm mapping (fallback `Admin Firm`)
 4. First-run steps:
   - sign in with bootstrap admin
-  - open `/team`, generate invite link(s)
+  - open `/firms`, confirm active firm selection
+  - open `/team`, generate invite link(s) for collaborators
   - upload first fund workbook at `/upload`
-  - switch active fund using global header selector
+  - switch active firm/fund using global header selectors
 5. Operations:
   - use managed Postgres snapshots/backups from Render dashboard
   - use `/healthz` for uptime checks

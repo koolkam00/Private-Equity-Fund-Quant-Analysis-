@@ -20,6 +20,7 @@ from models import (
     DealCashflowEvent,
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
+    Firm,
     FundQuarterSnapshot,
     Team,
     TeamInvite,
@@ -119,6 +120,20 @@ def _ensure_unique_team_slug(base_slug):
     return candidate
 
 
+def _slugify_firm_name(name):
+    token = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return token or "firm"
+
+
+def _ensure_unique_firm_slug(base_slug):
+    candidate = base_slug
+    idx = 2
+    while Firm.query.filter_by(slug=candidate).first() is not None:
+        candidate = f"{base_slug}-{idx}"
+        idx += 1
+    return candidate
+
+
 def _hash_invite_token(raw_token):
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
@@ -184,6 +199,49 @@ def _set_active_fund_scope(fund_name):
     session["active_fund"] = fund_name or ""
 
 
+def _active_firm_id_from_session():
+    raw = session.get("active_firm_id")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _set_active_firm_scope(firm_id):
+    if firm_id in (None, ""):
+        session.pop("active_firm_id", None)
+        return
+    session["active_firm_id"] = int(firm_id)
+
+
+def _first_firm_with_data():
+    row = (
+        db.session.query(Deal.firm_id)
+        .filter(Deal.firm_id.isnot(None))
+        .order_by(Deal.firm_id.asc())
+        .first()
+    )
+    if row and row[0]:
+        return db.session.get(Firm, row[0])
+    return Firm.query.order_by(Firm.id.asc()).first()
+
+
+def _resolve_active_firm():
+    firm = None
+    active_firm_id = _active_firm_id_from_session()
+    if active_firm_id is not None:
+        firm = db.session.get(Firm, active_firm_id)
+
+    if firm is None:
+        firm = _first_firm_with_data()
+        if firm is not None:
+            _set_active_firm_scope(firm.id)
+
+    return firm
+
+
 def _bootstrap_identity():
     # Seed default team and admin when no users exist and env bootstrap credentials are provided.
     admin_email = (os.environ.get("BOOTSTRAP_ADMIN_EMAIL") or "").strip().lower()
@@ -230,6 +288,25 @@ def _bootstrap_identity():
         db.session.add(default_team)
         db.session.commit()
 
+    # Ensure there is at least one firm.
+    fallback_firm = Firm.query.filter_by(name="Admin Firm").first()
+    if fallback_firm is None:
+        fallback_firm_slug = _ensure_unique_firm_slug(_slugify_firm_name("Admin Firm"))
+        fallback_firm = Firm(name="Admin Firm", slug=fallback_firm_slug)
+        db.session.add(fallback_firm)
+        db.session.commit()
+
+    # Map teams to firms by name (one-to-one bootstrap mapping).
+    team_to_firm = {}
+    for team in Team.query.order_by(Team.id.asc()).all():
+        firm = Firm.query.filter_by(name=team.name).first()
+        if firm is None:
+            firm_slug = _ensure_unique_firm_slug(_slugify_firm_name(team.name))
+            firm = Firm(name=team.name, slug=firm_slug)
+            db.session.add(firm)
+            db.session.flush()
+        team_to_firm[team.id] = firm.id
+
     changed = False
     for model in (
         Deal,
@@ -243,9 +320,29 @@ def _bootstrap_identity():
         for row in rows:
             row.team_id = default_team.id
             changed = True
+
+    # Backfill firm_id from team->firm mapping; fallback if team is missing.
+    for model in (
+        Deal,
+        DealCashflowEvent,
+        DealQuarterSnapshot,
+        FundQuarterSnapshot,
+        DealUnderwriteBaseline,
+        UploadIssue,
+    ):
+        rows = model.query.filter(model.firm_id.is_(None)).all()
+        for row in rows:
+            if row.team_id is not None and row.team_id in team_to_firm:
+                row.firm_id = team_to_firm[row.team_id]
+            else:
+                row.firm_id = fallback_firm.id
+            changed = True
     if changed:
         db.session.commit()
-        logger.info("Backfilled legacy rows to default team '%s'.", default_team.name)
+        logger.info(
+            "Backfilled legacy rows to default team '%s' and mapped firm scopes.",
+            default_team.name,
+        )
 
 
 def _bootstrap_schema():
@@ -260,6 +357,7 @@ def _is_missing_table_error(exc):
         for marker in (
             "deals",
             "upload_issues",
+            "firms",
             "users",
             "teams",
             "team_memberships",
@@ -290,28 +388,31 @@ def _allowed_file(filename):
 def inject_global_scope_context():
     if not current_user.is_authenticated:
         return {
+            "app_firms": [],
+            "app_active_firm": None,
+            "app_active_firm_id": None,
             "app_funds": [],
             "app_active_fund": "",
             "app_active_team": None,
             "app_active_membership": None,
             "app_team_is_admin": False,
         }
+
     membership = _current_membership()
-    if membership is None:
-        return {
-            "app_funds": [],
-            "app_active_fund": "",
-            "app_active_team": None,
-            "app_active_membership": None,
-            "app_team_is_admin": False,
-        }
-    team = db.session.get(Team, membership.team_id)
+    team = db.session.get(Team, membership.team_id) if membership is not None else None
+    active_firm = _resolve_active_firm()
+    active_firm_id = active_firm.id if active_firm is not None else None
+    firms = Firm.query.order_by(Firm.name.asc()).all()
+
     try:
         funds = sorted(
             {
                 row[0]
                 for row in db.session.query(Deal.fund_number)
-                .filter(Deal.team_id == membership.team_id, Deal.fund_number.isnot(None))
+                .filter(
+                    Deal.firm_id == active_firm_id,
+                    Deal.fund_number.isnot(None),
+                )
                 .distinct()
                 .all()
                 if row[0]
@@ -320,11 +421,14 @@ def inject_global_scope_context():
     except OperationalError:
         funds = []
     return {
+        "app_firms": firms,
+        "app_active_firm": active_firm,
+        "app_active_firm_id": active_firm_id,
         "app_funds": funds,
         "app_active_fund": _active_fund_from_session(),
         "app_active_team": team,
         "app_active_membership": membership,
-        "app_team_is_admin": _is_team_admin(membership),
+        "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
     }
 
 
@@ -606,7 +710,6 @@ def _build_track_record_pdf(track_record):
 
 
 def _handle_upload(parse_func, redirect_route):
-    membership = _require_team_scope()
     if "file" not in request.files:
         flash("No file selected.", "danger")
         return redirect(url_for("upload"))
@@ -628,7 +731,6 @@ def _handle_upload(parse_func, redirect_route):
         try:
             result = parse_func(
                 file_path,
-                team_id=membership.team_id,
                 uploader_user_id=current_user.id,
                 replace_mode="replace_fund",
             )
@@ -637,16 +739,21 @@ def _handle_upload(parse_func, redirect_route):
                 raise
             result = parse_func(
                 file_path,
-                team_id=membership.team_id,
                 uploader_user_id=current_user.id,
                 replace_mode="replace_fund",
             )
         if result["success"] > 0:
             flash(f"Successfully imported {result['success']} deal records (batch {result['batch_id']}).", "success")
+            firm_name = result.get("firm_name")
+            if firm_name:
+                flash(f"Upload firm scope: {firm_name}.", "info")
         replaced_funds = result.get("replaced_funds") or {}
         if replaced_funds:
             replaced_summaries = ", ".join(f"{name} ({count} old deals replaced)" for name, count in replaced_funds.items())
-            flash(f"Replaced existing fund data: {replaced_summaries}.", "info")
+            if result.get("firm_name"):
+                flash(f"Replaced existing fund data in {result['firm_name']}: {replaced_summaries}.", "info")
+            else:
+                flash(f"Replaced existing fund data: {replaced_summaries}.", "info")
         if result.get("duplicates_skipped", 0) > 0:
             flash(f"Skipped {result['duplicates_skipped']} duplicate deal records.", "warning")
         if result.get("quarantined_count", 0) > 0:
@@ -788,15 +895,22 @@ def _empty_dashboard_context():
 
 
 def _build_filtered_deals_context(fund_override=None):
-    membership = _require_team_scope()
-    team_id = membership.team_id
+    membership = _current_membership()
+    active_firm = _resolve_active_firm()
+    firm_id = active_firm.id if active_firm is not None else None
 
     try:
-        all_deals = Deal.query.filter_by(team_id=team_id).all()
+        if firm_id is None:
+            all_deals = []
+        else:
+            all_deals = Deal.query.filter_by(firm_id=firm_id).all()
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
-        all_deals = Deal.query.filter_by(team_id=team_id).all()
+        if firm_id is None:
+            all_deals = []
+        else:
+            all_deals = Deal.query.filter_by(firm_id=firm_id).all()
 
     funds = sorted({d.fund_number for d in all_deals if d.fund_number})
     statuses = sorted({d.status for d in all_deals if d.status})
@@ -854,7 +968,7 @@ def _build_filtered_deals_context(fund_override=None):
         filtered = [d for d in filtered if (d.entry_channel or "Unknown") == current_entry_channel]
 
     return {
-        "team_id": team_id,
+        "firm_id": firm_id,
         "deals": filtered,
         "funds": funds,
         "statuses": statuses,
@@ -876,7 +990,8 @@ def _build_filtered_deals_context(fund_override=None):
         "current_security_type": current_security_type,
         "current_deal_type": current_deal_type,
         "current_entry_channel": current_entry_channel,
-        "active_team": db.session.get(Team, team_id),
+        "active_firm": active_firm,
+        "active_team": db.session.get(Team, membership.team_id) if membership is not None else None,
         "active_membership": membership,
     }
 
@@ -935,11 +1050,11 @@ def _build_dashboard_payload(filtered_deals):
     }
 
 
-def _analysis_route_payload(page, filtered_deals, team_id=None):
+def _analysis_route_payload(page, filtered_deals, firm_id=None):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
 
     if page == "fund-liquidity":
-        return compute_fund_liquidity_analysis(filtered_deals, team_id=team_id)
+        return compute_fund_liquidity_analysis(filtered_deals, firm_id=firm_id)
     if page == "underwrite-outcome":
         return compute_underwrite_outcome_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "valuation-quality":
@@ -1001,29 +1116,29 @@ def _safe_next_url(candidate):
     return None
 
 
-def _purge_fund_for_team(team_id, fund_name):
+def _purge_fund_for_firm(firm_id, fund_name):
     deal_ids = [
         row[0]
         for row in db.session.query(Deal.id)
-        .filter(Deal.team_id == team_id, Deal.fund_number == fund_name)
+        .filter(Deal.firm_id == firm_id, Deal.fund_number == fund_name)
         .all()
     ]
     if deal_ids:
         DealCashflowEvent.query.filter(
-            DealCashflowEvent.team_id == team_id,
+            DealCashflowEvent.firm_id == firm_id,
             DealCashflowEvent.deal_id.in_(deal_ids),
         ).delete(synchronize_session=False)
         DealQuarterSnapshot.query.filter(
-            DealQuarterSnapshot.team_id == team_id,
+            DealQuarterSnapshot.firm_id == firm_id,
             DealQuarterSnapshot.deal_id.in_(deal_ids),
         ).delete(synchronize_session=False)
         DealUnderwriteBaseline.query.filter(
-            DealUnderwriteBaseline.team_id == team_id,
+            DealUnderwriteBaseline.firm_id == firm_id,
             DealUnderwriteBaseline.deal_id.in_(deal_ids),
         ).delete(synchronize_session=False)
 
-    FundQuarterSnapshot.query.filter_by(team_id=team_id, fund_number=fund_name).delete(synchronize_session=False)
-    deleted_deals = Deal.query.filter_by(team_id=team_id, fund_number=fund_name).delete(synchronize_session=False)
+    FundQuarterSnapshot.query.filter_by(firm_id=firm_id, fund_number=fund_name).delete(synchronize_session=False)
+    deleted_deals = Deal.query.filter_by(firm_id=firm_id, fund_number=fund_name).delete(synchronize_session=False)
     db.session.commit()
     return deleted_deals
 
@@ -1068,6 +1183,9 @@ def login():
         user.last_login_at = datetime.utcnow()
         session["active_team_id"] = membership.team_id
         session.setdefault("active_fund", "")
+        first_firm = _first_firm_with_data()
+        if first_firm is not None:
+            session["active_firm_id"] = first_firm.id
         db.session.commit()
 
         return redirect(next_url)
@@ -1081,6 +1199,7 @@ def login():
 def logout():
     logout_user()
     session.pop("active_team_id", None)
+    session.pop("active_firm_id", None)
     session.pop("active_fund", None)
     flash("Signed out.", "info")
     return redirect(url_for("login"))
@@ -1211,22 +1330,74 @@ def accept_invite(token):
         login_user(user)
         session["active_team_id"] = invite.team_id
         session["active_fund"] = ""
+        first_firm = _first_firm_with_data()
+        if first_firm is not None:
+            session["active_firm_id"] = first_firm.id
         flash("Welcome. Your invite has been accepted.", "success")
         return redirect(url_for("dashboard"))
 
     return render_template("accept_invite.html", invite=invite, team=team_obj)
 
 
+@app.route("/firms")
+@login_required
+def firms():
+    firm_rows = (
+        db.session.query(Firm)
+        .order_by(Firm.name.asc())
+        .all()
+    )
+    stats = {}
+    for firm in firm_rows:
+        deal_rows = (
+            db.session.query(Deal)
+            .filter(Deal.firm_id == firm.id)
+            .order_by(Deal.created_at.desc())
+            .all()
+        )
+        fund_count = len({d.fund_number for d in deal_rows if d.fund_number})
+        stats[firm.id] = {
+            "deal_count": len(deal_rows),
+            "fund_count": fund_count,
+            "last_updated": deal_rows[0].created_at if deal_rows else None,
+        }
+
+    return render_template(
+        "firms.html",
+        firm_rows=firm_rows,
+        firm_stats=stats,
+        active_firm_id=_active_firm_id_from_session(),
+    )
+
+
+@app.route("/firms/<int:firm_id>/select", methods=["POST"])
+@login_required
+def select_firm_scope(firm_id):
+    firm = db.session.get(Firm, firm_id)
+    if firm is None:
+        flash("Selected firm was not found.", "warning")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    _set_active_firm_scope(firm.id)
+    _set_active_fund_scope("")
+    flash(f"Switched active firm to {firm.name}.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
 @app.route("/funds")
 @login_required
 def funds():
-    membership = _require_team_scope()
-    rows = (
-        db.session.query(Deal)
-        .filter(Deal.team_id == membership.team_id)
-        .order_by(Deal.fund_number.asc(), Deal.created_at.desc())
-        .all()
-    )
+    active_firm = _resolve_active_firm()
+    firm_id = active_firm.id if active_firm is not None else None
+    if firm_id is None:
+        rows = []
+    else:
+        rows = (
+            db.session.query(Deal)
+            .filter(Deal.firm_id == firm_id)
+            .order_by(Deal.fund_number.asc(), Deal.created_at.desc())
+            .all()
+        )
     funds_map = {}
     for deal in rows:
         fund_name = deal.fund_number or "Unknown Fund"
@@ -1249,7 +1420,7 @@ def funds():
     return render_template(
         "funds.html",
         fund_rows=fund_rows,
-        membership=membership,
+        active_firm=active_firm,
         active_fund=_active_fund_from_session(),
     )
 
@@ -1257,7 +1428,8 @@ def funds():
 @app.route("/funds/<path:fund_name>/select", methods=["POST"])
 @login_required
 def select_fund_scope(fund_name):
-    membership = _require_team_scope()
+    active_firm = _resolve_active_firm()
+    firm_id = active_firm.id if active_firm is not None else None
     decoded = fund_name
     if decoded == "__all__":
         _set_active_fund_scope("")
@@ -1266,12 +1438,12 @@ def select_fund_scope(fund_name):
 
     exists = (
         db.session.query(Deal.id)
-        .filter(Deal.team_id == membership.team_id, Deal.fund_number == decoded)
+        .filter(Deal.firm_id == firm_id, Deal.fund_number == decoded)
         .first()
         is not None
     )
     if not exists:
-        flash("Selected fund was not found in your team workspace.", "warning")
+        flash("Selected fund was not found in the active firm.", "warning")
         return redirect(request.referrer or url_for("dashboard"))
 
     _set_active_fund_scope(decoded)
@@ -1282,14 +1454,15 @@ def select_fund_scope(fund_name):
 @app.route("/funds/<path:fund_name>/delete", methods=["POST"])
 @login_required
 def delete_fund(fund_name):
-    membership = _require_team_scope()
-    if not _is_team_admin(membership):
-        abort(403)
+    active_firm = _resolve_active_firm()
+    if active_firm is None:
+        flash("No active firm selected.", "warning")
+        return redirect(url_for("funds"))
 
-    deleted = _purge_fund_for_team(membership.team_id, fund_name)
+    deleted = _purge_fund_for_firm(active_firm.id, fund_name)
     if _active_fund_from_session() == fund_name:
         _set_active_fund_scope("")
-    flash(f"Deleted fund '{fund_name}' ({deleted} deal rows removed).", "warning")
+    flash(f"Deleted fund '{fund_name}' in {active_firm.name} ({deleted} deal rows removed).", "warning")
     return redirect(url_for("funds"))
 
 
@@ -1421,12 +1594,12 @@ def analysis_page(page):
 
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], team_id=filter_ctx["team_id"])
+        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], team_id=filter_ctx["team_id"])
+        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
 
     return render_template(
         "analysis_page.html",
@@ -1445,12 +1618,12 @@ def analysis_series_api(page):
 
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], team_id=filter_ctx["team_id"])
+        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], team_id=filter_ctx["team_id"])
+        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
 
     return jsonify(
         {
@@ -1526,13 +1699,14 @@ def methodology_alias():
 @app.route("/api/deals/<int:deal_id>/bridge")
 @login_required
 def deal_bridge_api(deal_id):
-    membership = _require_team_scope()
+    active_firm = _resolve_active_firm()
+    firm_id = active_firm.id if active_firm is not None else None
     try:
-        deal = Deal.query.filter_by(id=deal_id, team_id=membership.team_id).first()
+        deal = Deal.query.filter_by(id=deal_id, firm_id=firm_id).first()
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
-        deal = Deal.query.filter_by(id=deal_id, team_id=membership.team_id).first()
+        deal = Deal.query.filter_by(id=deal_id, firm_id=firm_id).first()
     if deal is None:
         abort(404)
 

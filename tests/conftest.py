@@ -10,7 +10,7 @@ TEST_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_run
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 from app import app, db
-from models import Team, TeamMembership, User
+from models import Firm, Team, TeamMembership, User
 
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
@@ -31,23 +31,26 @@ def anonymous_client():
 def client(anonymous_client):
     with app.app_context():
         team = Team(name="Test Team", slug="test-team")
+        firm = Firm(name="Test Firm", slug="test-firm")
         user = User(
             email="tester@example.com",
             password_hash=generate_password_hash("password123"),
             is_active=True,
         )
-        db.session.add_all([team, user])
+        db.session.add_all([team, firm, user])
         db.session.flush()
         db.session.add(TeamMembership(team_id=team.id, user_id=user.id, role="owner"))
         db.session.commit()
 
         user_id = user.id
         team_id = team.id
+        firm_id = firm.id
 
     with anonymous_client.session_transaction() as sess:
         sess["_user_id"] = str(user_id)
         sess["_fresh"] = True
         sess["active_team_id"] = team_id
+        sess["active_firm_id"] = firm_id
         sess["active_fund"] = ""
 
     return anonymous_client

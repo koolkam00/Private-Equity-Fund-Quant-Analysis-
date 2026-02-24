@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_date_monyy %}
+{% block title %}Manage Firms — PE Portfolio Lab{% endblock %}
+{% block page_title %}Manage Firms{% endblock %}
+{% block page_actions %}<span class="record-count">{{ firm_rows|length }} firms</span>{% endblock %}
+
+{% block content %}
+<div class="panel">
+    {% if firm_rows %}
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Firm</th>
+                <th class="num">Fund Count</th>
+                <th class="num">Deal Count</th>
+                <th>Last Updated</th>
+                <th class="num">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for firm in firm_rows %}
+            {% set stats = firm_stats.get(firm.id, {}) %}
+            <tr>
+                <td>{{ firm.name }}</td>
+                <td class="num">{{ stats.get("fund_count", 0) }}</td>
+                <td class="num">{{ stats.get("deal_count", 0) }}</td>
+                <td>{{ fmt_date_monyy(stats.get("last_updated")) if stats.get("last_updated") else "—" }}</td>
+                <td class="num">
+                    <form method="POST" action="{{ url_for('select_firm_scope', firm_id=firm.id) }}" class="inline-form">
+                        <button type="submit" class="btn-upload btn-secondary btn-sm">
+                            {% if active_firm_id == firm.id %}Selected{% else %}Select{% endif %}
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>No firms loaded yet</h3>
+        <a href="{{ url_for('upload') }}" class="btn-link">Upload a firm workbook</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -148,7 +148,7 @@ def _empty_liquidity_payload():
     }
 
 
-def compute_fund_liquidity_analysis(deals, team_id=None):
+def compute_fund_liquidity_analysis(deals, firm_id=None):
     if not deals:
         return _empty_liquidity_payload()
 
@@ -156,8 +156,8 @@ def compute_fund_liquidity_analysis(deals, team_id=None):
     deal_ids = [d.id for d in deals if d.id is not None]
 
     fund_query = FundQuarterSnapshot.query
-    if team_id is not None:
-        fund_query = fund_query.filter(FundQuarterSnapshot.team_id == team_id)
+    if firm_id is not None:
+        fund_query = fund_query.filter(FundQuarterSnapshot.firm_id == firm_id)
     if fund_set:
         fund_query = fund_query.filter(FundQuarterSnapshot.fund_number.in_(fund_set))
     fund_rows = fund_query.order_by(FundQuarterSnapshot.quarter_end.asc(), FundQuarterSnapshot.fund_number.asc()).all()

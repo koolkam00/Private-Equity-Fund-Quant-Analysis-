@@ -11,6 +11,7 @@ Use this checklist before opening the app to external users.
 - [ ] Login is required on protected routes (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`, `/methodology`).
 - [ ] Invite-only onboarding is enforced (`/team` invite flow only).
 - [ ] At least one owner/admin exists in each active team.
+- [ ] At least one firm exists in `/firms` and active firm selector is visible in header.
 - [ ] Bootstrap credentials are rotated after first admin login, or removed from env when no longer needed.
 - [ ] Session cookie settings are confirmed in production:
 - [ ] `SESSION_COOKIE_SECURE=True`
@@ -31,8 +32,8 @@ pg_dump "$DATABASE_URL" > prelaunch_backup.sql
 ```
 
 - [ ] Restore drill completed at least once in a non-production database.
-- [ ] Verified team data isolation after restore (Team A cannot see Team B).
-- [ ] Confirmed re-upload behavior (`replace_fund`) only replaces the same fund within the same team.
+- [ ] Verified firm scope behavior after restore (switching active firm changes visible analytics dataset).
+- [ ] Confirmed re-upload behavior (`replace_fund`) only replaces the same fund within the same firm.
 - [ ] Incident recovery owner is assigned (who performs restore if needed).
 
 ## 3) Smoke Tests (Pre-Go-Live)
@@ -44,12 +45,14 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] Invalid login is rejected.
 - [ ] Owner/admin can create an invite link on `/team`.
 - [ ] Invite acceptance flow creates a user and team membership.
-- [ ] Upload a workbook for `Fund A` and confirm data appears on dashboard.
+- [ ] Upload a workbook for `Firm A / Fund A` and confirm data appears on dashboard.
 - [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
-- [ ] Upload `Fund B` and confirm both funds coexist in the same team.
+- [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
+- [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.
+- [ ] Global firm selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
 - [ ] Global fund selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
 - [ ] Query fund override still works and supersedes session fund for the current request.
-- [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to another team.
+- [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to a non-active firm.
 - [ ] Track record PDF export works (`/track-record/pdf`).
 - [ ] IC memo print-to-PDF works via `window.print()`.
 
@@ -76,6 +79,7 @@ gunicorn wsgi:app
 ## 6) Day-1 Operations
 
 - [ ] Create initial team invites for pilot users.
+- [ ] Create/confirm initial firm list and active-firm ownership expectations.
 - [ ] Confirm support channel and owner for launch-day issues.
 - [ ] Schedule first post-launch backup verification.
 - [ ] Schedule first post-launch security review (credentials, access list, logs).

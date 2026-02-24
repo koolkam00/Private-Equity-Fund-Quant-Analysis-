@@ -2,7 +2,9 @@
 {% from "_macros.html" import fmt_date_monyy %}
 {% block title %}Manage Funds — PE Portfolio Lab{% endblock %}
 {% block page_title %}Manage Funds{% endblock %}
-{% block page_actions %}<span class="record-count">{{ fund_rows|length }} funds</span>{% endblock %}
+{% block page_actions %}
+<span class="record-count">{{ fund_rows|length }} funds{% if active_firm %} · {{ active_firm.name }}{% endif %}</span>
+{% endblock %}
 
 {% block content %}
 <div class="panel">
@@ -29,11 +31,9 @@
                         <button type="submit" class="btn-upload btn-secondary btn-sm">{% if active_fund == row.fund_name %}Selected{% else %}Select{% endif %}</button>
                     </form>
                     <a href="{{ url_for('upload') }}" class="btn-upload btn-secondary btn-sm">Replace via Upload</a>
-                    {% if membership.role in ['owner', 'admin'] %}
                     <form method="POST" action="{{ url_for('delete_fund', fund_name=row.fund_name) }}" class="inline-form" onsubmit="return confirm('Delete fund {{ row.fund_name }} and all related records?');">
                         <button type="submit" class="btn-upload btn-sm btn-danger-soft">Delete</button>
                     </form>
-                    {% endif %}
                 </td>
             </tr>
             {% endfor %}

@@ -1,5 +1,6 @@
 import json
 import math
+import re
 import uuid
 from collections import defaultdict
 
@@ -10,6 +11,7 @@ from models import (
     DealCashflowEvent,
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
+    Firm,
     FundQuarterSnapshot,
     UploadIssue,
     db,
@@ -25,6 +27,10 @@ COLUMN_MAP = {
     "deal name": "company_name",
     "deal": "company_name",
     "portfolio company": "company_name",
+    "firm": "firm_name",
+    "firm name": "firm_name",
+    "pe firm": "firm_name",
+    "manager": "firm_name",
     "fund": "fund_number",
     "fund #": "fund_number",
     "fund number": "fund_number",
@@ -105,6 +111,7 @@ COLUMN_MAP = {
 
 VALID_FIELDS = {
     "company_name",
+    "firm_name",
     "fund_number",
     "sector",
     "geography",
@@ -157,7 +164,7 @@ FLOAT_COLS = {
     "net_dpi",
 }
 INT_COLS = {"year_invested"}
-STR_COLS = {"company_name", "fund_number", "sector", "geography", "status"}
+STR_COLS = {"company_name", "firm_name", "fund_number", "sector", "geography", "status"}
 STR_COLS |= {"exit_type", "lead_partner", "security_type", "deal_type", "entry_channel"}
 
 SHEET_ALIASES = {
@@ -264,11 +271,11 @@ def _normalize_ownership(val):
     return num
 
 
-def _record_issue(issue_report_id, batch_id, team_id, row_num, company, severity, message, payload):
+def _record_issue(issue_report_id, batch_id, firm_id, row_num, company, severity, message, payload):
     db.session.add(
         UploadIssue(
             issue_report_id=issue_report_id,
-            team_id=team_id,
+            firm_id=firm_id,
             upload_batch=batch_id,
             file_type="deals",
             row_number=row_num,
@@ -323,11 +330,15 @@ def _normalize_deal_key(company_name, fund_number):
     return (company.strip().lower(), fund.strip().lower())
 
 
-def _build_deal_lookup(team_id):
+def _build_deal_lookup(firm_id, upload_batch=None):
     by_key = {}
     by_company = defaultdict(list)
 
-    for deal in Deal.query.filter_by(team_id=team_id).all():
+    query = Deal.query.filter_by(firm_id=firm_id)
+    if upload_batch:
+        query = query.filter(Deal.upload_batch == upload_batch)
+
+    for deal in query.all():
         key = _normalize_deal_key(deal.company_name, deal.fund_number)
         if key is None:
             continue
@@ -381,7 +392,7 @@ def _normalize_optional_df(df, column_map, valid_fields, date_cols=None, float_c
     return df
 
 
-def _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, errors):
+def _parse_cashflows_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors):
     count = 0
     df = _normalize_optional_df(
         df,
@@ -401,7 +412,7 @@ def _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, error
         if deal is None:
             msg = f"Cashflows row {row_num}: skipped — {reason}."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
             continue
 
         event_date = clean_val(row.get("event_date"))
@@ -410,7 +421,7 @@ def _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, error
         if event_date is None or amount is None or event_type is None:
             msg = f"Cashflows row {row_num}: skipped — requires Event Date, Event Type, and Amount."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
             continue
 
         db.session.add(
@@ -420,7 +431,7 @@ def _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, error
                 event_type=event_type,
                 amount=float(amount),
                 notes=clean_str(row.get("notes")),
-                team_id=team_id,
+                firm_id=firm_id,
                 upload_batch=batch_id,
             )
         )
@@ -429,7 +440,7 @@ def _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, error
     return count
 
 
-def _parse_deal_quarter_sheet(df, lookup, team_id, issue_report_id, batch_id, errors):
+def _parse_deal_quarter_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors):
     count = 0
     df = _normalize_optional_df(
         df,
@@ -460,14 +471,14 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, issue_report_id, batch_id, er
         if deal is None:
             msg = f"Deal Quarterly row {row_num}: skipped — {reason}."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
             continue
 
         quarter_end = clean_val(row.get("quarter_end"))
         if quarter_end is None:
             msg = f"Deal Quarterly row {row_num}: skipped — Quarter End is required."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
             continue
 
         db.session.add(
@@ -481,7 +492,7 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, issue_report_id, batch_id, er
                 equity_value=clean_val(row.get("equity_value")),
                 valuation_basis=clean_str(row.get("valuation_basis")),
                 source=clean_str(row.get("source")),
-                team_id=team_id,
+                firm_id=firm_id,
                 upload_batch=batch_id,
             )
         )
@@ -490,7 +501,7 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, issue_report_id, batch_id, er
     return count
 
 
-def _parse_fund_quarter_sheet(df, team_id, issue_report_id, batch_id, errors):
+def _parse_fund_quarter_sheet(df, firm_id, issue_report_id, batch_id, errors):
     count = 0
     df = _normalize_optional_df(
         df,
@@ -525,7 +536,7 @@ def _parse_fund_quarter_sheet(df, team_id, issue_report_id, batch_id, errors):
         if fund_number is None or quarter_end is None:
             msg = f"Fund Quarterly row {row_num}: skipped — Fund and Quarter End are required."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, None, "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, None, "warning", msg, row_payload)
             continue
 
         db.session.add(
@@ -537,7 +548,7 @@ def _parse_fund_quarter_sheet(df, team_id, issue_report_id, batch_id, errors):
                 distributed_capital=clean_val(row.get("distributed_capital")),
                 nav=clean_val(row.get("nav")),
                 unfunded_commitment=clean_val(row.get("unfunded_commitment")),
-                team_id=team_id,
+                firm_id=firm_id,
                 upload_batch=batch_id,
             )
         )
@@ -546,7 +557,7 @@ def _parse_fund_quarter_sheet(df, team_id, issue_report_id, batch_id, errors):
     return count
 
 
-def _parse_underwrite_sheet(df, lookup, team_id, issue_report_id, batch_id, errors):
+def _parse_underwrite_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors):
     count = 0
     df = _normalize_optional_df(
         df,
@@ -583,7 +594,7 @@ def _parse_underwrite_sheet(df, lookup, team_id, issue_report_id, batch_id, erro
         if deal is None:
             msg = f"Underwrite row {row_num}: skipped — {reason}."
             errors.append(msg)
-            _record_issue(issue_report_id, batch_id, team_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
             continue
 
         db.session.add(
@@ -596,7 +607,7 @@ def _parse_underwrite_sheet(df, lookup, team_id, issue_report_id, batch_id, erro
                 target_exit_multiple=clean_val(row.get("target_exit_multiple")),
                 target_revenue_cagr=clean_val(row.get("target_revenue_cagr")),
                 target_ebitda_cagr=clean_val(row.get("target_ebitda_cagr")),
-                team_id=team_id,
+                firm_id=firm_id,
                 upload_batch=batch_id,
             )
         )
@@ -605,8 +616,10 @@ def _parse_underwrite_sheet(df, lookup, team_id, issue_report_id, batch_id, erro
     return count
 
 
-def _parse_optional_sheets(workbook, deals_sheet_name, team_id, issue_report_id, batch_id, errors):
-    lookup = _build_deal_lookup(team_id)
+def _parse_optional_sheets(workbook, deals_sheet_name, firm_id, issue_report_id, batch_id, errors):
+    # Limit optional-sheet matching to deals inserted by the current upload batch
+    # to avoid accidental collisions against historical rows in the same firm.
+    lookup = _build_deal_lookup(firm_id, upload_batch=batch_id)
     counts = {
         "cashflows": 0,
         "deal_quarterly": 0,
@@ -627,13 +640,13 @@ def _parse_optional_sheets(workbook, deals_sheet_name, team_id, issue_report_id,
             continue
 
         if key == "cashflows":
-            counts[key] = _parse_cashflows_sheet(df, lookup, team_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_cashflows_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors)
         elif key == "deal_quarterly":
-            counts[key] = _parse_deal_quarter_sheet(df, lookup, team_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_deal_quarter_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors)
         elif key == "fund_quarterly":
-            counts[key] = _parse_fund_quarter_sheet(df, team_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_fund_quarter_sheet(df, firm_id, issue_report_id, batch_id, errors)
         elif key == "underwrite":
-            counts[key] = _parse_underwrite_sheet(df, lookup, team_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_underwrite_sheet(df, lookup, firm_id, issue_report_id, batch_id, errors)
 
     return counts
 
@@ -644,36 +657,36 @@ def _fund_filter_expr(column, fund_name):
     return column == fund_name
 
 
-def _replace_existing_fund_data(team_id, fund_names):
+def _replace_existing_fund_data(firm_id, fund_names):
     replaced = {}
     for fund_name in sorted(fund_names, key=lambda v: (v is None, v or "")):
         fund_display = fund_name or "Unknown Fund"
         deal_ids = [
             row[0]
             for row in db.session.query(Deal.id)
-            .filter(Deal.team_id == team_id, _fund_filter_expr(Deal.fund_number, fund_name))
+            .filter(Deal.firm_id == firm_id, _fund_filter_expr(Deal.fund_number, fund_name))
             .all()
         ]
         if deal_ids:
             DealCashflowEvent.query.filter(
-                DealCashflowEvent.team_id == team_id,
+                DealCashflowEvent.firm_id == firm_id,
                 DealCashflowEvent.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
             DealQuarterSnapshot.query.filter(
-                DealQuarterSnapshot.team_id == team_id,
+                DealQuarterSnapshot.firm_id == firm_id,
                 DealQuarterSnapshot.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
             DealUnderwriteBaseline.query.filter(
-                DealUnderwriteBaseline.team_id == team_id,
+                DealUnderwriteBaseline.firm_id == firm_id,
                 DealUnderwriteBaseline.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
 
         FundQuarterSnapshot.query.filter(
-            FundQuarterSnapshot.team_id == team_id,
+            FundQuarterSnapshot.firm_id == firm_id,
             _fund_filter_expr(FundQuarterSnapshot.fund_number, fund_name),
         ).delete(synchronize_session=False)
         deleted_deals = Deal.query.filter(
-            Deal.team_id == team_id,
+            Deal.firm_id == firm_id,
             _fund_filter_expr(Deal.fund_number, fund_name),
         ).delete(synchronize_session=False)
         replaced[fund_display] = deleted_deals
@@ -681,7 +694,37 @@ def _replace_existing_fund_data(team_id, fund_names):
     return replaced
 
 
-def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace_fund"):
+def _slugify_firm_name(name):
+    token = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return token or "firm"
+
+
+def _ensure_unique_firm_slug(base_slug):
+    candidate = base_slug
+    idx = 2
+    while Firm.query.filter_by(slug=candidate).first() is not None:
+        candidate = f"{base_slug}-{idx}"
+        idx += 1
+    return candidate
+
+
+def _resolve_or_create_firm(firm_name):
+    normalized = clean_str(firm_name)
+    if not normalized:
+        return None
+
+    existing = Firm.query.filter_by(name=normalized).first()
+    if existing is not None:
+        return existing
+
+    slug = _ensure_unique_firm_slug(_slugify_firm_name(normalized))
+    firm = Firm(name=normalized, slug=slug)
+    db.session.add(firm)
+    db.session.flush()
+    return firm
+
+
+def parse_deals(file_path, uploader_user_id=None, replace_mode="replace_fund"):
     """Parse deal-level template and insert rows.
 
     Supports a multi-sheet workbook:
@@ -693,7 +736,6 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
     Args:
         file_path: Local path to uploaded workbook.
-        team_id: Team scope for all inserted/validated records.
         uploader_user_id: Optional uploader identity for audit extensions.
         replace_mode: "replace_fund" (default) or append-like mode.
 
@@ -734,6 +776,18 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
         }
 
+    if "firm_name" not in df.columns:
+        return {
+            "success": 0,
+            "errors": ["Could not find a required 'Firm Name' column in the Deals sheet."],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+        }
+
     df = df[[c for c in df.columns if c in VALID_FIELDS]]
 
     for col in DATE_COLS & set(df.columns):
@@ -748,6 +802,49 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     for col in STR_COLS & set(df.columns):
         df[col] = df[col].astype(str).replace("nan", None)
 
+    non_empty_mask = ~df.isna().all(axis=1)
+    firm_values = []
+    missing_firm_rows = []
+    for idx, row in df[non_empty_mask].iterrows():
+        firm_val = clean_str(row.get("firm_name"))
+        if firm_val:
+            firm_values.append(firm_val)
+        else:
+            missing_firm_rows.append(idx + 2)
+
+    if missing_firm_rows:
+        return {
+            "success": 0,
+            "errors": [f"Firm Name is required on Deals rows: {', '.join(str(r) for r in missing_firm_rows[:20])}"],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": len(missing_firm_rows),
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "replaced_funds": {},
+        }
+
+    distinct_firms = sorted(set(firm_values))
+    if len(distinct_firms) != 1:
+        return {
+            "success": 0,
+            "errors": [
+                "Deals sheet must contain exactly one Firm Name per upload. "
+                f"Found {len(distinct_firms)}: {', '.join(distinct_firms[:10])}"
+            ],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "replaced_funds": {},
+        }
+
+    firm = _resolve_or_create_firm(distinct_firms[0])
+    firm_id = firm.id
+
     if replace_mode == "replace_fund":
         uploaded_funds = set()
         if "fund_number" in df.columns:
@@ -755,7 +852,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 uploaded_funds.add(clean_str(fund_raw))
         else:
             uploaded_funds.add(None)
-        replaced_funds = _replace_existing_fund_data(team_id, uploaded_funds)
+        replaced_funds = _replace_existing_fund_data(firm_id, uploaded_funds)
         db.session.flush()
         db.session.expunge_all()
     else:
@@ -763,7 +860,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
     existing_keys = {
         (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
-        for d in Deal.query.filter_by(team_id=team_id).all()
+        for d in Deal.query.filter_by(firm_id=firm_id).all()
         if d.company_name
     }
 
@@ -785,7 +882,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             msg = f"Row {row_num}: Quarantined — missing company name."
             errors.append(msg)
             quarantined_count += 1
-            _record_issue(issue_report_id, batch_id, team_id, row_num, None, "error", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, None, "error", msg, row_payload)
             continue
 
         fund_val = clean_str(row.get("fund_number")) or ""
@@ -794,7 +891,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             msg = f"Row {row_num}: Skipped duplicate — '{company}' already exists."
             errors.append(msg)
             duplicates_skipped += 1
-            _record_issue(issue_report_id, batch_id, team_id, row_num, str(company).strip(), "warning", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, str(company).strip(), "warning", msg, row_payload)
             continue
         existing_keys.add(deal_key)
 
@@ -832,7 +929,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 security_type=security_type_val,
                 deal_type=deal_type_val,
                 entry_channel=entry_channel_val,
-                team_id=team_id,
+                firm_id=firm_id,
                 investment_date=investment_date,
                 year_invested=year_invested_val,
                 exit_date=clean_val(row.get("exit_date")),
@@ -860,7 +957,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 msg = f"Row {row_num}: Quarantined — negative equity invested ({deal.equity_invested})."
                 errors.append(msg)
                 quarantined_count += 1
-                _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "error", msg, row_payload)
+                _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "error", msg, row_payload)
                 continue
 
             if deal.investment_date and deal.exit_date and deal.exit_date < deal.investment_date:
@@ -870,18 +967,18 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 )
                 errors.append(msg)
                 quarantined_count += 1
-                _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "error", msg, row_payload)
+                _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "error", msg, row_payload)
                 continue
 
             if ownership is not None and ownership > 1.5:
                 msg = f"Row {row_num}: Ownership {ownership:.2%} is above expected range."
                 errors.append(msg)
-                _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "warning", msg, row_payload)
+                _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
 
             for warn in _warn_extreme_multiples(deal):
                 msg = f"Row {row_num}: {warn}"
                 errors.append(msg)
-                _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "warning", msg, row_payload)
+                _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
 
             bridge_fields = [
                 deal.entry_revenue,
@@ -896,7 +993,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             if not all(v is not None for v in bridge_fields):
                 msg = f"Row {row_num}: Missing entry/exit fields for full bridge decomposition."
                 errors.append(msg)
-                _record_issue(issue_report_id, batch_id, team_id, row_num, deal.company_name, "warning", msg, row_payload)
+                _record_issue(issue_report_id, batch_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
             else:
                 bridge_complete += 1
 
@@ -906,10 +1003,10 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             msg = f"Row {row_num}: Quarantined — {str(exc)}"
             errors.append(msg)
             quarantined_count += 1
-            _record_issue(issue_report_id, batch_id, team_id, row_num, str(company).strip(), "error", msg, row_payload)
+            _record_issue(issue_report_id, batch_id, firm_id, row_num, str(company).strip(), "error", msg, row_payload)
 
     db.session.flush()
-    supplemental_counts = _parse_optional_sheets(workbook, deals_sheet_name, team_id, issue_report_id, batch_id, errors)
+    supplemental_counts = _parse_optional_sheets(workbook, deals_sheet_name, firm_id, issue_report_id, batch_id, errors)
     db.session.commit()
 
     return {
@@ -922,4 +1019,6 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         "issue_report_id": issue_report_id,
         "supplemental_counts": supplemental_counts,
         "replaced_funds": replaced_funds,
+        "firm_name": firm.name,
+        "firm_id": firm.id,
     }

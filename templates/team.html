@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Team — PE Portfolio Lab{% endblock %}
-{% block page_title %}Team{% endblock %}
+{% block title %}Team Collaboration — PE Portfolio Lab{% endblock %}
+{% block page_title %}Team Collaboration{% endblock %}
 {% block page_actions %}{% if team %}<span class="record-count">{{ team.name }}</span>{% endif %}{% endblock %}
 
 {% block content %}
@@ -31,6 +31,7 @@
 
     <section>
         <h3>Invites</h3>
+        <p class="tiny">Teams manage collaboration and access. Data analytics scope is controlled by the active firm selector.</p>
         {% if membership.role in ['owner', 'admin'] %}
         <form method="POST" action="{{ url_for('create_team_invite') }}" class="auth-form">
             <label class="filter-field">

@@ -21,7 +21,7 @@
                 <span class="file-name"></span>
             </label>
             <p class="tiny">
-                Required core fields: Company Name, Fund, Sector, Status, Investment Date, Equity Invested,
+                Required core fields: Firm Name, Company Name, Fund, Sector, Status, Investment Date, Equity Invested,
                 Realized Value, Unrealized Value, Entry/Exit Revenue, EBITDA, TEV, Net Debt.
             </p>
             <p class="tiny">
@@ -35,8 +35,8 @@
             The <strong>Deals</strong> sheet remains the only required sheet.
         </p>
         <p class="tiny">
-            Upload behavior: rows are scoped to your team workspace. When a workbook includes a fund that already exists,
-            the app replaces that fund's prior data in your team with the newly uploaded version.
+            Upload behavior: each workbook must contain exactly one Firm Name in the Deals sheet. If the firm does not
+            exist yet, it is created automatically. Fund replacement runs within that firm only.
         </p>
         <button type="submit" class="btn-upload">Upload Deals</button>
     </form>
