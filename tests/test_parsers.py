@@ -108,6 +108,10 @@ def test_parse_deals_valid(app_context):
         assert abs(deal.net_moic - 2.1) < 1e-9
         assert abs(deal.net_dpi - 1.9) < 1e-9
         assert result["firm_name"] == firm_name
+        assert result["firm_currency"] == "USD"
+        firm = Firm.query.filter_by(id=result["firm_id"]).first()
+        assert firm is not None
+        assert firm.base_currency == "USD"
         assert TeamFirmAccess.query.filter_by(team_id=team.id, firm_id=result["firm_id"]).count() == 1
     finally:
         os.remove(file_path)
@@ -166,6 +170,7 @@ def test_parse_deals_auto_creates_unknown_firm(app_context):
         firm = Firm.query.filter_by(name=firm_name).first()
         assert firm is not None
         assert result["firm_id"] == firm.id
+        assert firm.base_currency == "USD"
         assert Deal.query.filter_by(company_name="Auto Co", firm_id=firm.id, team_id=team.id).count() == 1
         assert TeamFirmAccess.query.filter_by(team_id=team.id, firm_id=firm.id).count() == 1
     finally:
@@ -194,6 +199,93 @@ def test_parse_deals_new_firm_not_auto_granted_to_other_teams(app_context):
         assert result["success"] == 1
         assert TeamFirmAccess.query.filter_by(team_id=team_a_id, firm_id=result["firm_id"]).count() == 1
         assert TeamFirmAccess.query.filter_by(team_id=team_b_id, firm_id=result["firm_id"]).count() == 0
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_normalizes_lowercase_firm_currency(app_context):
+    team = create_team()
+    firm_name = f"Currency Firm {uuid.uuid4().hex[:6]}"
+    data = {
+        "Firm Name": [firm_name],
+        "Firm Currency": ["eur"],
+        "Company Name": ["FX Co"],
+        "Fund": ["Fund FX"],
+        "Equity Invested": [100],
+        "Realized Value": [130],
+        "Unrealized Value": [0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 1
+        assert result["firm_currency"] == "EUR"
+        firm = Firm.query.filter_by(id=result["firm_id"]).first()
+        assert firm is not None
+        assert firm.base_currency == "EUR"
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_rejects_mixed_firm_currencies(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Firm Multi CCY", "Firm Multi CCY"],
+        "Firm Currency": ["USD", "EUR"],
+        "Company Name": ["Co A", "Co B"],
+        "Fund": ["Fund I", "Fund I"],
+        "Equity Invested": [100, 120],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 0
+        assert any("exactly one Firm Currency" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_rejects_invalid_firm_currency(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Firm Invalid CCY"],
+        "Firm Currency": ["USDX"],
+        "Company Name": ["Co A"],
+        "Fund": ["Fund I"],
+        "Equity Invested": [100],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 0
+        assert any("Firm Currency must be a valid ISO-3 code" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_updates_existing_firm_currency_from_upload(app_context):
+    team = create_team()
+    firm = create_firm("Update Currency Firm")
+    firm.base_currency = "USD"
+    db.session.commit()
+
+    data = {
+        "Firm Name": [firm.name],
+        "Firm Currency": ["GBP"],
+        "Company Name": ["Co New"],
+        "Fund": ["Fund U"],
+        "Equity Invested": [100],
+        "Realized Value": [120],
+        "Unrealized Value": [0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 1
+        assert result["firm_currency"] == "GBP"
+        refreshed = Firm.query.filter_by(id=firm.id).first()
+        assert refreshed is not None
+        assert refreshed.base_currency == "GBP"
     finally:
         os.remove(file_path)
 

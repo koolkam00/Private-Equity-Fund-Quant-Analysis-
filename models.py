@@ -184,6 +184,7 @@ class Firm(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(255), nullable=False, unique=True, index=True)
     slug = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    base_currency = db.Column(db.String(3), nullable=False, default="USD")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
     def __repr__(self):
@@ -323,6 +324,16 @@ def ensure_schema_updates():
     FundQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
     DealUnderwriteBaseline.__table__.create(bind=engine, checkfirst=True)
     inspector = inspect(engine)
+
+    _ensure_column(engine, inspector, "firms", "base_currency", "VARCHAR(3)", default_sql="'USD'")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE firms SET base_currency = UPPER(TRIM(base_currency)) WHERE base_currency IS NOT NULL"))
+        conn.execute(
+            text(
+                "UPDATE firms SET base_currency = 'USD' "
+                "WHERE base_currency IS NULL OR TRIM(base_currency) = '' OR LENGTH(TRIM(base_currency)) <> 3"
+            )
+        )
 
     _ensure_column(engine, inspector, "deal_cashflow_events", "deal_id", "INTEGER")
     _ensure_column(engine, inspector, "deal_cashflow_events", "event_date", "DATE")

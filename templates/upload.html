@@ -25,6 +25,10 @@
                 Realized Value, Unrealized Value, Entry/Exit Revenue, EBITDA, TEV, Net Debt.
             </p>
             <p class="tiny">
+                Optional firm-level field: <strong>Firm Currency</strong> (ISO-3 code such as USD/EUR/GBP). If omitted
+                or blank, default currency is <strong>USD</strong>.
+            </p>
+            <p class="tiny">
                 Additional qualitative fields supported for filtering: Geography, Year Invested, Ownership %,
                 Exit Type, Lead Partner, Security Type, Deal Type, Entry Channel. Optional track-record fields:
                 Fund Size, Net IRR, Net MOIC, DPI. Missing optional fields are auto-filled with default labels.
@@ -36,7 +40,8 @@
             </p>
             <p class="tiny">
                 Upload behavior: each workbook must contain exactly one Firm Name in the Deals sheet. If the firm does
-                not exist yet, it is created automatically. Fund replacement runs within that firm only.
+                not exist yet, it is created automatically. If Firm Currency is provided, it sets that firm's base
+                currency (ISO-3); fund replacement runs within that firm only.
             </p>
             <button type="submit" class="btn-upload">Upload Deals</button>
         </form>

@@ -47,10 +47,15 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] Owner/admin can create an invite link on `/team`.
 - [ ] Invite acceptance flow creates a user and team membership.
 - [ ] Upload a workbook for `Firm A / Fund A` and confirm data appears on dashboard.
+- [ ] Confirm `Firm Currency` upload behavior:
+- [ ] Missing/blank `Firm Currency` defaults to `USD`.
+- [ ] Valid ISO-3 values (for example `EUR`) are accepted and reflected in UI.
+- [ ] Mixed currencies in one workbook are rejected.
 - [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
 - [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
 - [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.
 - [ ] Global firm selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
+- [ ] Currency labels/values switch with active firm across dashboard, deals, track record, and bridge charts.
 - [ ] Query fund filter still works as a request-level override for that page view.
 - [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to a non-active firm.
 - [ ] Track record PDF export works (`/track-record/pdf`).

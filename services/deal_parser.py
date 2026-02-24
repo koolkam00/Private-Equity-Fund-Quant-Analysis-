@@ -17,7 +17,7 @@ from models import (
     UploadIssue,
     db,
 )
-from services.utils import clean_str, clean_val
+from services.utils import DEFAULT_CURRENCY_CODE, clean_str, clean_val, normalize_currency_code
 
 
 COLUMN_MAP = {
@@ -32,6 +32,10 @@ COLUMN_MAP = {
     "firm name": "firm_name",
     "pe firm": "firm_name",
     "manager": "firm_name",
+    "currency": "firm_currency",
+    "firm currency": "firm_currency",
+    "base currency": "firm_currency",
+    "reporting currency": "firm_currency",
     "fund": "fund_number",
     "fund #": "fund_number",
     "fund number": "fund_number",
@@ -113,6 +117,7 @@ COLUMN_MAP = {
 VALID_FIELDS = {
     "company_name",
     "firm_name",
+    "firm_currency",
     "fund_number",
     "sector",
     "geography",
@@ -165,7 +170,7 @@ FLOAT_COLS = {
     "net_dpi",
 }
 INT_COLS = {"year_invested"}
-STR_COLS = {"company_name", "firm_name", "fund_number", "sector", "geography", "status"}
+STR_COLS = {"company_name", "firm_name", "firm_currency", "fund_number", "sector", "geography", "status"}
 STR_COLS |= {"exit_type", "lead_partner", "security_type", "deal_type", "entry_channel"}
 
 SHEET_ALIASES = {
@@ -714,17 +719,21 @@ def _ensure_unique_firm_slug(base_slug):
     return candidate
 
 
-def _resolve_or_create_firm(firm_name):
+def _resolve_or_create_firm(firm_name, base_currency=DEFAULT_CURRENCY_CODE):
     normalized = clean_str(firm_name)
     if not normalized:
         return None
+    normalized_currency = normalize_currency_code(base_currency, default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
 
     existing = Firm.query.filter_by(name=normalized).first()
     if existing is not None:
+        if (existing.base_currency or "").upper() != normalized_currency:
+            existing.base_currency = normalized_currency
+            db.session.flush()
         return existing
 
     slug = _ensure_unique_firm_slug(_slugify_firm_name(normalized))
-    firm = Firm(name=normalized, slug=slug)
+    firm = Firm(name=normalized, slug=slug, base_currency=normalized_currency)
     db.session.add(firm)
     db.session.flush()
     return firm
@@ -750,6 +759,8 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
     Supports a multi-sheet workbook:
     - Deals (required)
+      - Firm Name required (single distinct value)
+      - Firm Currency optional ISO-3 (defaults to USD)
     - Cashflows (optional)
     - Deal Quarterly (optional)
     - Fund Quarterly (optional)
@@ -864,7 +875,45 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "replaced_funds": {},
         }
 
-    firm = _resolve_or_create_firm(distinct_firms[0])
+    currency_values = []
+    if "firm_currency" in df.columns:
+        for _, row in df[non_empty_mask].iterrows():
+            code = normalize_currency_code(row.get("firm_currency"), default=None)
+            if code is None and clean_str(row.get("firm_currency")) is not None:
+                return {
+                    "success": 0,
+                    "errors": [
+                        "Firm Currency must be a valid ISO-3 code (e.g., USD, EUR, GBP) for all Deals rows."
+                    ],
+                    "batch_id": batch_id,
+                    "bridge_complete": 0,
+                    "duplicates_skipped": 0,
+                    "quarantined_count": 0,
+                    "issue_report_id": issue_report_id,
+                    "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+                    "replaced_funds": {},
+                }
+            if code:
+                currency_values.append(code)
+    distinct_currencies = sorted(set(currency_values))
+    if len(distinct_currencies) > 1:
+        return {
+            "success": 0,
+            "errors": [
+                "Deals sheet must contain exactly one Firm Currency per upload. "
+                f"Found {len(distinct_currencies)}: {', '.join(distinct_currencies[:10])}"
+            ],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "replaced_funds": {},
+        }
+    firm_currency = distinct_currencies[0] if distinct_currencies else DEFAULT_CURRENCY_CODE
+
+    firm = _resolve_or_create_firm(distinct_firms[0], base_currency=firm_currency)
     firm_id = firm.id
     _ensure_team_firm_access(team_id, firm_id, created_by_user_id=uploader_user_id)
 
@@ -1045,4 +1094,5 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         "replaced_funds": replaced_funds,
         "firm_name": firm.name,
         "firm_id": firm.id,
+        "firm_currency": firm.base_currency or DEFAULT_CURRENCY_CODE,
     }

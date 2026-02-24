@@ -23,6 +23,12 @@ Primary fields used in analytics:
 - Investment values: equity invested, realized value, unrealized value
 - Entry/Exit financials: revenue, EBITDA, TEV, net debt
 - Optional ownership override: `ownership_pct`
+- Firm metadata: `firms.base_currency` (ISO-3, default `USD`)
+
+Currency policy:
+- No FX conversion is applied in analytics.
+- All monetary values are interpreted and displayed in the active firm's base currency.
+- UI and PDF money rendering use `CODE + symbol` (for example, `USD $123.4M`).
 
 ## 4. Calculation Framework
 
@@ -207,7 +213,11 @@ Active firm precedence:
 ### 9.2 Upload Replacement Rule
 - Upload parser default mode is `replace_fund`.
 - Deals sheet requires `Firm Name` and workbook must contain exactly one distinct firm.
+- Deals sheet optional `Firm Currency` must be a valid ISO-3 code when present.
+- If `Firm Currency` is missing/blank, firm currency defaults to `USD`.
+- Each workbook must resolve to exactly one currency value after normalization.
 - Unknown firm names are auto-created.
+- Existing firm currency is updated from the uploaded workbook when a different valid `Firm Currency` is provided.
 - For each fund found in uploaded Deals sheet:
   - delete prior firm-scoped deals for that fund
   - delete dependent supplemental rows for those deals

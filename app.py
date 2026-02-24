@@ -57,6 +57,13 @@ from services.metrics import (
     compute_valuation_quality_analysis,
     compute_vintage_series,
 )
+from services.utils import (
+    DEFAULT_CURRENCY_CODE,
+    currency_symbol,
+    currency_unit_label,
+    format_currency_millions,
+    normalize_currency_code,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -105,6 +112,12 @@ TEAM_ROLE_OWNER = "owner"
 TEAM_ROLE_ADMIN = "admin"
 TEAM_ROLE_MEMBER = "member"
 TEAM_ALLOWED_ROLES = {TEAM_ROLE_OWNER, TEAM_ROLE_ADMIN, TEAM_ROLE_MEMBER}
+
+
+def _firm_currency_code(firm):
+    if firm is None:
+        return DEFAULT_CURRENCY_CODE
+    return normalize_currency_code(getattr(firm, "base_currency", None), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
 
 
 def _slugify_team_name(name):
@@ -421,10 +434,15 @@ def _allowed_file(filename):
 @app.context_processor
 def inject_global_scope_context():
     if not current_user.is_authenticated:
+        code = DEFAULT_CURRENCY_CODE
         return {
             "app_firms": [],
             "app_active_firm": None,
             "app_active_firm_id": None,
+            "app_currency_code": code,
+            "app_currency_symbol": currency_symbol(code) or "",
+            "app_currency_unit_label": currency_unit_label(code),
+            "fmt_currency_millions": format_currency_millions,
             "app_active_team": None,
             "app_active_membership": None,
             "app_team_is_admin": False,
@@ -434,11 +452,16 @@ def inject_global_scope_context():
     team = db.session.get(Team, membership.team_id) if membership is not None else None
     active_firm = _resolve_active_firm_for_team()
     active_firm_id = active_firm.id if active_firm is not None else None
+    currency_code = _firm_currency_code(active_firm)
     firms = _accessible_firms_for_current_team()
     return {
         "app_firms": firms,
         "app_active_firm": active_firm,
         "app_active_firm_id": active_firm_id,
+        "app_currency_code": currency_code,
+        "app_currency_symbol": currency_symbol(currency_code) or "",
+        "app_currency_unit_label": currency_unit_label(currency_code),
+        "fmt_currency_millions": format_currency_millions,
         "app_active_team": team,
         "app_active_membership": membership,
         "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
@@ -477,13 +500,11 @@ def _fmt_track_multiple(value):
     return f"{value:.2f}x"
 
 
-def _fmt_track_currency(value):
-    if value is None:
-        return "—"
-    return f"${value:.1f}M"
+def _fmt_track_currency(value, currency_code=DEFAULT_CURRENCY_CODE):
+    return format_currency_millions(value, currency_code=currency_code, show_code=True)
 
 
-def _track_totals_to_pdf_row(label, totals, include_fund_size=True):
+def _track_totals_to_pdf_row(label, totals, include_fund_size=True, currency_code=DEFAULT_CURRENCY_CODE):
     return [
         "",
         label,
@@ -494,10 +515,10 @@ def _track_totals_to_pdf_row(label, totals, include_fund_size=True):
         _fmt_track_pct(totals.get("ownership_pct")),
         _fmt_track_pct(totals.get("pct_total_invested")),
         _fmt_track_pct(totals.get("pct_fund_size")) if include_fund_size else "—",
-        _fmt_track_currency(totals.get("invested_equity")),
-        _fmt_track_currency(totals.get("realized_value")),
-        _fmt_track_currency(totals.get("unrealized_value")),
-        _fmt_track_currency(totals.get("total_value")),
+        _fmt_track_currency(totals.get("invested_equity"), currency_code=currency_code),
+        _fmt_track_currency(totals.get("realized_value"), currency_code=currency_code),
+        _fmt_track_currency(totals.get("unrealized_value"), currency_code=currency_code),
+        _fmt_track_currency(totals.get("total_value"), currency_code=currency_code),
         _fmt_track_pct(totals.get("gross_irr")),
         _fmt_track_multiple(totals.get("gross_moic")),
         _fmt_track_multiple(totals.get("realized_gross_moic")),
@@ -505,7 +526,7 @@ def _track_totals_to_pdf_row(label, totals, include_fund_size=True):
     ]
 
 
-def _build_track_record_pdf(track_record):
+def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A3, landscape
     from reportlab.lib.styles import getSampleStyleSheet
@@ -536,7 +557,7 @@ def _build_track_record_pdf(track_record):
     for fund in track_record.get("funds", []):
         fund_title = fund.get("fund_name") or "Unknown Fund"
         if fund.get("fund_size") is not None:
-            fund_title = f"{fund_title} (${fund['fund_size']:.1f}MM)"
+            fund_title = f"{fund_title} ({format_currency_millions(fund['fund_size'], currency_code=currency_code, show_code=True)})"
         if fund.get("fund_size_conflict"):
             fund_title = f"{fund_title} [fund size conflict]"
         rows.append([fund_title] + [""] * 16)
@@ -554,10 +575,10 @@ def _build_track_record_pdf(track_record):
                     _fmt_track_pct(row.get("ownership_pct")),
                     _fmt_track_pct(row.get("pct_total_invested")),
                     _fmt_track_pct(row.get("pct_fund_size")),
-                    _fmt_track_currency(row.get("invested_equity")),
-                    _fmt_track_currency(row.get("realized_value")),
-                    _fmt_track_currency(row.get("unrealized_value")),
-                    _fmt_track_currency(row.get("total_value")),
+                    _fmt_track_currency(row.get("invested_equity"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("realized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("unrealized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("total_value"), currency_code=currency_code),
                     _fmt_track_pct(row.get("gross_irr")),
                     _fmt_track_multiple(row.get("gross_moic")),
                     _fmt_track_multiple(row.get("realized_gross_moic")),
@@ -567,11 +588,25 @@ def _build_track_record_pdf(track_record):
             row_tags.append("detail")
 
         for rollup in fund.get("status_rollups", []):
-            rows.append(_track_totals_to_pdf_row(rollup.get("label", "Status Rollup"), rollup.get("totals", {}), include_fund_size=True))
+            rows.append(
+                _track_totals_to_pdf_row(
+                    rollup.get("label", "Status Rollup"),
+                    rollup.get("totals", {}),
+                    include_fund_size=True,
+                    currency_code=currency_code,
+                )
+            )
             row_tags.append("rollup_status")
 
         for rollup in fund.get("summary_rollups", []):
-            rows.append(_track_totals_to_pdf_row(rollup.get("label", "Fund Rollup"), rollup.get("totals", {}), include_fund_size=True))
+            rows.append(
+                _track_totals_to_pdf_row(
+                    rollup.get("label", "Fund Rollup"),
+                    rollup.get("totals", {}),
+                    include_fund_size=True,
+                    currency_code=currency_code,
+                )
+            )
             row_tags.append("rollup_summary")
 
         net = fund.get("net_performance", {})
@@ -612,10 +647,24 @@ def _build_track_record_pdf(track_record):
     rows.append(["All Funds Summary"] + [""] * 16)
     row_tags.append("overall_header")
     for rollup in track_record.get("overall", {}).get("status_rollups", []):
-        rows.append(_track_totals_to_pdf_row(rollup.get("label", "Status Rollup"), rollup.get("totals", {}), include_fund_size=False))
+        rows.append(
+            _track_totals_to_pdf_row(
+                rollup.get("label", "Status Rollup"),
+                rollup.get("totals", {}),
+                include_fund_size=False,
+                currency_code=currency_code,
+            )
+        )
         row_tags.append("rollup_status")
     for rollup in track_record.get("overall", {}).get("summary_rollups", []):
-        rows.append(_track_totals_to_pdf_row(rollup.get("label", "Overall Rollup"), rollup.get("totals", {}), include_fund_size=False))
+        rows.append(
+            _track_totals_to_pdf_row(
+                rollup.get("label", "Overall Rollup"),
+                rollup.get("totals", {}),
+                include_fund_size=False,
+                currency_code=currency_code,
+            )
+        )
         row_tags.append("rollup_overall")
 
     page_width, _ = landscape(A3)
@@ -764,6 +813,8 @@ def _handle_upload(parse_func, redirect_route):
             firm_name = result.get("firm_name")
             if firm_name:
                 flash(f"Upload firm scope: {firm_name}.", "info")
+            firm_currency = normalize_currency_code(result.get("firm_currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+            flash(f"Firm currency: {firm_currency}.", "info")
         replaced_funds = result.get("replaced_funds") or {}
         if replaced_funds:
             replaced_summaries = ", ".join(f"{name} ({count} old deals replaced)" for name, count in replaced_funds.items())
@@ -2041,8 +2092,10 @@ def download_track_record_pdf():
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
     record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
 
+    currency_code = _firm_currency_code(filter_ctx.get("active_firm"))
+
     try:
-        pdf_bytes = _build_track_record_pdf(record)
+        pdf_bytes = _build_track_record_pdf(record, currency_code=currency_code)
     except ImportError:
         flash("PDF export dependency missing. Install requirements and retry.", "danger")
         return redirect(url_for("track_record"))

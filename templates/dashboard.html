@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct %}
+{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct with context %}
 {% block title %}Dashboard — PE Portfolio Lab{% endblock %}
 {% block page_title %}Portfolio Dashboard{% endblock %}
 
@@ -221,7 +221,7 @@
             <thead>
                 <tr>
                     <th>Lever</th>
-                    <th class="num">Dollar ($M)</th>
+                    <th class="num">Dollar ({{ fmt_currency_unit_label() }})</th>
                     <th class="num">MOIC Impact</th>
                     <th class="num">% of Value Created</th>
                 </tr>

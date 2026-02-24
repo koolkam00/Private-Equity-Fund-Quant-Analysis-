@@ -1,4 +1,7 @@
 from datetime import date
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from models import (
     Deal,
@@ -48,6 +51,7 @@ def test_upload_page(client):
     assert b"Upload Deal Template" in response.data
     assert b"Download Current Deal Template" in response.data
     assert b"Recent Uploads" in response.data
+    assert b"Firm Currency" in response.data
 
 
 def test_upload_page_lists_recent_batches_for_active_firm(client):
@@ -175,6 +179,10 @@ def test_download_deal_template(client):
     assert response.status_code == 200
     assert "attachment;" in response.headers.get("Content-Disposition", "")
     assert "PE_Fund_Data_Template.xlsx" in response.headers.get("Content-Disposition", "")
+    wb = load_workbook(BytesIO(response.data), read_only=True)
+    ws = wb["Deals"]
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert "Firm Currency" in headers
 
 
 def test_deals_page(client):
@@ -257,10 +265,10 @@ def test_deals_page_grouped_subtotals_and_detail_contract(client):
     assert response.data.count(b"<strong>All 1 Fund I Unrealized Investments</strong>") == 1
     assert response.data.count(b"<strong>All 1 Unrealized Investments</strong>") == 1
     assert b"EBITDA Margin" in response.data
-    assert b"Revenue ($M)" in response.data
-    assert b"EBITDA ($M)" in response.data
-    assert b"TEV ($M)" in response.data
-    assert b"Net Debt ($M)" in response.data
+    assert b"Revenue (USD $M)" in response.data
+    assert b"EBITDA (USD $M)" in response.data
+    assert b"TEV (USD $M)" in response.data
+    assert b"Net Debt (USD $M)" in response.data
     assert b"Revenue CAGR" in response.data
     assert b"Revenue Cumulative" in response.data
     assert b"EBITDA CAGR" in response.data
@@ -745,6 +753,7 @@ def test_manage_firms_page_and_scope_switch(client):
     assert b"Manage Firms" in page.data
     assert b"Firm Scope B" in page.data
     assert b"Firm Hidden" not in page.data
+    assert b"Currency" in page.data
 
     select = client.post(f"/firms/{firm_b.id}/select", follow_redirects=False)
     assert select.status_code == 302
@@ -758,6 +767,12 @@ def test_manage_firms_page_and_scope_switch(client):
 
     denied = client.post(f"/firms/{firm_hidden.id}/select", follow_redirects=False)
     assert denied.status_code == 302
+
+
+def test_rendered_pages_expose_active_currency_metadata(client):
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b'data-currency-code="USD"' in response.data
 
 
 def test_analysis_pages_render(client):

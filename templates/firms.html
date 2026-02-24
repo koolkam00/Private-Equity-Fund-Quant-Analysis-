@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_date_monyy %}
+{% from "_macros.html" import fmt_date_monyy  with context %}
 {% block title %}Manage Firms — PE Portfolio Lab{% endblock %}
 {% block page_title %}Manage Firms{% endblock %}
 {% block page_actions %}<span class="record-count">{{ firm_rows|length }} firms</span>{% endblock %}
@@ -11,6 +11,7 @@
         <thead>
             <tr>
                 <th>Firm</th>
+                <th>Currency</th>
                 <th class="num">Fund Count</th>
                 <th class="num">Deal Count</th>
                 <th>Last Updated</th>
@@ -22,6 +23,7 @@
             {% set stats = firm_stats.get(firm.id, {}) %}
             <tr>
                 <td>{{ firm.name }}</td>
+                <td>{{ firm.base_currency or "USD" }}</td>
                 <td class="num">{{ stats.get("fund_count", 0) }}</td>
                 <td class="num">{{ stats.get("deal_count", 0) }}</td>
                 <td>{{ fmt_date_monyy(stats.get("last_updated")) if stats.get("last_updated") else "—" }}</td>

@@ -20,6 +20,29 @@ const BRIDGE_DRIVER_KEYS = ['revenue', 'margin', 'multiple', 'leverage', 'other'
 
 const AXIS_GRID = 'rgba(20, 35, 33, 0.10)';
 const AXIS_TICK = '#435854';
+let currencyMetaCache = null;
+
+function getCurrencyMeta() {
+    if (currencyMetaCache) return currencyMetaCache;
+    const body = document.body;
+    const code = ((body?.dataset?.currencyCode ?? 'USD') || 'USD').trim().toUpperCase();
+    const rawSymbol = body?.dataset?.currencySymbol;
+    const symbol = rawSymbol === undefined ? '$' : String(rawSymbol).trim();
+    const rawUnit = body?.dataset?.currencyUnitLabel;
+    const unitLabel = rawUnit === undefined ? `${code} ${symbol}M` : String(rawUnit).trim();
+    currencyMetaCache = { code, symbol, unitLabel };
+    return currencyMetaCache;
+}
+
+function formatCurrencyCore(v) {
+    const amount = Number(v);
+    if (!Number.isFinite(amount)) return null;
+    const { symbol } = getCurrencyMeta();
+    const sign = amount < 0 ? '-' : '';
+    const absAmount = Math.abs(amount);
+    if (symbol) return `${sign}${symbol}${absAmount.toFixed(1)}M`;
+    return `${sign}${absAmount.toFixed(1)}M`;
+}
 
 function chartBaseOptions() {
     return {
@@ -306,7 +329,11 @@ function toggleRollupDetail(btn) {
 
 function formatBridgeValue(v, unit) {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    if (unit === 'dollar') return `$${v.toFixed(1)}M`;
+    if (unit === 'dollar') {
+        const { code } = getCurrencyMeta();
+        const core = formatCurrencyCore(v);
+        return core ? `${code} ${core}` : '—';
+    }
     if (unit === 'moic') return `${v >= 0 ? '+' : ''}${v.toFixed(2)}x`;
     if (unit === 'pct') return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
     return String(v);
@@ -316,7 +343,13 @@ function formatBridgeAxisTick(v, unit) {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
     const n = Number(v);
     if (!Number.isFinite(n)) return '—';
-    if (unit === 'dollar') return `$${Math.round(n)}M`;
+    if (unit === 'dollar') {
+        const { code, symbol } = getCurrencyMeta();
+        const sign = n < 0 ? '-' : '';
+        const absAmount = Math.abs(Math.round(n));
+        const core = symbol ? `${sign}${symbol}${absAmount}M` : `${sign}${absAmount}M`;
+        return `${code} ${core}`;
+    }
     if (unit === 'moic') return `${n.toFixed(1)}x`;
     if (unit === 'pct') return `${Math.round(n * 100)}%`;
     return String(n);
@@ -324,7 +357,9 @@ function formatBridgeAxisTick(v, unit) {
 
 function formatCurrencyMillions(v) {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    return `$${Number(v).toFixed(1)}M`;
+    const { code } = getCurrencyMeta();
+    const core = formatCurrencyCore(v);
+    return core ? `${code} ${core}` : '—';
 }
 
 function formatPct(v) {

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_years_1dp %}
+{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_years_1dp  with context %}
 {% block title %}Deal Level Track Record — PE Portfolio Lab{% endblock %}
 {% block page_title %}Deal Level Track Record{% endblock %}
 {% block page_actions %}
@@ -42,7 +42,7 @@
                 <tr class="tr-fund-header">
                     <td colspan="17">
                         {{ fund.fund_name }}
-                        {% if fund.fund_size is not none %} (${{ "%.1f"|format(fund.fund_size) }}MM){% endif %}
+                        {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
                         {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
                     </td>
                 </tr>

@@ -1,5 +1,10 @@
-{% macro fmt_currency(value) -%}
-    {%- if value is none -%}—{%- else -%}${{ "%.1f"|format(value) }}M{%- endif -%}
+{% macro fmt_currency(value, currency_code=None) -%}
+    {%- set code = currency_code or app_currency_code or "USD" -%}
+    {{- fmt_currency_millions(value, code, True) -}}
+{%- endmacro %}
+
+{% macro fmt_currency_unit_label() -%}
+    {{ app_currency_unit_label or "USD $M" }}
 {%- endmacro %}
 
 {% macro fmt_multiple(value) -%}

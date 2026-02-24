@@ -13,7 +13,12 @@
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 
-<body class="pe-app {% if current_user.is_authenticated %}auth-on{% else %}auth-off{% endif %}">
+<body
+    class="pe-app {% if current_user.is_authenticated %}auth-on{% else %}auth-off{% endif %}"
+    data-currency-code="{{ app_currency_code or 'USD' }}"
+    data-currency-symbol="{{ app_currency_symbol or '' }}"
+    data-currency-unit-label="{{ app_currency_unit_label or 'USD $M' }}"
+>
     <div class="bg-layer"></div>
     {% if current_user.is_authenticated %}
     <aside class="sidebar">
