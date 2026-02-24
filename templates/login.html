@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Sign In — PE Portfolio Lab{% endblock %}
+{% block page_title %}Sign In{% endblock %}
+{% block page_actions %}{% endblock %}
+
+{% block content %}
+<div class="panel auth-panel">
+    <h3>Access Your Team Workspace</h3>
+    <form method="POST" action="{{ url_for('login') }}" class="auth-form">
+        <input type="hidden" name="next" value="{{ next_url or url_for('dashboard') }}">
+        <label class="filter-field">
+            <span>Email</span>
+            <input type="email" name="email" required autocomplete="email">
+        </label>
+        <label class="filter-field">
+            <span>Password</span>
+            <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <button type="submit" class="btn-upload">Sign In</button>
+    </form>
+    <p class="tiny">Need access? Ask your team admin for an invite link.</p>
+</div>
+{% endblock %}

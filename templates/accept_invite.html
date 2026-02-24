@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Accept Invite — PE Portfolio Lab{% endblock %}
+{% block page_title %}Accept Team Invite{% endblock %}
+{% block page_actions %}{% endblock %}
+
+{% block content %}
+<div class="panel auth-panel">
+    <h3>Join {{ team.name if team else "Team" }}</h3>
+    <p class="tiny">Invite for {{ invite.email }}. Set your password to activate access.</p>
+    <form method="POST" class="auth-form">
+        <label class="filter-field">
+            <span>Email</span>
+            <input type="email" name="email" value="{{ invite.email }}" required autocomplete="email">
+        </label>
+        <label class="filter-field">
+            <span>Password</span>
+            <input type="password" name="password" required autocomplete="new-password">
+        </label>
+        <label class="filter-field">
+            <span>Confirm Password</span>
+            <input type="password" name="password_confirm" required autocomplete="new-password">
+        </label>
+        <button type="submit" class="btn-upload">Accept Invite</button>
+    </form>
+</div>
+{% endblock %}

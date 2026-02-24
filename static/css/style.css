@@ -37,6 +37,17 @@ body.pe-app {
     color: #d8efea;
     padding: 22px 18px;
 }
+.team-chip {
+    margin: -8px 0 16px;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 10px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9ec2b9;
+    font-weight: 800;
+}
 .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 24px; }
 .brand-dot { width: 13px; height: 13px; border-radius: 50%; background: var(--accent-2); }
 .brand-title { font-weight: 800; }
@@ -66,11 +77,49 @@ body.pe-app {
     margin-left: 250px;
     padding: 28px;
 }
+.pe-app.auth-off .main-content {
+    margin-left: 0;
+    max-width: 720px;
+    margin-right: auto;
+}
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
 .page-header h1 { margin: 0; font-size: 30px; }
 .subtitle { margin: 4px 0 0; color: var(--muted); }
 .record-count { font-family: var(--mono); color: var(--muted); }
 .track-record-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.global-fund-form label {
+    display: grid;
+    gap: 5px;
+}
+.global-fund-form span {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+.global-fund-form select {
+    min-width: 180px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    min-height: 38px;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: var(--ink);
+    background: #fff;
+}
+.btn-logout {
+    min-height: 38px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
 
 .flash-stack { display: grid; gap: 8px; margin-bottom: 16px; }
 .flash { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; border-radius: 10px; display:flex; justify-content: space-between; }
@@ -104,6 +153,16 @@ body.pe-app {
     font-weight: 600;
     min-height: 40px;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.filter-field input {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbfa 100%);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--ink);
+    font-weight: 600;
+    min-height: 40px;
 }
 .analysis-input {
     width: 100%;
@@ -155,9 +214,12 @@ body.pe-app {
     overflow-x: auto;
 }
 .stress-table {
+    --stress-header-band-height: 34px;
     min-width: 2260px;
     border: 1px solid #cadae3;
     border-radius: 10px;
+    border-collapse: separate;
+    border-spacing: 0;
     overflow: hidden;
     background: #ffffff;
 }
@@ -169,8 +231,8 @@ body.pe-app {
     font-size: 11px;
     border-bottom-color: #35675a;
     position: sticky;
-    top: 0;
-    z-index: 2;
+    z-index: 4;
+    background-clip: padding-box;
 }
 .stress-table .stress-header-band th {
     background: #173b34;
@@ -178,6 +240,13 @@ body.pe-app {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    top: 0;
+    z-index: 6;
+    height: var(--stress-header-band-height);
+}
+.stress-table thead tr:nth-child(2) th {
+    top: var(--stress-header-band-height);
+    z-index: 5;
 }
 .stress-table .stress-fund-row td {
     background: linear-gradient(90deg, #c9dfd8 0%, #eaf4f1 100%);
@@ -506,6 +575,13 @@ body.pe-app {
     border-top: 1px solid #4f6e89;
     border-bottom: 1px solid #4f6e89;
 }
+.deals-grouped-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: #eef4f2;
+    border-bottom: 1px solid #bfd1cb;
+}
 .deals-grouped-table .deals-rollup td {
     border-top: 1px solid #557894;
 }
@@ -648,6 +724,30 @@ body.pe-app {
 .btn-link { background: transparent; color: var(--accent); padding: 0; }
 .btn-secondary { background: var(--accent-3); color: #fff; }
 .btn-secondary:hover { background: #24473d; }
+.btn-sm {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+}
+.btn-danger-soft {
+    background: #f3dde0;
+    color: #872632;
+}
+.btn-danger-soft:hover {
+    background: #ebc7cd;
+}
+.inline-form {
+    display: inline-block;
+    margin-right: 6px;
+}
+.auth-panel {
+    max-width: 560px;
+}
+.auth-form {
+    display: grid;
+    gap: 10px;
+}
 .metric-audit-link {
     display: inline-flex;
     align-items: center;
@@ -669,7 +769,7 @@ body.pe-app {
 
 .empty-state { padding: 24px; text-align: center; color: var(--muted); }
 .chart-panel canvas { width: 100% !important; height: 290px !important; }
-.deal-chart { height: 250px !important; }
+.deal-chart { height: 320px !important; }
 
 .ic-memo-root {
     display: grid;

@@ -1,6 +1,13 @@
 from datetime import date
 
-from models import Deal, db
+from models import Deal, Team, TeamMembership, db
+
+
+def _with_active_team(deal):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    deal.team_id = membership.team_id
+    return deal
 
 
 def test_index_redirect(client):
@@ -98,7 +105,7 @@ def test_deals_page_grouped_subtotals_and_detail_contract(client):
             exit_date=date(2023, 7, 1),
         ),
     ]
-    db.session.add_all(deals)
+    db.session.add_all([_with_active_team(d) for d in deals])
     db.session.commit()
 
     response = client.get("/deals")
@@ -114,6 +121,12 @@ def test_deals_page_grouped_subtotals_and_detail_contract(client):
     assert b"EBITDA ($M)" in response.data
     assert b"TEV ($M)" in response.data
     assert b"Net Debt ($M)" in response.data
+    assert b"Revenue CAGR" in response.data
+    assert b"Revenue Cumulative" in response.data
+    assert b"EBITDA CAGR" in response.data
+    assert b"EBITDA Cumulative" in response.data
+    assert b"<th>Sector</th>" not in response.data
+    assert b"<th>Geo</th>" not in response.data
     assert b'class="deal-row"' in response.data
     assert b"rollup-expand-btn" in response.data
     assert b'id="detail-' in response.data
@@ -156,7 +169,7 @@ def test_track_record_page_renders_template_columns_and_net_performance(client):
         net_moic=1.7,
         net_dpi=0.8,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get("/track-record")
@@ -199,7 +212,7 @@ def test_ic_memo_path_fund_scope_overrides_query_fund_and_keeps_filters(client):
         realized_value=200,
         unrealized_value=0,
     )
-    db.session.add_all([d1, d2])
+    db.session.add_all([_with_active_team(d1), _with_active_team(d2)])
     db.session.commit()
 
     response = client.get("/ic-memo/Fund%20I?fund=Fund+II")
@@ -242,8 +255,8 @@ def test_deals_page_recovers_missing_deals_table(client):
         db.drop_all()
 
     response = client.get("/deals")
-    assert response.status_code == 200
-    assert b"Deals" in response.data
+    assert response.status_code == 302
+    assert "/auth/login" in response.location
 
 
 def test_dashboard_filter_context(client):
@@ -277,7 +290,7 @@ def test_dashboard_filter_context(client):
         realized_value=90,
         unrealized_value=0,
     )
-    db.session.add_all([d1, d2])
+    db.session.add_all([_with_active_team(d1), _with_active_team(d2)])
     db.session.commit()
 
     response = client.get("/dashboard?fund=Fund+I&exit_type=Strategic+Sale")
@@ -319,7 +332,7 @@ def test_api_dashboard_series_qualitative_filters(client):
         realized_value=120,
         unrealized_value=0,
     )
-    db.session.add_all([d1, d2])
+    db.session.add_all([_with_active_team(d1), _with_active_team(d2)])
     db.session.commit()
 
     response = client.get(
@@ -352,7 +365,7 @@ def test_api_dashboard_series_schema(client):
         investment_date=date(2020, 1, 1),
         exit_date=date(2023, 1, 1),
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get("/api/dashboard/series")
@@ -393,7 +406,7 @@ def test_api_deal_bridge_query_params(client):
         entry_net_debt=30,
         exit_net_debt=20,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get(f"/api/deals/{deal.id}/bridge?unit=pct&basis=fund")
@@ -422,7 +435,7 @@ def test_api_deal_bridge_rejects_non_additive_model(client):
         entry_net_debt=30,
         exit_net_debt=20,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get(f"/api/deals/{deal.id}/bridge?model=multiplicative&unit=moic&basis=fund")
@@ -444,12 +457,40 @@ def test_api_deal_bridge_rejects_company_basis(client):
         entry_net_debt=30,
         exit_net_debt=20,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get(f"/api/deals/{deal.id}/bridge?basis=company&unit=moic")
     assert response.status_code == 400
     assert response.get_json()["error"] == "Only fund pro-rata basis is supported"
+
+
+def test_api_deal_bridge_team_isolation_returns_404_for_other_team_deal(client):
+    other_team = Team(name="Other Team", slug="other-team")
+    db.session.add(other_team)
+    db.session.flush()
+
+    foreign_deal = Deal(
+        company_name="Foreign Bridge Co",
+        fund_number="Fund Other",
+        team_id=other_team.id,
+        equity_invested=100,
+        realized_value=130,
+        unrealized_value=10,
+        entry_revenue=50,
+        exit_revenue=60,
+        entry_ebitda=10,
+        exit_ebitda=12,
+        entry_enterprise_value=100,
+        exit_enterprise_value=130,
+        entry_net_debt=30,
+        exit_net_debt=20,
+    )
+    db.session.add(foreign_deal)
+    db.session.commit()
+
+    response = client.get(f"/api/deals/{foreign_deal.id}/bridge?unit=moic&basis=fund")
+    assert response.status_code == 404
 
 
 def test_analysis_pages_render(client):
@@ -492,7 +533,7 @@ def test_analysis_api_series_schema(client):
         exit_enterprise_value=220,
         exit_net_debt=25,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     for page in (
@@ -528,7 +569,7 @@ def test_stress_lab_api_supports_per_deal_overrides(client):
         exit_enterprise_value=220,
         exit_net_debt=25,
     )
-    db.session.add(deal)
+    db.session.add(_with_active_team(deal))
     db.session.commit()
 
     response = client.get(
@@ -541,3 +582,28 @@ def test_stress_lab_api_supports_per_deal_overrides(client):
     assert abs(row["multiple_shock"] - (-2.0)) < 1e-9
     assert abs(row["ebitda_shock"] - (-0.20)) < 1e-9
     assert abs(row["expected_hold_period"] - 7.5) < 1e-9
+
+
+def test_protected_routes_redirect_when_not_logged_in(anonymous_client):
+    response = anonymous_client.get("/dashboard")
+    assert response.status_code == 302
+    assert "/auth/login" in response.location
+
+
+def test_manage_funds_page_and_scope_switch(client):
+    d1 = _with_active_team(Deal(company_name="FundScope A", fund_number="Fund One", equity_invested=50, realized_value=80, unrealized_value=0))
+    d2 = _with_active_team(Deal(company_name="FundScope B", fund_number="Fund Two", equity_invested=75, realized_value=0, unrealized_value=95))
+    db.session.add_all([d1, d2])
+    db.session.commit()
+
+    page = client.get("/funds")
+    assert page.status_code == 200
+    assert b"Manage Funds" in page.data
+    assert b"Fund One" in page.data
+
+    select = client.post("/funds/Fund%20One/select", follow_redirects=False)
+    assert select.status_code == 302
+
+    scoped = client.get("/dashboard")
+    assert scoped.status_code == 200
+    assert b"Fund One" in scoped.data

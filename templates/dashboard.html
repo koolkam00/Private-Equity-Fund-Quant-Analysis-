@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, audit_link %}
+{% from "_macros.html" import fmt_currency, audit_link, fmt_growth_pct %}
 {% block title %}Dashboard — PE Portfolio Lab{% endblock %}
 {% block page_title %}Portfolio Dashboard{% endblock %}
 
@@ -157,10 +157,10 @@
     <div>
         <h3>Growth Analytics</h3>
         <table class="compact-table">
-            <tr><td>Revenue Growth (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.revenue_growth.avg) if entry_exit_summary.growth.revenue_growth.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.revenue_growth.wavg) if entry_exit_summary.growth.revenue_growth.wavg is not none else "—" }}</td></tr>
-            <tr><td>EBITDA Growth (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_growth.avg) if entry_exit_summary.growth.ebitda_growth.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_growth.wavg) if entry_exit_summary.growth.ebitda_growth.wavg is not none else "—" }}</td></tr>
-            <tr><td>Revenue CAGR (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.revenue_cagr.avg) if entry_exit_summary.growth.revenue_cagr.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.revenue_cagr.wavg) if entry_exit_summary.growth.revenue_cagr.wavg is not none else "—" }}</td></tr>
-            <tr><td>EBITDA CAGR (Avg / Wtd)</td><td class="num">{{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_cagr.avg) if entry_exit_summary.growth.ebitda_cagr.avg is not none else "—" }} / {{ "%.1f%%"|format(entry_exit_summary.growth.ebitda_cagr.wavg) if entry_exit_summary.growth.ebitda_cagr.wavg is not none else "—" }}</td></tr>
+            <tr><td>Revenue Growth (Avg / Wtd)</td><td class="num">{{ fmt_growth_pct(entry_exit_summary.growth.revenue_growth.avg) }} / {{ fmt_growth_pct(entry_exit_summary.growth.revenue_growth.wavg) }}</td></tr>
+            <tr><td>EBITDA Growth (Avg / Wtd)</td><td class="num">{{ fmt_growth_pct(entry_exit_summary.growth.ebitda_growth.avg) }} / {{ fmt_growth_pct(entry_exit_summary.growth.ebitda_growth.wavg) }}</td></tr>
+            <tr><td>Revenue CAGR (Avg / Wtd)</td><td class="num">{{ fmt_growth_pct(entry_exit_summary.growth.revenue_cagr.avg) }} / {{ fmt_growth_pct(entry_exit_summary.growth.revenue_cagr.wavg) }}</td></tr>
+            <tr><td>EBITDA CAGR (Avg / Wtd)</td><td class="num">{{ fmt_growth_pct(entry_exit_summary.growth.ebitda_cagr.avg) }} / {{ fmt_growth_pct(entry_exit_summary.growth.ebitda_cagr.wavg) }}</td></tr>
             <tr><td>Bridge Ready Deals</td><td class="num">{{ data_quality.bridge_ready }} / {{ data_quality.total_deals }}</td></tr>
         </table>
         {% if data_quality.warnings %}

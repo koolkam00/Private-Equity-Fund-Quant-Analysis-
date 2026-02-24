@@ -13,8 +13,9 @@
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 
-<body class="pe-app">
+<body class="pe-app {% if current_user.is_authenticated %}auth-on{% else %}auth-off{% endif %}">
     <div class="bg-layer"></div>
+    {% if current_user.is_authenticated %}
     <aside class="sidebar">
         <div class="brand">
             <span class="brand-dot"></span>
@@ -23,6 +24,9 @@
                 <div class="brand-subtitle">Deal-Level Analytics</div>
             </div>
         </div>
+        {% if app_active_team %}
+        <div class="team-chip">{{ app_active_team.name }}</div>
+        {% endif %}
         <nav class="nav">
             <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}"><i
                     class="bi bi-grid-1x2"></i> Dashboard</a>
@@ -48,10 +52,15 @@
                     class="bi bi-file-earmark-richtext"></i> IC Memo</a>
             <a href="{{ url_for('methodology') }}" class="nav-item nav-sub {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
+            <a href="{{ url_for('funds') }}" class="nav-item {% if request.endpoint == 'funds' %}active{% endif %}"><i
+                    class="bi bi-diagram-3"></i> Manage Funds</a>
+            <a href="{{ url_for('team') }}" class="nav-item {% if request.endpoint == 'team' %}active{% endif %}"><i
+                    class="bi bi-people"></i> Team</a>
             <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
                     class="bi bi-cloud-upload"></i> Upload</a>
         </nav>
     </aside>
+    {% endif %}
 
     <main class="main-content">
         <header class="page-header">
@@ -59,7 +68,27 @@
                 <h1>{% block page_title %}{% endblock %}</h1>
                 <p class="subtitle">Dynamic value creation decomposition from deal-level operating data</p>
             </div>
-            <div>{% block page_actions %}{% endblock %}</div>
+            <div class="header-actions">
+                {% if current_user.is_authenticated %}
+                <form class="global-fund-form" id="global-fund-form" method="POST" action="{{ url_for('select_fund_scope', fund_name='__all__') }}">
+                    <label>
+                        <span>Active Fund</span>
+                        <select id="global-fund-select" name="fund_scope">
+                            <option value="">All Funds</option>
+                            {% for fund_name in app_funds %}
+                            <option value="{{ fund_name }}" {% if app_active_fund == fund_name %}selected{% endif %}>{{ fund_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </form>
+                <form method="POST" action="{{ url_for('logout') }}">
+                    <button type="submit" class="btn-upload btn-secondary btn-logout">
+                        <i class="bi bi-box-arrow-right"></i> Sign Out
+                    </button>
+                </form>
+                {% endif %}
+                <div>{% block page_actions %}{% endblock %}</div>
+            </div>
         </header>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -79,6 +108,18 @@
     </main>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        (function () {
+            const select = document.getElementById("global-fund-select");
+            const form = document.getElementById("global-fund-form");
+            if (!select || !form) return;
+            select.addEventListener("change", () => {
+                const val = select.value || "__all__";
+                form.action = `/funds/${encodeURIComponent(val)}/select`;
+                form.submit();
+            });
+        })();
+    </script>
 </body>
 
 </html>

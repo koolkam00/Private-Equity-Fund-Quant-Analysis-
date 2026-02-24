@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp %}
+{% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_growth_pct %}
 {% block title %}Deals — PE Portfolio Lab{% endblock %}
 {% block page_title %}Deals{% endblock %}
 {% block page_actions %}<span class="record-count">{{ deals|length }} deals</span>{% endblock %}
@@ -16,15 +16,19 @@
             <i class="bi bi-chevron-right"></i>
         </button>
     </td>
-    <td colspan="6"><strong>{{ rollup.label }}</strong></td>
+    <td colspan="4"><strong>{{ rollup.label }}</strong></td>
     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
     <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
+    <td class="num"><strong>{{ fmt_growth_pct(growth.revenue_cagr.wavg) }}</strong></td>
+    <td class="num"><strong>{{ fmt_growth_pct(growth.revenue_growth.wavg) }}</strong></td>
+    <td class="num"><strong>{{ fmt_growth_pct(growth.ebitda_cagr.wavg) }}</strong></td>
+    <td class="num"><strong>{{ fmt_growth_pct(growth.ebitda_growth.wavg) }}</strong></td>
 </tr>
 <tr class="detail-row rollup-detail-row" id="rollup-detail-{{ rollup.row_key }}" style="display:none;">
-    <td colspan="12">
+    <td colspan="14">
         <div class="detail-layout">
             <div>
                 <h4>Entry vs Exit Comparison</h4>
@@ -117,23 +121,23 @@
                     <tbody>
                         <tr>
                             <td>Revenue Growth</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.revenue_growth.avg) if growth.revenue_growth.avg is not none else "—" }}</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.revenue_growth.wavg) if growth.revenue_growth.wavg is not none else "—" }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.revenue_growth.avg) }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.revenue_growth.wavg) }}</td>
                         </tr>
                         <tr>
                             <td>Revenue CAGR</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.revenue_cagr.avg) if growth.revenue_cagr.avg is not none else "—" }}</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.revenue_cagr.wavg) if growth.revenue_cagr.wavg is not none else "—" }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.revenue_cagr.avg) }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.revenue_cagr.wavg) }}</td>
                         </tr>
                         <tr>
                             <td>EBITDA Growth</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_growth.avg) if growth.ebitda_growth.avg is not none else "—" }}</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_growth.wavg) if growth.ebitda_growth.wavg is not none else "—" }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.ebitda_growth.avg) }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.ebitda_growth.wavg) }}</td>
                         </tr>
                         <tr>
                             <td>EBITDA CAGR</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_cagr.avg) if growth.ebitda_cagr.avg is not none else "—" }}</td>
-                            <td class="num">{{ "%.1f%%"|format(growth.ebitda_cagr.wavg) if growth.ebitda_cagr.wavg is not none else "—" }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.ebitda_cagr.avg) }}</td>
+                            <td class="num">{{ fmt_growth_pct(growth.ebitda_cagr.wavg) }}</td>
                         </tr>
                         <tr>
                             <td>Gross MOIC</td>
@@ -199,8 +203,6 @@
                 <th></th>
                 <th>Company</th>
                 <th>Status</th>
-                <th>Sector</th>
-                <th>Geo</th>
                 <th>Investment Date</th>
                 <th>Exit Date</th>
                 <th class="num">Invested Equity</th>
@@ -208,12 +210,16 @@
                 <th class="num">Unrealized Value</th>
                 <th class="num">Gross MOIC</th>
                 <th class="num">Implied IRR</th>
+                <th class="num">Revenue CAGR</th>
+                <th class="num">Revenue Cumulative</th>
+                <th class="num">EBITDA CAGR</th>
+                <th class="num">EBITDA Cumulative</th>
             </tr>
         </thead>
         <tbody>
             {% for fund in track_record.funds %}
             <tr class="deals-fund-header">
-                <td colspan="12">{{ fund.fund_name }}</td>
+                <td colspan="14">{{ fund.fund_name }}</td>
             </tr>
 
             {% for row in fund.rows %}
@@ -225,8 +231,6 @@
                 <td>{{ deal.company_name }}</td>
                 {% set status_norm = (deal.status or "Unrealized")|lower|replace(' ', '-') %}
                 <td><span class="status-badge status-{{ status_norm }}">{{ deal.status or "Unrealized" }}</span></td>
-                <td>{{ deal.sector or "Unknown" }}</td>
-                <td>{{ deal.geography or "Unknown" }}</td>
                 <td>{{ fmt_date_monyy(deal.investment_date) }}</td>
                 <td>{{ fmt_date_monyy(deal.exit_date) }}</td>
                 <td class="num">{{ fmt_currency(m.equity) }}</td>
@@ -234,9 +238,13 @@
                 <td class="num">{{ fmt_currency(m.unrealized) }}</td>
                 <td class="num {% if m.moic is not none and m.moic >= 1 %}value-positive{% elif m.moic is not none %}value-negative{% endif %}">{{ fmt_multiple(m.moic) }}</td>
                 <td class="num {% if m.implied_irr is not none and m.implied_irr >= 0 %}value-positive{% elif m.implied_irr is not none %}value-negative{% endif %}">{{ fmt_pct_1dp(m.implied_irr) }}</td>
+                <td class="num">{{ fmt_growth_pct(m.revenue_cagr) }}</td>
+                <td class="num">{{ fmt_growth_pct(m.revenue_growth) }}</td>
+                <td class="num">{{ fmt_growth_pct(m.ebitda_cagr) }}</td>
+                <td class="num">{{ fmt_growth_pct(m.ebitda_growth) }}</td>
             </tr>
             <tr class="detail-row" id="detail-{{ deal.id }}" style="display:none;">
-                <td colspan="12">
+                <td colspan="14">
                     <div class="detail-layout">
                         <div>
                             <h4>Entry vs Exit Comparison</h4>
@@ -250,8 +258,8 @@
                                 <tr><td>Net Debt / EBITDA</td><td class="num">{{ fmt_multiple(m.entry_net_debt_ebitda) }} → {{ fmt_multiple(m.exit_net_debt_ebitda) }}</td></tr>
                                 <tr><td>Net Debt / TEV</td><td class="num">{{ fmt_pct_1dp(m.entry_net_debt_tev) }} → {{ fmt_pct_1dp(m.exit_net_debt_tev) }}</td></tr>
                                 <tr><td>EBITDA Margin</td><td class="num">{{ "%.1f%%"|format(m.entry_ebitda_margin) if m.entry_ebitda_margin is not none else "—" }} → {{ "%.1f%%"|format(m.exit_ebitda_margin) if m.exit_ebitda_margin is not none else "—" }}</td></tr>
-                                <tr><td>Revenue Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.revenue_growth) if m.revenue_growth is not none else "—" }} / {{ "%.1f%%"|format(m.revenue_cagr) if m.revenue_cagr is not none else "—" }}</td></tr>
-                                <tr><td>EBITDA Growth / CAGR</td><td class="num">{{ "%.1f%%"|format(m.ebitda_growth) if m.ebitda_growth is not none else "—" }} / {{ "%.1f%%"|format(m.ebitda_cagr) if m.ebitda_cagr is not none else "—" }}</td></tr>
+                                <tr><td>Revenue Growth / CAGR</td><td class="num">{{ fmt_growth_pct(m.revenue_growth) }} / {{ fmt_growth_pct(m.revenue_cagr) }}</td></tr>
+                                <tr><td>EBITDA Growth / CAGR</td><td class="num">{{ fmt_growth_pct(m.ebitda_growth) }} / {{ fmt_growth_pct(m.ebitda_cagr) }}</td></tr>
                             </table>
 
                             {% if m._warnings %}
@@ -317,7 +325,7 @@
             {% endfor %}
 
             <tr class="deals-overall-header">
-                <td colspan="12">All Funds Summary</td>
+                <td colspan="14">All Funds Summary</td>
             </tr>
             {% set overall_rollup_dedupe = namespace(seen_labels=[]) %}
             {% for rollup in track_record.overall.status_rollups %}

@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: pe-portfolio-lab
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_TEAM_NAME
+        value: Admin Team
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pe-portfolio-lab-db
+          property: connectionString
+
+databases:
+  - name: pe-portfolio-lab-db
+    databaseName: pe_portfolio_lab
+    user: pe_portfolio_lab

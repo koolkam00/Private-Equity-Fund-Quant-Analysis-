@@ -29,13 +29,17 @@
                 Exit Type, Lead Partner, Security Type, Deal Type, Entry Channel. Optional track-record fields:
                 Fund Size, Net IRR, Net MOIC, DPI. Missing optional fields are auto-filled with default labels.
             </p>
-            <p class="tiny">
-                Optional multi-sheet support is available for advanced analysis pages: <strong>Cashflows</strong>,
-                <strong>Deal Quarterly</strong>, <strong>Fund Quarterly</strong>, and <strong>Underwrite</strong>.
-                The <strong>Deals</strong> sheet remains the only required sheet.
-            </p>
-            <button type="submit" class="btn-upload">Upload Deals</button>
-        </form>
-    </section>
+        <p class="tiny">
+            Optional multi-sheet support is available for advanced analysis pages: <strong>Cashflows</strong>,
+            <strong>Deal Quarterly</strong>, <strong>Fund Quarterly</strong>, and <strong>Underwrite</strong>.
+            The <strong>Deals</strong> sheet remains the only required sheet.
+        </p>
+        <p class="tiny">
+            Upload behavior: rows are scoped to your team workspace. When a workbook includes a fund that already exists,
+            the app replaces that fund's prior data in your team with the newly uploaded version.
+        </p>
+        <button type="submit" class="btn-upload">Upload Deals</button>
+    </form>
+</section>
 </div>
 {% endblock %}

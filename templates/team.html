@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Team — PE Portfolio Lab{% endblock %}
+{% block page_title %}Team{% endblock %}
+{% block page_actions %}{% if team %}<span class="record-count">{{ team.name }}</span>{% endif %}{% endblock %}
+
+{% block content %}
+<div class="panel two-col">
+    <section>
+        <h3>Members</h3>
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Joined</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in member_rows %}
+                <tr>
+                    <td>{{ row[1].email }}</td>
+                    <td>{{ row[0].role }}</td>
+                    <td>{{ row[0].created_at.strftime("%Y-%m-%d") if row[0].created_at else "—" }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">No members yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h3>Invites</h3>
+        {% if membership.role in ['owner', 'admin'] %}
+        <form method="POST" action="{{ url_for('create_team_invite') }}" class="auth-form">
+            <label class="filter-field">
+                <span>Invite Email</span>
+                <input type="email" name="email" required placeholder="investor@firm.com">
+            </label>
+            <button type="submit" class="btn-upload">Create Invite Link</button>
+        </form>
+        {% endif %}
+
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Expires</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for invite in invites %}
+                <tr>
+                    <td>{{ invite.email }}</td>
+                    <td>{% if invite.expires_at < now_utc %}Expired{% else %}Pending{% endif %}</td>
+                    <td>{{ invite.expires_at.strftime("%Y-%m-%d %H:%M") if invite.expires_at else "—" }} UTC</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">No pending invites.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

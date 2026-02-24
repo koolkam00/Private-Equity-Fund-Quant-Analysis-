@@ -167,6 +167,8 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
         canvas._chart.destroy();
     }
 
+    const baseOpts = chartBaseOptions();
+
     canvas._chart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
@@ -180,12 +182,20 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
             }],
         },
         options: {
-            ...chartBaseOptions(),
+            ...baseOpts,
+            layout: {
+                padding: {
+                    top: 2,
+                    right: 8,
+                    bottom: 2,
+                    left: 10,
+                },
+            },
             plugins: {
-                ...chartBaseOptions().plugins,
+                ...baseOpts.plugins,
                 legend: { display: false },
                 tooltip: {
-                    ...chartBaseOptions().plugins.tooltip,
+                    ...baseOpts.plugins.tooltip,
                     callbacks: {
                         label: (ctx) => {
                             const kind = wf.kinds[ctx.dataIndex];
@@ -201,12 +211,37 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
                 },
             },
             scales: {
-                ...chartBaseOptions().scales,
-                y: {
-                    ...chartBaseOptions().scales.y,
+                ...baseOpts.scales,
+                x: {
+                    ...baseOpts.scales.x,
+                    grid: { display: false },
                     ticks: {
-                        ...chartBaseOptions().scales.y.ticks,
-                        callback: (v) => formatBridgeValue(v, controls.unit),
+                        ...baseOpts.scales.x.ticks,
+                        color: '#234350',
+                        font: { family: 'Manrope', size: 11, weight: '700' },
+                        autoSkip: false,
+                        maxRotation: 0,
+                        minRotation: 0,
+                        padding: 6,
+                        callback(value) {
+                            return shortBridgeAxisLabel(this.getLabelForValue(value));
+                        },
+                    },
+                },
+                y: {
+                    ...baseOpts.scales.y,
+                    grid: {
+                        ...(baseOpts.scales.y.grid || {}),
+                        color: 'rgba(20, 35, 33, 0.16)',
+                        borderDash: [3, 3],
+                    },
+                    ticks: {
+                        ...baseOpts.scales.y.ticks,
+                        color: '#234350',
+                        font: { family: 'JetBrains Mono', size: 12, weight: '700' },
+                        padding: 8,
+                        maxTicksLimit: 6,
+                        callback: (v) => formatBridgeAxisTick(v, controls.unit),
                     },
                 },
             },
@@ -225,6 +260,18 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
     }
 
     renderBridgeLeverTable(options.tableBodyEl, payload, { isAggregate });
+}
+
+function shortBridgeAxisLabel(label) {
+    const raw = String(label || '');
+    if (raw.startsWith('Start:')) return 'Start';
+    if (raw.startsWith('End:')) return 'End';
+    if (raw === 'Revenue Growth') return ['Revenue', 'Growth'];
+    if (raw === 'Margin Expansion') return ['Margin', 'Expansion'];
+    if (raw === 'Multiple Expansion') return ['Multiple', 'Expansion'];
+    if (raw === 'Leverage / Debt Paydown') return ['Leverage', 'Debt Paydown'];
+    if (raw === 'Residual / Other') return ['Residual', 'Other'];
+    return raw;
 }
 
 function toggleRollupDetail(btn) {
@@ -254,6 +301,16 @@ function formatBridgeValue(v, unit) {
     if (unit === 'moic') return `${v >= 0 ? '+' : ''}${v.toFixed(2)}x`;
     if (unit === 'pct') return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
     return String(v);
+}
+
+function formatBridgeAxisTick(v, unit) {
+    if (v === null || v === undefined || Number.isNaN(v)) return '—';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '—';
+    if (unit === 'dollar') return `$${Math.round(n)}M`;
+    if (unit === 'moic') return `${n.toFixed(1)}x`;
+    if (unit === 'pct') return `${Math.round(n * 100)}%`;
+    return String(n);
 }
 
 function formatCurrencyMillions(v) {

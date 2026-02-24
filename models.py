@@ -1,5 +1,6 @@
+from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, inspect, text
+from sqlalchemy import ForeignKey, UniqueConstraint, inspect, text
 
 
 db = SQLAlchemy()
@@ -53,6 +54,7 @@ class Deal(db.Model):
     net_dpi = db.Column(db.Float, nullable=True)  # optional fund-level net DPI
 
     # Metadata
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -69,6 +71,7 @@ class DealCashflowEvent(db.Model):
     event_type = db.Column(db.String(64), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     notes = db.Column(db.String(500), nullable=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -89,6 +92,7 @@ class DealQuarterSnapshot(db.Model):
     equity_value = db.Column(db.Float, nullable=True)
     valuation_basis = db.Column(db.String(128), nullable=True)
     source = db.Column(db.String(128), nullable=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -107,6 +111,7 @@ class FundQuarterSnapshot(db.Model):
     distributed_capital = db.Column(db.Float, nullable=True)
     nav = db.Column(db.Float, nullable=True)
     unfunded_commitment = db.Column(db.Float, nullable=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -126,6 +131,7 @@ class DealUnderwriteBaseline(db.Model):
     target_revenue_cagr = db.Column(db.Float, nullable=True)
     target_ebitda_cagr = db.Column(db.Float, nullable=True)
     baseline_date = db.Column(db.Date, nullable=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -138,6 +144,7 @@ class UploadIssue(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     issue_report_id = db.Column(db.String(36), nullable=False, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
     upload_batch = db.Column(db.String(100), nullable=True)
     file_type = db.Column(db.String(32), nullable=False, default="deals")
     row_number = db.Column(db.Integer, nullable=True)
@@ -149,6 +156,64 @@ class UploadIssue(db.Model):
 
     def __repr__(self):
         return f"<UploadIssue {self.file_type} row={self.row_number} severity={self.severity}>"
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    email = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<User {self.email}>"
+
+
+class Team(db.Model):
+    __tablename__ = "teams"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(255), nullable=False)
+    slug = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<Team {self.name}>"
+
+
+class TeamMembership(db.Model):
+    __tablename__ = "team_memberships"
+    __table_args__ = (
+        UniqueConstraint("team_id", "user_id", name="uq_team_memberships_team_user"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = db.Column(db.String(16), nullable=False, default="member")
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<TeamMembership team={self.team_id} user={self.user_id} role={self.role}>"
+
+
+class TeamInvite(db.Model):
+    __tablename__ = "team_invites"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    accepted_at = db.Column(db.DateTime, nullable=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<TeamInvite team={self.team_id} email={self.email}>"
 
 
 def _column_exists(inspector, table_name, column_name):
@@ -163,6 +228,11 @@ def _ensure_column(engine, inspector, table_name, column_name, sql_type, default
     default_clause = f" DEFAULT {default_sql}" if default_sql is not None else ""
     with engine.begin() as conn:
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}{default_clause}"))
+
+
+def _ensure_index(engine, index_name, table_name, column_name):
+    with engine.begin() as conn:
+        conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"))
 
 
 def _archive_legacy_cashflows(engine, inspector):
@@ -202,10 +272,15 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deals", "net_irr", "FLOAT")
     _ensure_column(engine, inspector, "deals", "net_moic", "FLOAT")
     _ensure_column(engine, inspector, "deals", "net_dpi", "FLOAT")
+    _ensure_column(engine, inspector, "deals", "team_id", "INTEGER")
 
     if "upload_issues" not in inspector.get_table_names():
         UploadIssue.__table__.create(bind=engine)
 
+    User.__table__.create(bind=engine, checkfirst=True)
+    Team.__table__.create(bind=engine, checkfirst=True)
+    TeamMembership.__table__.create(bind=engine, checkfirst=True)
+    TeamInvite.__table__.create(bind=engine, checkfirst=True)
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
     DealQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
     FundQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
@@ -217,6 +292,7 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deal_cashflow_events", "event_type", "VARCHAR(64)")
     _ensure_column(engine, inspector, "deal_cashflow_events", "amount", "FLOAT")
     _ensure_column(engine, inspector, "deal_cashflow_events", "notes", "VARCHAR(500)")
+    _ensure_column(engine, inspector, "deal_cashflow_events", "team_id", "INTEGER")
     _ensure_column(engine, inspector, "deal_cashflow_events", "upload_batch", "VARCHAR(100)")
     _ensure_column(engine, inspector, "deal_cashflow_events", "created_at", "DATETIME")
 
@@ -229,6 +305,7 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deal_quarter_snapshots", "equity_value", "FLOAT")
     _ensure_column(engine, inspector, "deal_quarter_snapshots", "valuation_basis", "VARCHAR(128)")
     _ensure_column(engine, inspector, "deal_quarter_snapshots", "source", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "deal_quarter_snapshots", "team_id", "INTEGER")
     _ensure_column(engine, inspector, "deal_quarter_snapshots", "upload_batch", "VARCHAR(100)")
     _ensure_column(engine, inspector, "deal_quarter_snapshots", "created_at", "DATETIME")
 
@@ -239,6 +316,7 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "distributed_capital", "FLOAT")
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "nav", "FLOAT")
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "unfunded_commitment", "FLOAT")
+    _ensure_column(engine, inspector, "fund_quarter_snapshots", "team_id", "INTEGER")
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "upload_batch", "VARCHAR(100)")
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "created_at", "DATETIME")
 
@@ -250,8 +328,18 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "target_revenue_cagr", "FLOAT")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "target_ebitda_cagr", "FLOAT")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "baseline_date", "DATE")
+    _ensure_column(engine, inspector, "deal_underwrite_baselines", "team_id", "INTEGER")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "upload_batch", "VARCHAR(100)")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "created_at", "DATETIME")
+
+    _ensure_column(engine, inspector, "upload_issues", "team_id", "INTEGER")
+
+    _ensure_index(engine, "ix_deals_team_id", "deals", "team_id")
+    _ensure_index(engine, "ix_deal_cashflow_events_team_id", "deal_cashflow_events", "team_id")
+    _ensure_index(engine, "ix_deal_quarter_snapshots_team_id", "deal_quarter_snapshots", "team_id")
+    _ensure_index(engine, "ix_fund_quarter_snapshots_team_id", "fund_quarter_snapshots", "team_id")
+    _ensure_index(engine, "ix_deal_underwrite_baselines_team_id", "deal_underwrite_baselines", "team_id")
+    _ensure_index(engine, "ix_upload_issues_team_id", "upload_issues", "team_id")
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import uuid
 
 import pandas as pd
 
@@ -9,7 +10,9 @@ from models import (
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
     FundQuarterSnapshot,
+    Team,
     UploadIssue,
+    db,
 )
 from services.deal_parser import parse_deals
 
@@ -32,7 +35,15 @@ def create_temp_workbook(sheets):
     return path
 
 
+def create_team():
+    team = Team(name="Parser Team", slug=f"parser-team-{uuid.uuid4().hex[:8]}")
+    db.session.add(team)
+    db.session.commit()
+    return team.id
+
+
 def test_parse_deals_valid(app_context):
+    team_id = create_team()
     data = {
         "Company Name": ["Company A", "Company B"],
         "Fund": ["Fund I", "Fund II"],
@@ -58,9 +69,9 @@ def test_parse_deals_valid(app_context):
     }
     file_path = create_temp_excel(data)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id)
         assert result["success"] == 2
-        deal = Deal.query.filter_by(company_name="Company A").first()
+        deal = Deal.query.filter_by(company_name="Company A", team_id=team_id).first()
         assert deal.geography == "US"
         assert deal.year_invested == 2020
         assert deal.exit_type == "Strategic Sale"
@@ -77,6 +88,7 @@ def test_parse_deals_valid(app_context):
 
 
 def test_parse_deals_fallback_geography_and_vintage(app_context):
+    team_id = create_team()
     data = {
         "Company Name": ["Fallback Co"],
         "Investment Date": ["2022-06-01"],
@@ -86,9 +98,9 @@ def test_parse_deals_fallback_geography_and_vintage(app_context):
     }
     file_path = create_temp_excel(data)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id)
         assert result["success"] == 1
-        deal = Deal.query.filter_by(company_name="Fallback Co").first()
+        deal = Deal.query.filter_by(company_name="Fallback Co", team_id=team_id).first()
         assert deal.geography == "Unknown"
         assert deal.year_invested == 2022
     finally:
@@ -96,6 +108,7 @@ def test_parse_deals_fallback_geography_and_vintage(app_context):
 
 
 def test_parse_deals_quarantine_invalid_row(app_context):
+    team_id = create_team()
     data = {
         "Company Name": ["Bad Deal"],
         "Investment Date": ["2024-01-01"],
@@ -104,18 +117,18 @@ def test_parse_deals_quarantine_invalid_row(app_context):
     }
     file_path = create_temp_excel(data)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id, replace_mode="append")
         assert result["success"] == 0
         assert result["quarantined_count"] == 1
-        assert UploadIssue.query.count() >= 1
+        assert UploadIssue.query.filter_by(team_id=team_id).count() >= 1
     finally:
         os.remove(file_path)
 
 
 def test_parse_deals_duplicate_detection(app_context):
-    from models import db
+    team_id = create_team()
 
-    db.session.add(Deal(company_name="DupCo", fund_number="Fund I"))
+    db.session.add(Deal(company_name="DupCo", fund_number="Fund I", team_id=team_id))
     db.session.commit()
 
     data = {
@@ -125,7 +138,7 @@ def test_parse_deals_duplicate_detection(app_context):
     }
     file_path = create_temp_excel(data)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id, replace_mode="append")
         assert result["duplicates_skipped"] == 1
         assert result["success"] == 0
     finally:
@@ -133,6 +146,7 @@ def test_parse_deals_duplicate_detection(app_context):
 
 
 def test_parse_deals_optional_track_record_numeric_coercion(app_context):
+    team_id = create_team()
     data = {
         "Company Name": ["Numeric Co"],
         "Fund": ["Fund X"],
@@ -144,9 +158,9 @@ def test_parse_deals_optional_track_record_numeric_coercion(app_context):
     }
     file_path = create_temp_excel(data)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id)
         assert result["success"] == 1
-        deal = Deal.query.filter_by(company_name="Numeric Co").first()
+        deal = Deal.query.filter_by(company_name="Numeric Co", team_id=team_id).first()
         assert abs(deal.fund_size - 540.0) < 1e-9
         assert abs(deal.net_irr - 0.183) < 1e-9
         assert abs(deal.net_moic - 2.1) < 1e-9
@@ -156,6 +170,7 @@ def test_parse_deals_optional_track_record_numeric_coercion(app_context):
 
 
 def test_parse_deals_multisheet_optional_sections(app_context):
+    team_id = create_team()
     sheets = {
         "Deals": {
             "Company Name": ["Multi Co"],
@@ -209,24 +224,25 @@ def test_parse_deals_multisheet_optional_sections(app_context):
 
     file_path = create_temp_workbook(sheets)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id)
         assert result["success"] == 1
         assert result["supplemental_counts"]["cashflows"] == 2
         assert result["supplemental_counts"]["deal_quarterly"] == 2
         assert result["supplemental_counts"]["fund_quarterly"] == 1
         assert result["supplemental_counts"]["underwrite"] == 1
 
-        deal = Deal.query.filter_by(company_name="Multi Co").first()
+        deal = Deal.query.filter_by(company_name="Multi Co", team_id=team_id).first()
         assert deal is not None
-        assert DealCashflowEvent.query.filter_by(deal_id=deal.id).count() == 2
-        assert DealQuarterSnapshot.query.filter_by(deal_id=deal.id).count() == 2
-        assert DealUnderwriteBaseline.query.filter_by(deal_id=deal.id).count() == 1
-        assert FundQuarterSnapshot.query.filter_by(fund_number="Fund IX").count() == 1
+        assert DealCashflowEvent.query.filter_by(deal_id=deal.id, team_id=team_id).count() == 2
+        assert DealQuarterSnapshot.query.filter_by(deal_id=deal.id, team_id=team_id).count() == 2
+        assert DealUnderwriteBaseline.query.filter_by(deal_id=deal.id, team_id=team_id).count() == 1
+        assert FundQuarterSnapshot.query.filter_by(fund_number="Fund IX", team_id=team_id).count() == 1
     finally:
         os.remove(file_path)
 
 
 def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app_context):
+    team_id = create_team()
     sheets = {
         "Deals": {
             "Company Name": ["Only Deals Co"],
@@ -238,7 +254,7 @@ def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app
     }
     file_path = create_temp_workbook(sheets)
     try:
-        result = parse_deals(file_path)
+        result = parse_deals(file_path, team_id=team_id)
         assert result["success"] == 1
         assert result["supplemental_counts"] == {
             "cashflows": 0,
@@ -246,5 +262,63 @@ def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app
             "fund_quarterly": 0,
             "underwrite": 0,
         }
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_replaces_existing_fund_by_default(app_context):
+    team_id = create_team()
+    old = Deal(company_name="Old Co", fund_number="Fund Replace", equity_invested=10, team_id=team_id)
+    db.session.add(old)
+    db.session.commit()
+
+    data = {
+        "Company Name": ["New Co"],
+        "Fund": ["Fund Replace"],
+        "Equity Invested": [100],
+        "Realized Value": [120],
+        "Unrealized Value": [0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team_id)
+        assert result["success"] == 1
+        assert result["replaced_funds"]["Fund Replace"] == 1
+        assert Deal.query.filter_by(team_id=team_id, fund_number="Fund Replace", company_name="Old Co").count() == 0
+        assert Deal.query.filter_by(team_id=team_id, fund_number="Fund Replace", company_name="New Co").count() == 1
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_replace_is_scoped_to_team(app_context):
+    team_a = create_team()
+    team_b = create_team()
+
+    db.session.add_all(
+        [
+            Deal(company_name="Old Team A", fund_number="Fund Shared", equity_invested=10, team_id=team_a),
+            Deal(company_name="Old Team B", fund_number="Fund Shared", equity_invested=10, team_id=team_b),
+        ]
+    )
+    db.session.commit()
+
+    data = {
+        "Company Name": ["New Team A"],
+        "Fund": ["Fund Shared"],
+        "Equity Invested": [100],
+        "Realized Value": [130],
+        "Unrealized Value": [0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team_a)
+        assert result["success"] == 1
+        assert result["replaced_funds"]["Fund Shared"] == 1
+
+        assert Deal.query.filter_by(team_id=team_a, fund_number="Fund Shared", company_name="Old Team A").count() == 0
+        assert Deal.query.filter_by(team_id=team_a, fund_number="Fund Shared", company_name="New Team A").count() == 1
+
+        assert Deal.query.filter_by(team_id=team_b, fund_number="Fund Shared", company_name="Old Team B").count() == 1
+        assert Deal.query.filter_by(team_id=team_b, fund_number="Fund Shared", company_name="New Team A").count() == 0
     finally:
         os.remove(file_path)

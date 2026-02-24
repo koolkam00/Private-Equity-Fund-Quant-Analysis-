@@ -152,3 +152,58 @@ Global filters drive every KPI, table, and chart:
   - Any formula or threshold change in `services/metrics/*` should be reflected in `services/metrics/methodology.py` and covered by tests.
 - Print/PDF behavior:
   - Browser-native print (`window.print()`), with page classes and print CSS tuned for audit readability.
+
+## 9. Tenancy, Authentication, and Scope
+- Access model: invite-only, team-scoped workspaces.
+- Authentication: email/password login.
+- Team isolation: all core tables are scoped by `team_id`.
+- Team-scoped entities:
+  - `deals`
+  - `deal_cashflow_events`
+  - `deal_quarter_snapshots`
+  - `fund_quarter_snapshots`
+  - `deal_underwrite_baselines`
+  - `upload_issues`
+- Team management routes:
+  - `GET /team`
+  - `POST /team/invites`
+  - `GET/POST /auth/accept-invite/<token>`
+
+### 9.1 Global Fund Scope Precedence
+Fund selection precedence is deterministic:
+1. path fund override (e.g. `/ic-memo/<fund_name>`)
+2. query `fund` parameter
+3. session `active_fund` selected from global selector
+4. all funds in current team
+
+Applied consistently through `_build_filtered_deals_context(...)`.
+
+### 9.2 Upload Replacement Rule
+- Upload parser default mode is `replace_fund`.
+- For each fund found in uploaded Deals sheet:
+  - delete prior team-scoped deals for that fund
+  - delete dependent supplemental rows for those deals
+  - delete team-scoped fund-quarter snapshots for that fund
+  - insert newly uploaded rows atomically in one transaction
+- `upload_batch` and `upload_issues` history are preserved for auditability.
+
+## 10. Deployment Runbook (Render + Postgres)
+1. Provision with `render.yaml`:
+  - Web service + managed Postgres
+2. Required env vars:
+  - `SECRET_KEY`
+  - `BOOTSTRAP_ADMIN_EMAIL`
+  - `BOOTSTRAP_ADMIN_PASSWORD`
+  - `FLASK_ENV=production`
+3. Startup behavior:
+  - schema bootstrap via `db.create_all()` + `ensure_schema_updates()`
+  - identity bootstrap creates initial admin user/team when no users exist
+  - legacy rows without `team_id` are backfilled to seeded Admin Team
+4. First-run steps:
+  - sign in with bootstrap admin
+  - open `/team`, generate invite link(s)
+  - upload first fund workbook at `/upload`
+  - switch active fund using global header selector
+5. Operations:
+  - use managed Postgres snapshots/backups from Render dashboard
+  - use `/healthz` for uptime checks
