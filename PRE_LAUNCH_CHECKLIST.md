@@ -63,6 +63,12 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
 - [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
 - [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.
+- [ ] Upload benchmark workbook (`Asset Class`, `Vintage Year`, `Metric`, `Quartile`, `Value`) and confirm success flash.
+- [ ] Verify benchmark upload is full-replace at team scope (old benchmark rows are replaced).
+- [ ] On dashboard, select `Benchmark Asset Class` and confirm Fund Summary shows:
+  - `Net IRR Benchmark`, `Net MOIC Benchmark`, `Net DPI Benchmark`.
+- [ ] Confirm benchmark ranking labels render (`Top 5%`, `1st Quartile`, `2nd Quartile`, `3rd Quartile`, `4th Quartile`, `N/A`).
+- [ ] Confirm exact vintage-year matching behavior (non-matching vintage renders `N/A`).
 - [ ] Global firm selector switches scope across pages (`/dashboard`, `/deals`, `/track-record`, `/analysis/*`, `/ic-memo`).
 - [ ] Currency labels/values switch with active firm across dashboard, deals, track record, and bridge charts.
 - [ ] Query fund filter still works as a request-level override for that page view.

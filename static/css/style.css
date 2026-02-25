@@ -684,6 +684,48 @@ body.pe-app {
 .status-unrealized { background: rgba(47, 93, 80, 0.16); color: #2f5d50; border-color: rgba(47, 93, 80, 0.3); }
 .value-positive { color: var(--accent); }
 .value-negative { color: var(--danger); }
+.benchmark-rank {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid #d3dfda;
+    background: #f1f7f5;
+    color: #2a4d45;
+    white-space: nowrap;
+}
+.benchmark-rank-top5 {
+    background: #dff5ed;
+    border-color: #92d5bd;
+    color: #0b6d53;
+}
+.benchmark-rank-q1 {
+    background: #e8f5ee;
+    border-color: #b3dfcb;
+    color: #1d6c53;
+}
+.benchmark-rank-q2 {
+    background: #f2f4ea;
+    border-color: #d4d9be;
+    color: #556046;
+}
+.benchmark-rank-q3 {
+    background: #f8eee1;
+    border-color: #e8ceab;
+    color: #855f25;
+}
+.benchmark-rank-q4 {
+    background: #fbe8ea;
+    border-color: #e6bcc1;
+    color: #9a3140;
+}
+.benchmark-rank-na {
+    background: #f2f4f5;
+    border-color: #d8dddf;
+    color: #5d6d72;
+}
 
 .sortable th[data-sort] { cursor: pointer; }
 .expand-btn { border: none; background: none; cursor: pointer; font-size: 16px; color: var(--accent-3); }

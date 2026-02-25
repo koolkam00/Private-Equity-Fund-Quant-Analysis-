@@ -77,12 +77,19 @@
                     {% for ec in entry_channels %}<option value="{{ ec }}" {% if current_entry_channel == ec %}selected{% endif %}>{{ ec }}</option>{% endfor %}
                 </select>
             </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
         </div>
         <div class="filter-actions">
             <button type="submit" class="btn-upload btn-filter-apply">
                 <i class="bi bi-funnel"></i> Apply Filters
             </button>
-            {% if current_fund or current_status or current_sector or current_geography or current_vintage or current_exit_type or current_lead_partner or current_security_type or current_deal_type or current_entry_channel %}
+            {% if current_fund or current_status or current_sector or current_geography or current_vintage or current_exit_type or current_lead_partner or current_security_type or current_deal_type or current_entry_channel or current_benchmark_asset_class %}
             <a class="btn-upload btn-filter-clear" href="{{ url_for('dashboard') }}">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
@@ -115,6 +122,9 @@
                 <th class="num">Net IRR</th>
                 <th class="num">Net MOIC</th>
                 <th class="num">Net DPI</th>
+                <th>Net IRR Benchmark</th>
+                <th>Net MOIC Benchmark</th>
+                <th>Net DPI Benchmark</th>
             </tr>
         </thead>
         <tbody>
@@ -126,6 +136,9 @@
                 <td class="num">{% if row.conflicts.net_irr %}N/A{% else %}{{ fmt_pct_1dp(row.net_irr) }}{% endif %}</td>
                 <td class="num">{% if row.conflicts.net_moic %}N/A{% else %}{{ fmt_multiple(row.net_moic) }}{% endif %}</td>
                 <td class="num">{% if row.conflicts.net_dpi %}N/A{% else %}{{ fmt_multiple(row.net_dpi) }}{% endif %}</td>
+                <td><span class="benchmark-rank benchmark-rank-{{ row.benchmark_net_irr.rank_code }}">{{ row.benchmark_net_irr.label }}</span></td>
+                <td><span class="benchmark-rank benchmark-rank-{{ row.benchmark_net_moic.rank_code }}">{{ row.benchmark_net_moic.label }}</span></td>
+                <td><span class="benchmark-rank benchmark-rank-{{ row.benchmark_net_dpi.rank_code }}">{{ row.benchmark_net_dpi.label }}</span></td>
             </tr>
             {% endfor %}
         </tbody>

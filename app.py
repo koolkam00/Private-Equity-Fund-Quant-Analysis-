@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 
 from config import Config
 from models import (
+    BenchmarkPoint,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
@@ -32,6 +33,7 @@ from models import (
     db,
     ensure_schema_updates,
 )
+from services.benchmark_parser import parse_benchmarks
 from services.deal_parser import parse_deals
 from services.fx_rates import resolve_rate_to_usd
 from services.metrics import (
@@ -82,6 +84,7 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(os.path.join(os.path.dirname(__file__), "instance"), exist_ok=True)
 
 DEAL_TEMPLATE_FILENAME = "PE_Fund_Data_Template.xlsx"
+BENCHMARK_TEMPLATE_FILENAME = "PE_Benchmark_Template.xlsx"
 
 ANALYSIS_PAGES = {
     "fund-liquidity": {
@@ -792,6 +795,7 @@ def _is_missing_table_error(exc):
             "team_memberships",
             "team_firm_access",
             "team_invites",
+            "benchmark_points",
         )
     )
 
@@ -949,6 +953,67 @@ def _deal_vintage_year(deal):
     if deal.investment_date is not None:
         return int(deal.investment_date.year)
     return None
+
+
+def _benchmark_asset_classes_for_team(team_id):
+    if team_id is None:
+        return []
+    rows = (
+        db.session.query(BenchmarkPoint.asset_class)
+        .filter(BenchmarkPoint.team_id == team_id)
+        .distinct()
+        .order_by(BenchmarkPoint.asset_class.asc())
+        .all()
+    )
+    return [row[0] for row in rows if row[0]]
+
+
+def _load_team_benchmark_thresholds(team_id, asset_class):
+    asset = (asset_class or "").strip()
+    if team_id is None or not asset:
+        return {}
+
+    rows = (
+        BenchmarkPoint.query.filter_by(team_id=team_id, asset_class=asset)
+        .order_by(BenchmarkPoint.vintage_year.asc(), BenchmarkPoint.metric.asc(), BenchmarkPoint.quartile.asc())
+        .all()
+    )
+    thresholds = {}
+    for row in rows:
+        vintage_bucket = thresholds.setdefault(int(row.vintage_year), {})
+        metric_bucket = vintage_bucket.setdefault(row.metric, {})
+        metric_bucket[row.quartile] = row.value
+    return thresholds
+
+
+def _rank_benchmark_metric(metric_value, vintage_year, metric_name, thresholds, asset_class_selected):
+    asset = (asset_class_selected or "").strip()
+    if not asset:
+        return {"label": "N/A", "rank_code": "na", "reason": "no_asset_class_selected"}
+    if metric_value is None:
+        return {"label": "N/A", "rank_code": "na", "reason": "missing_metric"}
+    if vintage_year is None:
+        return {"label": "N/A", "rank_code": "na", "reason": "missing_vintage"}
+
+    metric_thresholds = ((thresholds.get(int(vintage_year)) or {}).get(metric_name)) or {}
+    lower = metric_thresholds.get("lower_quartile")
+    median = metric_thresholds.get("median")
+    upper = metric_thresholds.get("upper_quartile")
+    top_5 = metric_thresholds.get("top_5")
+
+    if lower is None or median is None or upper is None:
+        return {"label": "N/A", "rank_code": "na", "reason": "missing_thresholds"}
+
+    value = float(metric_value)
+    if top_5 is not None and value >= float(top_5):
+        return {"label": "Top 5%", "rank_code": "top5", "reason": None}
+    if value >= float(upper):
+        return {"label": "1st Quartile", "rank_code": "q1", "reason": None}
+    if value >= float(median):
+        return {"label": "2nd Quartile", "rank_code": "q2", "reason": None}
+    if value >= float(lower):
+        return {"label": "3rd Quartile", "rank_code": "q3", "reason": None}
+    return {"label": "4th Quartile", "rank_code": "q4", "reason": None}
 
 
 def _fmt_track_date(value):
@@ -1449,6 +1514,8 @@ def _empty_dashboard_context():
         "current_security_type": "",
         "current_deal_type": "",
         "current_entry_channel": "",
+        "benchmark_asset_classes": [],
+        "current_benchmark_asset_class": "",
     }
 
 
@@ -1456,6 +1523,8 @@ def _build_filtered_deals_context(fund_override=None):
     membership = _current_membership()
     active_firm = _resolve_active_firm_for_team()
     firm_id = active_firm.id if active_firm is not None else None
+    team_id = membership.team_id if membership is not None else None
+    benchmark_asset_classes = _benchmark_asset_classes_for_team(team_id)
 
     try:
         if firm_id is None:
@@ -1497,6 +1566,9 @@ def _build_filtered_deals_context(fund_override=None):
     current_security_type = request.args.get("security_type", "")
     current_deal_type = request.args.get("deal_type", "")
     current_entry_channel = request.args.get("entry_channel", "")
+    current_benchmark_asset_class = (request.args.get("benchmark_asset_class", "") or "").strip()
+    if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+        current_benchmark_asset_class = ""
 
     filtered = all_deals
     if current_fund:
@@ -1547,13 +1619,15 @@ def _build_filtered_deals_context(fund_override=None):
         "current_security_type": current_security_type,
         "current_deal_type": current_deal_type,
         "current_entry_channel": current_entry_channel,
+        "benchmark_asset_classes": benchmark_asset_classes,
+        "current_benchmark_asset_class": current_benchmark_asset_class,
         "active_firm": active_firm,
         "active_team": db.session.get(Team, membership.team_id) if membership is not None else None,
         "active_membership": membership,
     }
 
 
-def _build_dashboard_payload(filtered_deals):
+def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class=""):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
     fund_vintage_years = {}
     for deal in filtered_deals:
@@ -1584,15 +1658,20 @@ def _build_dashboard_payload(filtered_deals):
     lead_partner_scorecard = compute_lead_partner_scorecard(filtered_deals, metrics_by_id=metrics_by_id)
     quality = compute_data_quality(filtered_deals, metrics_by_id)
     track_record = compute_deal_track_record(filtered_deals, metrics_by_id=metrics_by_id)
+    benchmark_thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
 
     fund_summary_rows = []
     for fund in track_record.get("funds", []):
         net = fund.get("net_performance") or {}
         conflicts = net.get("conflicts") or {}
+        vintage_year = fund_vintage_years.get(fund.get("fund_name"))
+        net_irr_value = None if conflicts.get("net_irr") else net.get("net_irr")
+        net_moic_value = None if conflicts.get("net_moic") else net.get("net_moic")
+        net_dpi_value = None if conflicts.get("net_dpi") else net.get("net_dpi")
         fund_summary_rows.append(
             {
                 "fund_name": fund.get("fund_name"),
-                "vintage_year": fund_vintage_years.get(fund.get("fund_name")),
+                "vintage_year": vintage_year,
                 "fund_size": fund.get("fund_size"),
                 "net_irr": net.get("net_irr"),
                 "net_moic": net.get("net_moic"),
@@ -1603,6 +1682,27 @@ def _build_dashboard_payload(filtered_deals):
                     "net_moic": bool(conflicts.get("net_moic")),
                     "net_dpi": bool(conflicts.get("net_dpi")),
                 },
+                "benchmark_net_irr": _rank_benchmark_metric(
+                    net_irr_value,
+                    vintage_year,
+                    "net_irr",
+                    benchmark_thresholds,
+                    benchmark_asset_class,
+                ),
+                "benchmark_net_moic": _rank_benchmark_metric(
+                    net_moic_value,
+                    vintage_year,
+                    "net_moic",
+                    benchmark_thresholds,
+                    benchmark_asset_class,
+                ),
+                "benchmark_net_dpi": _rank_benchmark_metric(
+                    net_dpi_value,
+                    vintage_year,
+                    "net_dpi",
+                    benchmark_thresholds,
+                    benchmark_asset_class,
+                ),
             }
         )
 
@@ -2140,7 +2240,12 @@ def index():
 def dashboard():
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _build_dashboard_payload(filter_ctx["deals"])
+        membership = filter_ctx.get("active_membership")
+        payload = _build_dashboard_payload(
+            filter_ctx["deals"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_dashboard_payload(payload, reporting["money_scale"])
         return render_template(
@@ -2175,6 +2280,8 @@ def dashboard():
             current_security_type=filter_ctx["current_security_type"],
             current_deal_type=filter_ctx["current_deal_type"],
             current_entry_channel=filter_ctx["current_entry_channel"],
+            benchmark_asset_classes=filter_ctx["benchmark_asset_classes"],
+            current_benchmark_asset_class=filter_ctx["current_benchmark_asset_class"],
         )
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
@@ -2183,7 +2290,12 @@ def dashboard():
             return render_template("dashboard.html", **_empty_dashboard_context())
 
         filter_ctx = _build_filtered_deals_context()
-        payload = _build_dashboard_payload(filter_ctx["deals"])
+        membership = filter_ctx.get("active_membership")
+        payload = _build_dashboard_payload(
+            filter_ctx["deals"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_dashboard_payload(payload, reporting["money_scale"])
         return render_template(
@@ -2218,6 +2330,8 @@ def dashboard():
             current_security_type=filter_ctx["current_security_type"],
             current_deal_type=filter_ctx["current_deal_type"],
             current_entry_channel=filter_ctx["current_entry_channel"],
+            benchmark_asset_classes=filter_ctx["benchmark_asset_classes"],
+            current_benchmark_asset_class=filter_ctx["current_benchmark_asset_class"],
         )
     except Exception as exc:
         logger.exception("Dashboard computation failed")
@@ -2230,14 +2344,24 @@ def dashboard():
 def dashboard_series_api():
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _build_dashboard_payload(filter_ctx["deals"])
+        membership = filter_ctx.get("active_membership")
+        payload = _build_dashboard_payload(
+            filter_ctx["deals"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_dashboard_payload(payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
-        payload = _build_dashboard_payload(filter_ctx["deals"])
+        membership = filter_ctx.get("active_membership")
+        payload = _build_dashboard_payload(
+            filter_ctx["deals"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_dashboard_payload(payload, reporting["money_scale"])
     return jsonify(
@@ -2544,10 +2668,88 @@ def download_deal_template():
     )
 
 
+@app.route("/upload/benchmarks/template")
+@login_required
+def download_benchmark_template():
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Benchmarks"
+    ws.append(["Asset Class", "Vintage Year", "Metric", "Quartile", "Value"])
+    ws.append(["Buyout", 2019, "Net IRR", "Median", 0.18])
+    ws.append(["Buyout", 2019, "Net TVPI", "Upper Quartile", 2.1])
+    ws.append(["Buyout", 2019, "Net DPI", "Top 5%", 1.7])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=BENCHMARK_TEMPLATE_FILENAME,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 @app.route("/upload/deals", methods=["POST"])
 @login_required
 def upload_deals():
     return _handle_upload(parse_deals, "deals")
+
+
+@app.route("/upload/benchmarks", methods=["POST"])
+@login_required
+def upload_benchmarks():
+    membership = _require_team_scope()
+
+    if "file" not in request.files:
+        flash("No benchmark file selected.", "danger")
+        return redirect(url_for("upload"))
+
+    file = request.files["file"]
+    if file.filename == "":
+        flash("No benchmark file selected.", "danger")
+        return redirect(url_for("upload"))
+
+    if not _allowed_file(file.filename):
+        flash("Invalid benchmark file type. Please upload an .xlsx or .xls file.", "danger")
+        return redirect(url_for("upload"))
+
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(file_path)
+
+    try:
+        result = parse_benchmarks(file_path, team_id=membership.team_id, replace_mode="replace_all")
+        if result.get("success"):
+            flash(
+                f"Loaded {result.get('rows_loaded', 0)} benchmark rows "
+                f"(batch {result.get('upload_batch')}).",
+                "success",
+            )
+            asset_classes = result.get("asset_classes") or []
+            if asset_classes:
+                flash("Asset classes: " + ", ".join(asset_classes), "info")
+            vintage_min = result.get("vintage_min")
+            vintage_max = result.get("vintage_max")
+            if vintage_min is not None and vintage_max is not None:
+                flash(f"Benchmark vintage coverage: {vintage_min} to {vintage_max}.", "info")
+        else:
+            flash("Benchmark upload failed.", "danger")
+
+        for err in (result.get("errors") or [])[:10]:
+            flash(err, "warning")
+        if len(result.get("errors") or []) > 10:
+            flash(f"...and {len(result['errors']) - 10} additional benchmark upload errors.", "warning")
+    except Exception as exc:
+        logger.exception("Error processing benchmark upload")
+        flash(f"Error processing benchmark file: {str(exc)}", "danger")
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    return redirect(url_for("upload"))
 
 
 @app.route("/deals")

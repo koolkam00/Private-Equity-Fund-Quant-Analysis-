@@ -1,6 +1,7 @@
 from datetime import date
 from types import SimpleNamespace
 
+from app import _rank_benchmark_metric
 from models import (
     Deal,
     DealCashflowEvent,
@@ -77,6 +78,73 @@ def test_safe_helpers():
     assert safe_power(-1, 0.5) is None
     assert safe_log(1) == 0
     assert safe_log(-1) is None
+
+
+def test_benchmark_threshold_boundaries_are_inclusive():
+    thresholds = {
+        2019: {
+            "net_irr": {
+                "lower_quartile": 0.10,
+                "median": 0.15,
+                "upper_quartile": 0.20,
+                "top_5": 0.30,
+            }
+        }
+    }
+
+    assert _rank_benchmark_metric(0.30, 2019, "net_irr", thresholds, "Buyout")["rank_code"] == "top5"
+    assert _rank_benchmark_metric(0.20, 2019, "net_irr", thresholds, "Buyout")["rank_code"] == "q1"
+    assert _rank_benchmark_metric(0.15, 2019, "net_irr", thresholds, "Buyout")["rank_code"] == "q2"
+    assert _rank_benchmark_metric(0.10, 2019, "net_irr", thresholds, "Buyout")["rank_code"] == "q3"
+    assert _rank_benchmark_metric(0.09, 2019, "net_irr", thresholds, "Buyout")["rank_code"] == "q4"
+
+
+def test_benchmark_ranking_handles_missing_top5():
+    thresholds = {
+        2019: {
+            "net_moic": {
+                "lower_quartile": 1.3,
+                "median": 1.7,
+                "upper_quartile": 2.1,
+            }
+        }
+    }
+    rank = _rank_benchmark_metric(2.2, 2019, "net_moic", thresholds, "Buyout")
+    assert rank["rank_code"] == "q1"
+    assert rank["label"] == "1st Quartile"
+
+
+def test_benchmark_ranking_returns_na_when_thresholds_missing():
+    thresholds = {
+        2020: {
+            "net_dpi": {
+                "median": 1.0,
+            }
+        }
+    }
+    rank = _rank_benchmark_metric(1.1, 2020, "net_dpi", thresholds, "Buyout")
+    assert rank["rank_code"] == "na"
+    assert rank["reason"] == "missing_thresholds"
+
+
+def test_benchmark_ranking_returns_na_when_metric_missing_or_no_asset_selected():
+    thresholds = {
+        2021: {
+            "net_irr": {
+                "lower_quartile": 0.10,
+                "median": 0.15,
+                "upper_quartile": 0.20,
+                "top_5": 0.27,
+            }
+        }
+    }
+    no_metric = _rank_benchmark_metric(None, 2021, "net_irr", thresholds, "Buyout")
+    assert no_metric["rank_code"] == "na"
+    assert no_metric["reason"] == "missing_metric"
+
+    no_asset = _rank_benchmark_metric(0.2, 2021, "net_irr", thresholds, "")
+    assert no_asset["rank_code"] == "na"
+    assert no_asset["reason"] == "no_asset_class_selected"
 
 
 def test_deal_metrics_core_identity():

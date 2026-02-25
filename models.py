@@ -164,6 +164,36 @@ class UploadIssue(db.Model):
         return f"<UploadIssue {self.file_type} row={self.row_number} severity={self.severity}>"
 
 
+class BenchmarkPoint(db.Model):
+    __tablename__ = "benchmark_points"
+    __table_args__ = (
+        UniqueConstraint(
+            "team_id",
+            "asset_class",
+            "vintage_year",
+            "metric",
+            "quartile",
+            name="uq_benchmark_points_team_asset_vintage_metric_quartile",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    asset_class = db.Column(db.String(128), nullable=False, index=True)
+    vintage_year = db.Column(db.Integer, nullable=False, index=True)
+    metric = db.Column(db.String(32), nullable=False)
+    quartile = db.Column(db.String(32), nullable=False)
+    value = db.Column(db.Float, nullable=False)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return (
+            f"<BenchmarkPoint team={self.team_id} asset={self.asset_class} "
+            f"vintage={self.vintage_year} metric={self.metric} quartile={self.quartile}>"
+        )
+
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -323,6 +353,7 @@ def ensure_schema_updates():
     TeamMembership.__table__.create(bind=engine, checkfirst=True)
     TeamFirmAccess.__table__.create(bind=engine, checkfirst=True)
     TeamInvite.__table__.create(bind=engine, checkfirst=True)
+    BenchmarkPoint.__table__.create(bind=engine, checkfirst=True)
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
     DealQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
     FundQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
@@ -421,6 +452,9 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_upload_issues_team_id", "upload_issues", "team_id")
     _ensure_index(engine, "ix_team_firm_access_team_id", "team_firm_access", "team_id")
     _ensure_index(engine, "ix_team_firm_access_firm_id", "team_firm_access", "firm_id")
+    _ensure_index(engine, "ix_benchmark_points_team_id", "benchmark_points", "team_id")
+    _ensure_index(engine, "ix_benchmark_points_asset_class", "benchmark_points", "asset_class")
+    _ensure_index(engine, "ix_benchmark_points_vintage_year", "benchmark_points", "vintage_year")
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

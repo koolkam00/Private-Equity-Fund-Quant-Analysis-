@@ -1,9 +1,10 @@
 from datetime import date
 from io import BytesIO
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from models import (
+    BenchmarkPoint,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
@@ -32,6 +33,19 @@ def _with_active_scope(deal):
     return deal
 
 
+def _build_benchmark_workbook_bytes(rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Benchmarks"
+    ws.append(["Asset Class", "Vintage Year", "Metric", "Quartile", "Value"])
+    for row in rows:
+        ws.append([row["asset_class"], row["vintage_year"], row["metric"], row["quartile"], row["value"]])
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
 def test_index_redirect(client):
     response = client.get("/")
     assert response.status_code == 302
@@ -50,6 +64,8 @@ def test_upload_page(client):
     assert response.status_code == 200
     assert b"Upload Deal Template" in response.data
     assert b"Download Current Deal Template" in response.data
+    assert b"Benchmark File" in response.data
+    assert b"Upload Benchmarks" in response.data
     assert b"Recent Uploads" in response.data
     assert b"Firm Currency" in response.data
 
@@ -183,6 +199,116 @@ def test_download_deal_template(client):
     ws = wb["Deals"]
     headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
     assert "Firm Currency" in headers
+
+
+def test_download_benchmark_template(client):
+    response = client.get("/upload/benchmarks/template")
+    assert response.status_code == 200
+    assert "attachment;" in response.headers.get("Content-Disposition", "")
+    assert "PE_Benchmark_Template.xlsx" in response.headers.get("Content-Disposition", "")
+    wb = load_workbook(BytesIO(response.data), read_only=True)
+    ws = wb["Benchmarks"]
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert headers == ["Asset Class", "Vintage Year", "Metric", "Quartile", "Value"]
+
+
+def test_upload_benchmarks_route_success(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    rows = [
+        {"asset_class": "Buyout", "vintage_year": 2019, "metric": "Net IRR", "quartile": "Lower Quartile", "value": 0.12},
+        {"asset_class": "Buyout", "vintage_year": 2019, "metric": "Net IRR", "quartile": "Median", "value": 0.16},
+        {"asset_class": "Buyout", "vintage_year": 2019, "metric": "Net IRR", "quartile": "Upper Quartile", "value": 0.2},
+        {"asset_class": "Buyout", "vintage_year": 2019, "metric": "Net IRR", "quartile": "Top 5%", "value": 0.27},
+    ]
+    payload = {
+        "file": (_build_benchmark_workbook_bytes(rows), "benchmarks.xlsx"),
+    }
+    response = client.post(
+        "/upload/benchmarks",
+        data=payload,
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Loaded 4 benchmark rows" in response.data
+    assert BenchmarkPoint.query.filter_by(team_id=membership.team_id).count() == 4
+
+
+def test_dashboard_benchmark_selector_and_labels(client):
+    deal = Deal(
+        company_name="Bench Co",
+        fund_number="Fund Bench",
+        investment_date=date(2019, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+        net_irr=0.24,
+        net_moic=2.3,
+        net_dpi=1.4,
+    )
+    db.session.add(_with_active_scope(deal))
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    db.session.add_all(
+        [
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.17),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.21),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="top_5", value=0.3),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="lower_quartile", value=1.5),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="median", value=1.9),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="upper_quartile", value=2.2),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="top_5", value=2.8),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="lower_quartile", value=0.6),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="median", value=1.3),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="upper_quartile", value=1.5),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="top_5", value=1.8),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/dashboard?benchmark_asset_class=Buyout")
+    assert response.status_code == 200
+    assert b"Benchmark Asset Class" in response.data
+    assert b"Net IRR Benchmark" in response.data
+    assert b"Net MOIC Benchmark" in response.data
+    assert b"Net DPI Benchmark" in response.data
+    assert b"1st Quartile" in response.data
+    assert b"2nd Quartile" in response.data
+
+
+def test_dashboard_benchmark_exact_vintage_match_required(client):
+    deal = Deal(
+        company_name="Bench No Match",
+        fund_number="Fund Bench N/A",
+        investment_date=date(2020, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+        net_irr=0.24,
+        net_moic=2.3,
+        net_dpi=1.4,
+    )
+    db.session.add(_with_active_scope(deal))
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    db.session.add(
+        BenchmarkPoint(
+            team_id=membership.team_id,
+            asset_class="Buyout",
+            vintage_year=2019,
+            metric="net_irr",
+            quartile="lower_quartile",
+            value=0.12,
+        )
+    )
+    db.session.commit()
+
+    response = client.get("/dashboard?benchmark_asset_class=Buyout")
+    assert response.status_code == 200
+    assert b"Net IRR Benchmark" in response.data
+    assert b"benchmark-rank-na" in response.data
 
 
 def test_deals_page(client):

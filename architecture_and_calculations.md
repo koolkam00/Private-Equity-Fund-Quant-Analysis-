@@ -120,6 +120,24 @@ Global filters drive every KPI, table, and chart:
 - Deal type
 - Entry channel
 
+### 5.1 Team-Scoped Benchmark Selector
+- Dashboard includes a manual `Benchmark Asset Class` selector.
+- Benchmarks are team-scoped and loaded from `benchmark_points`.
+- Matching policy is strict exact match on:
+  - `asset_class`
+  - `vintage_year`
+  - `metric` (`net_irr`, `net_moic`, `net_dpi`)
+- No interpolation or nearest-year fallback is used.
+
+Benchmark ranking algorithm (higher-is-better):
+1. `value >= top_5` -> `Top 5%`
+2. else if `value >= upper_quartile` -> `1st Quartile`
+3. else if `value >= median` -> `2nd Quartile`
+4. else if `value >= lower_quartile` -> `3rd Quartile`
+5. else -> `4th Quartile`
+
+If required thresholds are missing, or if fund vintage/metric is unavailable, dashboard shows `N/A`.
+
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`
 - Legacy templates supported with fallbacks:
@@ -235,6 +253,27 @@ Active firm precedence:
   - delete firm-scoped fund-quarter snapshots for that fund
   - insert newly uploaded rows atomically in one transaction
 - `upload_batch` and `upload_issues` history are preserved for auditability.
+
+### 9.4 Benchmark Upload Contract
+- Benchmark ingestion route: `POST /upload/benchmarks`
+- Optional benchmark template route: `GET /upload/benchmarks/template`
+- Required benchmark columns:
+  - `Asset Class`
+  - `Vintage Year`
+  - `Metric`
+  - `Quartile`
+  - `Value`
+- Metric aliases:
+  - `Net IRR` -> `net_irr`
+  - `Net MOIC` / `MOIC` / `Net TVPI` / `TVPI` -> `net_moic`
+  - `Net DPI` / `DPI` -> `net_dpi`
+- Quartile aliases:
+  - `Lower Quartile` -> `lower_quartile`
+  - `Median` -> `median`
+  - `Upper Quartile` -> `upper_quartile`
+  - `Top 5%` -> `top_5`
+- Upload mode is full replace per team:
+  - existing `benchmark_points` rows for that team are deleted before insert.
 
 ### 9.3 Firm Currency USD Reporting Conversion
 - Each firm stores native uploaded currency in `firms.base_currency`.

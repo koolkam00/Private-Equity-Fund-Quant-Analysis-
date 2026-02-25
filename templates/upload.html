@@ -48,6 +48,39 @@
     </section>
 
     <section class="panel">
+        <h3>Benchmark File</h3>
+        <div class="upload-actions">
+            <a href="{{ url_for('download_benchmark_template') }}" class="btn-upload btn-secondary">
+                <i class="bi bi-download"></i> Download Benchmark Template
+            </a>
+        </div>
+        <form method="POST" action="{{ url_for('upload_benchmarks') }}" enctype="multipart/form-data">
+            <label class="drop-zone">
+                <input type="file" name="file" accept=".xlsx,.xls" required class="drop-input">
+                <span class="drop-title">Drop or select your benchmark workbook</span>
+                <span class="file-name"></span>
+            </label>
+            <p class="tiny">
+                Required benchmark columns: <strong>Asset Class</strong>, <strong>Vintage Year</strong>,
+                <strong>Metric</strong>, <strong>Quartile</strong>, <strong>Value</strong>.
+            </p>
+            <p class="tiny">
+                Metric aliases supported: <strong>Net IRR</strong>, <strong>Net MOIC</strong>/<strong>MOIC</strong>,
+                <strong>Net TVPI</strong>/<strong>TVPI</strong> (mapped to MOIC track),
+                and <strong>Net DPI</strong>/<strong>DPI</strong>.
+            </p>
+            <p class="tiny">
+                Quartile labels supported: <strong>Lower Quartile</strong>, <strong>Median</strong>,
+                <strong>Upper Quartile</strong>, <strong>Top 5%</strong>.
+            </p>
+            <p class="tiny">
+                Benchmark uploads are full-replace within your current team scope.
+            </p>
+            <button type="submit" class="btn-upload">Upload Benchmarks</button>
+        </form>
+    </section>
+
+    <section class="panel">
         <h3>Recent Uploads{% if active_firm %} — {{ active_firm.name }}{% endif %}</h3>
         <p class="tiny">
             Delete removes the full upload batch in the active firm, including deals and linked supplemental rows.
