@@ -26,6 +26,11 @@ from services.metrics.ic_memo import compute_ic_memo_payload
 from services.metrics.methodology import build_methodology_payload
 from services.metrics.quality import compute_data_quality
 from services.metrics.risk import compute_loss_and_distribution
+from services.metrics.chart_builder import (
+    build_chart_field_catalog,
+    resolve_auto_chart_type,
+    run_chart_query,
+)
 
 __all__ = [
     "DRIVERS",
@@ -55,4 +60,7 @@ __all__ = [
     "compute_deal_trajectory_analysis",
     "compute_ic_memo_payload",
     "build_methodology_payload",
+    "build_chart_field_catalog",
+    "run_chart_query",
+    "resolve_auto_chart_type",
 ]

@@ -319,3 +319,56 @@ Active firm precedence:
 5. Operations:
   - use managed Postgres snapshots/backups from Render dashboard
   - use `/healthz` for uptime checks
+
+## 11. Chart Builder (Analysis Tab)
+- Route:
+  - `GET /analysis/chart-builder`
+- API endpoints:
+  - `GET /api/chart-builder/catalog`
+  - `POST /api/chart-builder/query`
+  - `GET /api/chart-builder/templates`
+  - `POST /api/chart-builder/templates`
+  - `PUT /api/chart-builder/templates/<id>`
+  - `DELETE /api/chart-builder/templates/<id>`
+
+### 11.1 Data Scope and Sources
+- Team and firm enforcement:
+  - firm-scoped sources (`deals`, `deal_quarterly`, `fund_quarterly`, `cashflows`, `underwrite`) execute in active firm context.
+  - benchmarks remain team-scoped.
+- Supported sources (single source per chart):
+  - `deals`
+  - `deal_quarterly`
+  - `fund_quarterly`
+  - `cashflows`
+  - `underwrite`
+  - `benchmarks`
+
+### 11.2 Query Spec and Auto Chart Rules
+- Query spec includes:
+  - `source`, `chart_type`, `x`, `y[]`, optional `series`, optional `size`, `filters[]`, `sort`, `limit`.
+- Auto chart resolution:
+  1. manual chart type is always honored when not `auto`.
+  2. date/year x + numeric y -> `line`.
+  3. numeric x + numeric y -> `scatter`, or `bubble` when `size` is set.
+  4. categorical x + y -> `bar`.
+  5. categorical x + single y + low cardinality (`<=8`) + no series -> `donut`.
+  6. fallback -> `bar`.
+
+### 11.3 Aggregation and Guardrails
+- Supported aggregations:
+  - `count`, `count_distinct`, `sum`, `avg`, `wavg`, `min`, `max`
+- Weighted average defaults:
+  - `deals`, `deal_quarterly`, `underwrite`: `equity_invested`
+  - `fund_quarterly`: `paid_in_capital`
+  - disabled for `cashflows` and `benchmarks`
+- Guardrails:
+  - grouped category default cap: `200`
+  - scatter/bubble point default cap: `1500`
+  - table row hard cap: `5000`
+  - truncation sets `meta.truncated=true` with warning text.
+
+### 11.4 Template Persistence
+- Team-scoped template model:
+  - `chart_builder_templates(team_id, name, source, config_json, created_by_user_id, timestamps)`
+- `config_json` stores configuration only (`config_version=1`), no data snapshots.
+- Templates run live against current active firm and current global filters.

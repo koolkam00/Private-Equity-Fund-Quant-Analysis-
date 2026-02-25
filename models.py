@@ -194,6 +194,25 @@ class BenchmarkPoint(db.Model):
         )
 
 
+class ChartBuilderTemplate(db.Model):
+    __tablename__ = "chart_builder_templates"
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_chart_builder_templates_team_name"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    source = db.Column(db.String(64), nullable=False, index=True)
+    config_json = db.Column(db.Text, nullable=False)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<ChartBuilderTemplate team={self.team_id} name={self.name}>"
+
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -354,6 +373,7 @@ def ensure_schema_updates():
     TeamFirmAccess.__table__.create(bind=engine, checkfirst=True)
     TeamInvite.__table__.create(bind=engine, checkfirst=True)
     BenchmarkPoint.__table__.create(bind=engine, checkfirst=True)
+    ChartBuilderTemplate.__table__.create(bind=engine, checkfirst=True)
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
     DealQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
     FundQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
@@ -455,6 +475,8 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_benchmark_points_team_id", "benchmark_points", "team_id")
     _ensure_index(engine, "ix_benchmark_points_asset_class", "benchmark_points", "asset_class")
     _ensure_index(engine, "ix_benchmark_points_vintage_year", "benchmark_points", "vintage_year")
+    _ensure_index(engine, "ix_chart_builder_templates_team_id", "chart_builder_templates", "team_id")
+    _ensure_index(engine, "ix_chart_builder_templates_source", "chart_builder_templates", "source")
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

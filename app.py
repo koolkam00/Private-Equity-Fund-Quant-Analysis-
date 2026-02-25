@@ -3,6 +3,7 @@ import os
 import re
 import secrets
 import hashlib
+import json
 from io import BytesIO
 from pathlib import Path
 from datetime import date, datetime, timedelta
@@ -18,6 +19,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from models import (
     BenchmarkPoint,
+    ChartBuilderTemplate,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
@@ -37,6 +39,7 @@ from services.benchmark_parser import parse_benchmarks
 from services.deal_parser import parse_deals
 from services.fx_rates import resolve_rate_to_usd
 from services.metrics import (
+    build_chart_field_catalog,
     build_methodology_payload,
     compute_bridge_aggregate,
     compute_bridge_view,
@@ -60,6 +63,7 @@ from services.metrics import (
     compute_value_creation_mix,
     compute_valuation_quality_analysis,
     compute_vintage_series,
+    run_chart_query,
 )
 from services.utils import (
     DEFAULT_CURRENCY_CODE,
@@ -110,6 +114,10 @@ ANALYSIS_PAGES = {
     "deal-trajectory": {
         "title": "Deal Trajectory",
         "description": "Quarterly EV/net debt/equity and cash-flow path for an individual deal.",
+    },
+    "chart-builder": {
+        "title": "Chart Builder",
+        "description": "Drag/drop fields, build ad-hoc visuals, and save team templates.",
     },
 }
 
@@ -796,6 +804,7 @@ def _is_missing_table_error(exc):
             "team_firm_access",
             "team_invites",
             "benchmark_points",
+            "chart_builder_templates",
         )
     )
 
@@ -1627,6 +1636,40 @@ def _build_filtered_deals_context(fund_override=None):
     }
 
 
+def _extract_chart_builder_global_filters_from_request():
+    return {
+        "fund": (request.values.get("fund", "") or "").strip(),
+        "status": (request.values.get("status", "") or "").strip(),
+        "sector": (request.values.get("sector", "") or "").strip(),
+        "geography": (request.values.get("geography", "") or "").strip(),
+        "vintage": (request.values.get("vintage", "") or "").strip(),
+        "exit_type": (request.values.get("exit_type", "") or "").strip(),
+        "lead_partner": (request.values.get("lead_partner", "") or "").strip(),
+        "security_type": (request.values.get("security_type", "") or "").strip(),
+        "deal_type": (request.values.get("deal_type", "") or "").strip(),
+        "entry_channel": (request.values.get("entry_channel", "") or "").strip(),
+        "benchmark_asset_class": (request.values.get("benchmark_asset_class", "") or "").strip(),
+    }
+
+
+def _serialize_chart_builder_template(row):
+    config = {}
+    try:
+        config = json.loads(row.config_json or "{}")
+    except (TypeError, ValueError):
+        config = {}
+    return {
+        "id": row.id,
+        "team_id": row.team_id,
+        "name": row.name,
+        "source": row.source,
+        "config": config,
+        "created_by_user_id": row.created_by_user_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
 def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class=""):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
     fund_vintage_years = {}
@@ -1742,6 +1785,8 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
 def _analysis_route_payload(page, filtered_deals, firm_id=None):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
 
+    if page == "chart-builder":
+        return {}
     if page == "fund-liquidity":
         return compute_fund_liquidity_analysis(filtered_deals, firm_id=firm_id)
     if page == "underwrite-outcome":
@@ -2413,6 +2458,23 @@ def analysis_page(page):
     if page not in ANALYSIS_PAGES:
         abort(404)
 
+    if page == "chart-builder":
+        filter_ctx = _build_filtered_deals_context()
+        membership = filter_ctx.get("active_membership")
+        team_id = membership.team_id if membership is not None else None
+        catalog = build_chart_field_catalog(
+            team_id=team_id,
+            firm_id=filter_ctx.get("firm_id"),
+            global_filters=_extract_chart_builder_global_filters_from_request(),
+        )
+        return render_template(
+            "chart_builder.html",
+            page_key=page,
+            page_meta=ANALYSIS_PAGES[page],
+            chart_builder_catalog=catalog,
+            **filter_ctx,
+        )
+
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
@@ -2441,6 +2503,9 @@ def analysis_series_api(page):
     if page not in ANALYSIS_PAGES:
         abort(404)
 
+    if page == "chart-builder":
+        return jsonify({"page": page, "title": ANALYSIS_PAGES[page]["title"], "payload": {}})
+
     try:
         filter_ctx = _build_filtered_deals_context()
         payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
@@ -2461,6 +2526,163 @@ def analysis_series_api(page):
             "payload": payload,
         }
     )
+
+
+@app.route("/api/chart-builder/catalog")
+@login_required
+def chart_builder_catalog_api():
+    membership = _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    try:
+        catalog = build_chart_field_catalog(
+            team_id=membership.team_id,
+            firm_id=active_firm.id if active_firm is not None else None,
+            global_filters=_extract_chart_builder_global_filters_from_request(),
+        )
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        catalog = build_chart_field_catalog(
+            team_id=membership.team_id,
+            firm_id=active_firm.id if active_firm is not None else None,
+            global_filters=_extract_chart_builder_global_filters_from_request(),
+        )
+    return jsonify(catalog)
+
+
+@app.route("/api/chart-builder/query", methods=["POST"])
+@login_required
+def chart_builder_query_api():
+    membership = _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
+    global_filters = body.get("global_filters")
+    if not isinstance(global_filters, dict):
+        global_filters = _extract_chart_builder_global_filters_from_request()
+
+    try:
+        payload = run_chart_query(
+            spec=body,
+            team_id=membership.team_id,
+            firm_id=active_firm.id if active_firm is not None else None,
+            global_filters=global_filters,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        try:
+            payload = run_chart_query(
+                spec=body,
+                team_id=membership.team_id,
+                firm_id=active_firm.id if active_firm is not None else None,
+                global_filters=global_filters,
+            )
+        except ValueError as nested:
+            return jsonify({"error": str(nested)}), 400
+
+    return jsonify(payload)
+
+
+@app.route("/api/chart-builder/templates")
+@login_required
+def chart_builder_templates_api():
+    membership = _require_team_scope()
+    rows = (
+        ChartBuilderTemplate.query.filter_by(team_id=membership.team_id)
+        .order_by(ChartBuilderTemplate.updated_at.desc(), ChartBuilderTemplate.id.desc())
+        .all()
+    )
+    return jsonify({"templates": [_serialize_chart_builder_template(row) for row in rows]})
+
+
+@app.route("/api/chart-builder/templates", methods=["POST"])
+@login_required
+def chart_builder_template_create_api():
+    membership = _require_team_scope()
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Template name is required."}), 400
+
+    source = (body.get("source") or "deals").strip().lower() or "deals"
+    config = body.get("config")
+    if config is None:
+        config = {"config_version": 1, "cards": []}
+    if not isinstance(config, dict):
+        return jsonify({"error": "Template config must be an object."}), 400
+    if "config_version" not in config:
+        config["config_version"] = 1
+
+    row = ChartBuilderTemplate(
+        team_id=membership.team_id,
+        name=name,
+        source=source,
+        config_json=json.dumps(config, sort_keys=True),
+        created_by_user_id=current_user.id,
+    )
+    db.session.add(row)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Template name already exists for this team."}), 400
+    return jsonify(_serialize_chart_builder_template(row)), 201
+
+
+@app.route("/api/chart-builder/templates/<int:template_id>", methods=["PUT"])
+@login_required
+def chart_builder_template_update_api(template_id):
+    membership = _require_team_scope()
+    row = ChartBuilderTemplate.query.filter_by(id=template_id, team_id=membership.team_id).first()
+    if row is None:
+        abort(404)
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "Template name cannot be empty."}), 400
+        row.name = name
+    if "source" in body:
+        row.source = (body.get("source") or "deals").strip().lower() or "deals"
+    if "config" in body:
+        config = body.get("config")
+        if not isinstance(config, dict):
+            return jsonify({"error": "Template config must be an object."}), 400
+        if "config_version" not in config:
+            config["config_version"] = 1
+        row.config_json = json.dumps(config, sort_keys=True)
+    row.updated_at = datetime.utcnow()
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Template name already exists for this team."}), 400
+    return jsonify(_serialize_chart_builder_template(row))
+
+
+@app.route("/api/chart-builder/templates/<int:template_id>", methods=["DELETE"])
+@login_required
+def chart_builder_template_delete_api(template_id):
+    membership = _require_team_scope()
+    row = ChartBuilderTemplate.query.filter_by(id=template_id, team_id=membership.team_id).first()
+    if row is None:
+        abort(404)
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"deleted": True, "id": template_id})
 
 
 @app.route("/ic-memo")

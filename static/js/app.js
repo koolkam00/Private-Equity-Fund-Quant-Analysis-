@@ -1550,6 +1550,901 @@ function bindMethodologyAnchors() {
     }
 }
 
+let chartBuilderState = null;
+const chartBuilderCharts = new Map();
+let chartBuilderCardCounter = 1;
+
+function chartBuilderConfigDefaults(source) {
+    return {
+        config_version: 1,
+        source: source || 'deals',
+        chart_type: 'auto',
+        x: { field: '', bucket: '' },
+        y: [],
+        series: { field: '' },
+        size: { field: '', agg: 'sum' },
+        filters: [],
+        sort: { by: 'x', direction: 'asc' },
+        limit: 200,
+    };
+}
+
+function chartBuilderSourceMap() {
+    const catalog = chartBuilderState?.catalog || {};
+    const sources = catalog.sources || [];
+    const map = {};
+    sources.forEach((source) => {
+        map[source.key] = source;
+    });
+    return map;
+}
+
+function chartBuilderFindFieldMeta(source, field) {
+    if (!source || !field) return null;
+    const sourceDef = chartBuilderSourceMap()[source];
+    if (!sourceDef) return null;
+    const fields = [...(sourceDef.dimensions || []), ...(sourceDef.measures || [])];
+    return fields.find((item) => item.field === field) || null;
+}
+
+function chartBuilderDefaultYField(source) {
+    const sourceDef = chartBuilderSourceMap()[source];
+    const measure = (sourceDef?.measures || [])[0];
+    if (!measure) return null;
+    return {
+        field: measure.field,
+        agg: 'avg',
+        label: measure.label || measure.field,
+        color: '',
+        weight_field: '',
+    };
+}
+
+function chartBuilderCreateCard(seed = {}) {
+    const source = seed.source || chartBuilderState?.catalog?.default_source || 'deals';
+    const defaults = chartBuilderConfigDefaults(source);
+    const merged = {
+        id: `cb-card-${chartBuilderCardCounter++}`,
+        source,
+        chart_type: seed.chart_type || defaults.chart_type,
+        x: seed.x || defaults.x,
+        y: Array.isArray(seed.y) && seed.y.length ? seed.y : [],
+        series: seed.series || defaults.series,
+        size: seed.size || defaults.size,
+        filters: Array.isArray(seed.filters) ? seed.filters : [],
+        sort: seed.sort || defaults.sort,
+        limit: Number(seed.limit || defaults.limit) || defaults.limit,
+        show_table: seed.show_table !== false,
+        result: seed.result || null,
+    };
+    if (!merged.y.length) {
+        const firstY = chartBuilderDefaultYField(source);
+        if (firstY) merged.y = [firstY];
+    }
+    return merged;
+}
+
+function chartBuilderDestroyCharts() {
+    chartBuilderCharts.forEach((chart) => {
+        if (chart && typeof chart.destroy === 'function') {
+            chart.destroy();
+        }
+    });
+    chartBuilderCharts.clear();
+}
+
+function chartBuilderCardById(cardId) {
+    return chartBuilderState.cards.find((card) => card.id === cardId) || null;
+}
+
+function chartBuilderAddCard(seed) {
+    const card = chartBuilderCreateCard(seed || {});
+    chartBuilderState.cards.push(card);
+    chartBuilderState.activeCardId = card.id;
+    chartBuilderState.activeWell = 'x';
+    chartBuilderRenderBoard();
+}
+
+function chartBuilderRemoveCard(cardId) {
+    chartBuilderState.cards = chartBuilderState.cards.filter((card) => card.id !== cardId);
+    if (!chartBuilderState.cards.length) {
+        chartBuilderAddCard({ source: chartBuilderState.catalog.default_source || 'deals' });
+        return;
+    }
+    if (chartBuilderState.activeCardId === cardId) {
+        chartBuilderState.activeCardId = chartBuilderState.cards[0].id;
+    }
+    chartBuilderRenderBoard();
+}
+
+function chartBuilderDuplicateCard(cardId) {
+    const original = chartBuilderCardById(cardId);
+    if (!original) return;
+    const seed = JSON.parse(JSON.stringify(original));
+    seed.result = null;
+    chartBuilderAddCard(seed);
+}
+
+function chartBuilderResetCardForSource(card, source) {
+    card.source = source;
+    card.x = { field: '', bucket: '' };
+    const yField = chartBuilderDefaultYField(source);
+    card.y = yField ? [yField] : [];
+    card.series = { field: '' };
+    card.size = { field: '', agg: 'sum' };
+    card.filters = [];
+    card.result = null;
+}
+
+function chartBuilderFormatValue(value, valueType) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    if (valueType === 'currency') return formatCurrencyMillions(Number(value));
+    if (valueType === 'multiple') return `${Number(value).toFixed(2)}x`;
+    if (valueType === 'percent') {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return '—';
+        if (Math.abs(v) <= 2) return formatPct(v);
+        return formatPercentPoints(v);
+    }
+    if (valueType === 'year') return `${Math.round(Number(value))}`;
+    if (valueType === 'number') {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return String(value);
+        return Number.isInteger(v) ? `${v}` : v.toFixed(2);
+    }
+    return String(value);
+}
+
+function chartBuilderPaletteMarkup(sourceDef, query) {
+    const q = (query || '').trim().toLowerCase();
+    const filterFields = (items) =>
+        items.filter((item) => {
+            if (!q) return true;
+            return String(item.label || item.field).toLowerCase().includes(q) || String(item.field).toLowerCase().includes(q);
+        });
+
+    const dimensions = filterFields(sourceDef?.dimensions || []);
+    const measures = filterFields(sourceDef?.measures || []);
+
+    const renderFieldChip = (field, role) => `
+        <button
+            type="button"
+            class="chart-builder-field-chip"
+            draggable="true"
+            data-cb-field="${field.field}"
+            data-cb-source="${sourceDef.key}"
+            data-cb-role="${role}"
+            title="${field.label}"
+        >
+            <span>${field.label}</span>
+            <small>${field.type}</small>
+        </button>
+    `;
+
+    return {
+        dimensions: dimensions.map((field) => renderFieldChip(field, 'dimension')).join('') || '<p class="tiny">No matching dimensions.</p>',
+        measures: measures.map((field) => renderFieldChip(field, 'measure')).join('') || '<p class="tiny">No matching measures.</p>',
+    };
+}
+
+function chartBuilderYRowsMarkup(card) {
+    if (!card.y.length) return '<div class="chart-builder-empty">Drop measure fields here</div>';
+    return card.y
+        .map((row, idx) => {
+            const fieldMeta = chartBuilderFindFieldMeta(card.source, row.field);
+            const fieldLabel = fieldMeta?.label || row.field;
+            return `
+                <div class="chart-builder-y-row">
+                    <span class="chart-builder-assigned">${fieldLabel}</span>
+                    <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-y-index="${idx}" data-cb-y-prop="agg">
+                        <option value="count" ${row.agg === 'count' ? 'selected' : ''}>count</option>
+                        <option value="count_distinct" ${row.agg === 'count_distinct' ? 'selected' : ''}>count_distinct</option>
+                        <option value="sum" ${row.agg === 'sum' ? 'selected' : ''}>sum</option>
+                        <option value="avg" ${row.agg === 'avg' ? 'selected' : ''}>avg</option>
+                        <option value="wavg" ${row.agg === 'wavg' ? 'selected' : ''}>wavg</option>
+                        <option value="min" ${row.agg === 'min' ? 'selected' : ''}>min</option>
+                        <option value="max" ${row.agg === 'max' ? 'selected' : ''}>max</option>
+                    </select>
+                    <button type="button" class="btn-link" data-cb-action="remove-y" data-cb-card-id="${card.id}" data-cb-y-index="${idx}">Remove</button>
+                </div>
+            `;
+        })
+        .join('');
+}
+
+function chartBuilderFilterRowsMarkup(card) {
+    if (!card.filters.length) {
+        return '<div class="chart-builder-empty">No local filters</div>';
+    }
+    const sourceDef = chartBuilderSourceMap()[card.source];
+    const fieldOptions = [...(sourceDef?.dimensions || []), ...(sourceDef?.measures || [])]
+        .map((field) => `<option value="${field.field}">${field.label}</option>`)
+        .join('');
+    return card.filters
+        .map(
+            (filterRow, idx) => `
+            <div class="chart-builder-filter-row">
+                <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}" data-cb-filter-prop="field">
+                    ${fieldOptions}
+                </select>
+                <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}" data-cb-filter-prop="op">
+                    <option value="eq" ${filterRow.op === 'eq' ? 'selected' : ''}>=</option>
+                    <option value="neq" ${filterRow.op === 'neq' ? 'selected' : ''}>!=</option>
+                    <option value="contains" ${filterRow.op === 'contains' ? 'selected' : ''}>contains</option>
+                    <option value="gt" ${filterRow.op === 'gt' ? 'selected' : ''}>></option>
+                    <option value="gte" ${filterRow.op === 'gte' ? 'selected' : ''}>>=</option>
+                    <option value="lt" ${filterRow.op === 'lt' ? 'selected' : ''}>&lt;</option>
+                    <option value="lte" ${filterRow.op === 'lte' ? 'selected' : ''}>&lt;=</option>
+                </select>
+                <input class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}" data-cb-filter-prop="value" value="${filterRow.value || ''}">
+                <button type="button" class="btn-link" data-cb-action="remove-filter" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}">Remove</button>
+            </div>
+        `
+        )
+        .join('');
+}
+
+function chartBuilderSourceOptionsHtml(selected) {
+    return (chartBuilderState.catalog.sources || [])
+        .map((source) => `<option value="${source.key}" ${source.key === selected ? 'selected' : ''}>${source.label}</option>`)
+        .join('');
+}
+
+function chartBuilderCardMarkup(card) {
+    const xMeta = chartBuilderFindFieldMeta(card.source, card.x.field);
+    const seriesMeta = chartBuilderFindFieldMeta(card.source, card.series?.field);
+    const sizeMeta = chartBuilderFindFieldMeta(card.source, card.size?.field);
+    const resultMeta = card.result?.meta || {};
+    return `
+        <article class="panel chart-builder-card" data-cb-card="${card.id}">
+            <header class="chart-builder-card-head">
+                <div class="chart-builder-card-title">
+                    <strong>Chart</strong>
+                    <small>${card.source}</small>
+                </div>
+                <div class="chart-builder-card-actions">
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="run" data-cb-card-id="${card.id}">Run</button>
+                    <button type="button" class="btn-upload btn-sm" data-cb-action="save-template" data-cb-card-id="${card.id}">Save</button>
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="duplicate" data-cb-card-id="${card.id}">Duplicate</button>
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="toggle-table" data-cb-card-id="${card.id}">${card.show_table ? 'Hide Table' : 'Show Table'}</button>
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="export-png" data-cb-card-id="${card.id}">Export PNG</button>
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="export-csv" data-cb-card-id="${card.id}">Export CSV</button>
+                    <button type="button" class="btn-upload btn-danger-soft btn-sm" data-cb-action="remove" data-cb-card-id="${card.id}">Remove</button>
+                </div>
+            </header>
+            <div class="chart-builder-card-config">
+                <label class="filter-field">
+                    <span>Source</span>
+                    <select class="analysis-input" data-cb-card-id="${card.id}" data-cb-prop="source">
+                        ${chartBuilderSourceOptionsHtml(card.source)}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Chart Type</span>
+                    <select class="analysis-input" data-cb-card-id="${card.id}" data-cb-prop="chart_type">
+                        <option value="auto" ${card.chart_type === 'auto' ? 'selected' : ''}>auto</option>
+                        <option value="bar" ${card.chart_type === 'bar' ? 'selected' : ''}>bar</option>
+                        <option value="line" ${card.chart_type === 'line' ? 'selected' : ''}>line</option>
+                        <option value="area" ${card.chart_type === 'area' ? 'selected' : ''}>area</option>
+                        <option value="scatter" ${card.chart_type === 'scatter' ? 'selected' : ''}>scatter</option>
+                        <option value="bubble" ${card.chart_type === 'bubble' ? 'selected' : ''}>bubble</option>
+                        <option value="donut" ${card.chart_type === 'donut' ? 'selected' : ''}>donut</option>
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Limit</span>
+                    <input class="analysis-input num-input" type="number" min="1" max="5000" data-cb-card-id="${card.id}" data-cb-prop="limit" value="${card.limit || 200}">
+                </label>
+            </div>
+
+            <div class="chart-builder-wells">
+                <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="x">
+                    <h5>X</h5>
+                    <div class="chart-builder-assigned">${xMeta ? xMeta.label : 'Drop field'}</div>
+                    <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-prop="x_bucket">
+                        <option value="" ${(card.x?.bucket || '') === '' ? 'selected' : ''}>No bucket</option>
+                        <option value="year" ${(card.x?.bucket || '') === 'year' ? 'selected' : ''}>Year</option>
+                        <option value="quarter" ${(card.x?.bucket || '') === 'quarter' ? 'selected' : ''}>Quarter</option>
+                        <option value="month" ${(card.x?.bucket || '') === 'month' ? 'selected' : ''}>Month</option>
+                    </select>
+                </div>
+                <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="y">
+                    <h5>Y</h5>
+                    ${chartBuilderYRowsMarkup(card)}
+                </div>
+                <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="series">
+                    <h5>Series</h5>
+                    <div class="chart-builder-assigned">${seriesMeta ? seriesMeta.label : 'Drop field (optional)'}</div>
+                </div>
+                <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="size">
+                    <h5>Size</h5>
+                    <div class="chart-builder-assigned">${sizeMeta ? sizeMeta.label : 'Drop measure (bubble)'}</div>
+                    <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-prop="size_agg">
+                        <option value="sum" ${(card.size?.agg || 'sum') === 'sum' ? 'selected' : ''}>sum</option>
+                        <option value="avg" ${(card.size?.agg || '') === 'avg' ? 'selected' : ''}>avg</option>
+                        <option value="min" ${(card.size?.agg || '') === 'min' ? 'selected' : ''}>min</option>
+                        <option value="max" ${(card.size?.agg || '') === 'max' ? 'selected' : ''}>max</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="chart-builder-local-filters">
+                <div class="chart-builder-subhead">
+                    <h5>Local Filters</h5>
+                    <button type="button" class="btn-upload btn-secondary btn-sm" data-cb-action="add-filter" data-cb-card-id="${card.id}">Add Filter</button>
+                </div>
+                <div class="chart-builder-filter-list">${chartBuilderFilterRowsMarkup(card)}</div>
+            </div>
+
+            <div class="chart-builder-chart-panel">
+                <canvas id="chart-builder-canvas-${card.id}" class="chart-builder-canvas"></canvas>
+                <div class="tiny chart-builder-meta" id="chart-builder-meta-${card.id}">
+                    ${resultMeta.warnings && resultMeta.warnings.length ? resultMeta.warnings.join(' | ') : ''}
+                </div>
+            </div>
+
+            <div class="chart-builder-table-wrap ${card.show_table ? '' : 'is-hidden'}" id="chart-builder-table-wrap-${card.id}">
+                <table class="data-table compact chart-builder-table">
+                    <thead id="chart-builder-table-head-${card.id}"></thead>
+                    <tbody id="chart-builder-table-body-${card.id}"><tr><td class="num">Run query to populate table.</td></tr></tbody>
+                </table>
+            </div>
+        </article>
+    `;
+}
+
+function chartBuilderRenderBoard() {
+    const board = chartBuilderState.root.querySelector('#chart-builder-board');
+    if (!board) return;
+    chartBuilderDestroyCharts();
+    board.innerHTML = chartBuilderState.cards.map((card) => chartBuilderCardMarkup(card)).join('');
+    chartBuilderBindBoardInteractions();
+    chartBuilderRenderCardOutputs();
+}
+
+function chartBuilderRenderCardOutputs() {
+    chartBuilderState.cards.forEach((card) => {
+        const canvas = document.getElementById(`chart-builder-canvas-${card.id}`);
+        if (!canvas) return;
+        const result = card.result;
+        if (!result) return;
+
+        const resolvedType = result.chart_type_resolved || 'bar';
+        const chartType = resolvedType === 'area' ? 'line' : resolvedType;
+        const datasets = (result.datasets || []).map((dataset) => {
+            const copy = { ...dataset };
+            if (resolvedType === 'area') {
+                copy.fill = true;
+                copy.tension = 0.28;
+                copy.pointRadius = 2;
+            }
+            return copy;
+        });
+
+        const options = chartBaseOptions();
+        if (resolvedType === 'donut') {
+            options.scales = {};
+        }
+        if (resolvedType === 'scatter' || resolvedType === 'bubble') {
+            options.scales = {
+                x: {
+                    ...chartBaseOptions().scales.x,
+                    ticks: {
+                        ...chartBaseOptions().scales.x.ticks,
+                        callback: (v) => `${v}`,
+                    },
+                },
+                y: {
+                    ...chartBaseOptions().scales.y,
+                    ticks: {
+                        ...chartBaseOptions().scales.y.ticks,
+                        callback: (v) => `${v}`,
+                    },
+                },
+            };
+        } else if (result.meta?.stacked) {
+            options.scales = {
+                x: { ...chartBaseOptions().scales.x, stacked: true },
+                y: { ...chartBaseOptions().scales.y, stacked: true },
+            };
+        } else {
+            options.scales = {
+                ...chartBaseOptions().scales,
+            };
+        }
+
+        const chart = new Chart(canvas, {
+            type: chartType,
+            data: {
+                labels: result.labels || [],
+                datasets,
+            },
+            options,
+        });
+        chartBuilderCharts.set(card.id, chart);
+
+        const headEl = document.getElementById(`chart-builder-table-head-${card.id}`);
+        const bodyEl = document.getElementById(`chart-builder-table-body-${card.id}`);
+        if (headEl && bodyEl) {
+            const columns = result.table_columns || [];
+            const rows = result.table_rows || [];
+            headEl.innerHTML = `<tr>${columns.map((col) => `<th>${col.label}</th>`).join('')}</tr>`;
+            if (!rows.length) {
+                bodyEl.innerHTML = `<tr><td colspan="${Math.max(1, columns.length)}" class="num">No rows returned.</td></tr>`;
+            } else {
+                bodyEl.innerHTML = rows
+                    .map((row) => {
+                        const tds = columns
+                            .map((col) => `<td class="${col.type === 'string' || col.type === 'enum' ? '' : 'num'}">${chartBuilderFormatValue(row[col.key], col.type)}</td>`)
+                            .join('');
+                        return `<tr>${tds}</tr>`;
+                    })
+                    .join('');
+            }
+        }
+
+        const metaEl = document.getElementById(`chart-builder-meta-${card.id}`);
+        if (metaEl) {
+            const warnings = result.meta?.warnings || [];
+            const base = `Rows: ${result.meta?.row_count ?? 0}${result.meta?.truncated ? ' (truncated)' : ''}`;
+            metaEl.textContent = warnings.length ? `${base} | ${warnings.join(' | ')}` : base;
+        }
+    });
+}
+
+function chartBuilderGlobalFiltersFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const out = {};
+    [
+        'fund',
+        'status',
+        'sector',
+        'geography',
+        'vintage',
+        'exit_type',
+        'lead_partner',
+        'security_type',
+        'deal_type',
+        'entry_channel',
+        'benchmark_asset_class',
+    ].forEach((key) => {
+        out[key] = (params.get(key) || '').trim();
+    });
+    return out;
+}
+
+function chartBuilderBuildSpec(card) {
+    return {
+        source: card.source,
+        chart_type: card.chart_type,
+        x: card.x || {},
+        y: card.y || [],
+        series: card.series || {},
+        size: card.size || {},
+        filters: card.filters || [],
+        sort: card.sort || { by: 'x', direction: 'asc' },
+        limit: card.limit || 200,
+        global_filters: chartBuilderGlobalFiltersFromUrl(),
+    };
+}
+
+function chartBuilderRunCard(cardId) {
+    const card = chartBuilderCardById(cardId);
+    if (!card) return Promise.resolve();
+    const spec = chartBuilderBuildSpec(card);
+    return fetch(chartBuilderState.endpoints.queryUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(spec),
+    })
+        .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+        .then(({ ok, body }) => {
+            if (!ok) {
+                throw new Error(body?.error || 'Chart query failed.');
+            }
+            card.result = body;
+            chartBuilderRenderBoard();
+        })
+        .catch((err) => {
+            const metaEl = document.getElementById(`chart-builder-meta-${cardId}`);
+            if (metaEl) metaEl.textContent = err.message;
+        });
+}
+
+function chartBuilderExportCsv(cardId) {
+    const card = chartBuilderCardById(cardId);
+    if (!card || !card.result) return;
+    const columns = card.result.table_columns || [];
+    const rows = card.result.table_rows || [];
+    const esc = (value) => {
+        const raw = value === null || value === undefined ? '' : String(value);
+        return `"${raw.replace(/"/g, '""')}"`;
+    };
+    const lines = [];
+    lines.push(columns.map((col) => esc(col.label)).join(','));
+    rows.forEach((row) => {
+        lines.push(columns.map((col) => esc(row[col.key])).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${card.source}-${card.id}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+function chartBuilderExportPng(cardId) {
+    const canvas = document.getElementById(`chart-builder-canvas-${cardId}`);
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = `chart-${cardId}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+function chartBuilderSerializeBoard() {
+    return {
+        config_version: 1,
+        cards: chartBuilderState.cards.map((card) => ({
+            source: card.source,
+            chart_type: card.chart_type,
+            x: card.x || { field: '', bucket: '' },
+            y: card.y || [],
+            series: card.series || { field: '' },
+            size: card.size || { field: '', agg: 'sum' },
+            filters: card.filters || [],
+            sort: card.sort || { by: 'x', direction: 'asc' },
+            limit: card.limit || 200,
+            show_table: card.show_table !== false,
+        })),
+    };
+}
+
+function chartBuilderLoadFromTemplate(templateId) {
+    const selected = (chartBuilderState.templates || []).find((item) => String(item.id) === String(templateId));
+    if (!selected) return;
+    const config = selected.config || {};
+    const cards = Array.isArray(config.cards) ? config.cards : [];
+    chartBuilderState.cards = cards.map((seed) => chartBuilderCreateCard(seed));
+    if (!chartBuilderState.cards.length) {
+        chartBuilderState.cards = [chartBuilderCreateCard({ source: chartBuilderState.catalog.default_source || 'deals' })];
+    }
+    chartBuilderState.currentTemplateId = selected.id;
+    chartBuilderRenderBoard();
+}
+
+function chartBuilderRefreshTemplateSelect() {
+    const select = document.getElementById('chart-builder-template-select');
+    if (!select) return;
+    const options = ['<option value="">Select template</option>']
+        .concat(
+            (chartBuilderState.templates || []).map(
+                (row) => `<option value="${row.id}" ${String(chartBuilderState.currentTemplateId || '') === String(row.id) ? 'selected' : ''}>${row.name}</option>`
+            )
+        )
+        .join('');
+    select.innerHTML = options;
+}
+
+function chartBuilderLoadTemplates() {
+    return fetch(chartBuilderState.endpoints.templatesUrl)
+        .then((r) => r.json())
+        .then((payload) => {
+            chartBuilderState.templates = payload.templates || [];
+            chartBuilderRefreshTemplateSelect();
+        });
+}
+
+function chartBuilderSaveTemplate(isUpdate, preferredName) {
+    const templateId = chartBuilderState.currentTemplateId;
+    if (isUpdate && !templateId) {
+        return;
+    }
+    let name = preferredName;
+    if (!name) {
+        if (isUpdate) {
+            const current = (chartBuilderState.templates || []).find((t) => t.id === templateId);
+            name = window.prompt('Template name', current?.name || '');
+        } else {
+            name = window.prompt('Template name', '');
+        }
+    }
+    if (!name) return;
+    const payload = {
+        name: String(name).trim(),
+        source: chartBuilderState.cards[0]?.source || 'deals',
+        config: chartBuilderSerializeBoard(),
+    };
+    if (!payload.name) return;
+
+    const url = isUpdate
+        ? `${chartBuilderState.endpoints.templatesUrl}/${encodeURIComponent(templateId)}`
+        : chartBuilderState.endpoints.templatesUrl;
+    const method = isUpdate ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+        .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+        .then(({ ok, body }) => {
+            if (!ok) throw new Error(body?.error || 'Template save failed.');
+            chartBuilderState.currentTemplateId = body.id;
+            return chartBuilderLoadTemplates();
+        })
+        .catch((err) => {
+            window.alert(err.message);
+        });
+}
+
+function chartBuilderDeleteTemplate() {
+    const templateId = chartBuilderState.currentTemplateId;
+    if (!templateId) return;
+    if (!window.confirm('Delete this template?')) return;
+    fetch(`${chartBuilderState.endpoints.templatesUrl}/${encodeURIComponent(templateId)}`, {
+        method: 'DELETE',
+    })
+        .then((r) => r.json())
+        .then(() => {
+            chartBuilderState.currentTemplateId = null;
+            return chartBuilderLoadTemplates();
+        });
+}
+
+function chartBuilderApplyFieldToWell(cardId, well, field, source, role) {
+    const card = chartBuilderCardById(cardId);
+    if (!card) return;
+
+    if (card.source !== source) {
+        chartBuilderResetCardForSource(card, source);
+    }
+
+    if (well === 'x') {
+        card.x = { ...(card.x || {}), field };
+    } else if (well === 'series') {
+        card.series = { ...(card.series || {}), field };
+    } else if (well === 'size') {
+        if (role !== 'measure') return;
+        card.size = { ...(card.size || { agg: 'sum' }), field };
+    } else {
+        if (role !== 'measure') return;
+        const exists = card.y.some((row) => row.field === field);
+        if (!exists) {
+            const meta = chartBuilderFindFieldMeta(card.source, field);
+            card.y.push({
+                field,
+                agg: 'avg',
+                label: meta?.label || field,
+                color: '',
+                weight_field: '',
+            });
+        }
+    }
+    card.result = null;
+    chartBuilderRenderBoard();
+}
+
+function chartBuilderBindPaletteInteractions() {
+    const root = chartBuilderState.root;
+    const palette = root.querySelector('.chart-builder-palette');
+    if (!palette) return;
+
+    palette.querySelectorAll('.chart-builder-field-chip').forEach((chip) => {
+        chip.addEventListener('dragstart', (evt) => {
+            const payload = {
+                field: chip.dataset.cbField,
+                source: chip.dataset.cbSource,
+                role: chip.dataset.cbRole,
+            };
+            evt.dataTransfer.setData('application/json', JSON.stringify(payload));
+            evt.dataTransfer.effectAllowed = 'copy';
+        });
+        chip.addEventListener('click', () => {
+            const cardId = chartBuilderState.activeCardId || chartBuilderState.cards[0]?.id;
+            if (!cardId) return;
+            const well = chartBuilderState.activeWell || 'x';
+            chartBuilderApplyFieldToWell(cardId, well, chip.dataset.cbField, chip.dataset.cbSource, chip.dataset.cbRole);
+        });
+    });
+}
+
+function chartBuilderBindBoardInteractions() {
+    const board = chartBuilderState.root.querySelector('#chart-builder-board');
+    if (!board) return;
+
+    board.querySelectorAll('.chart-builder-well').forEach((wellEl) => {
+        wellEl.addEventListener('click', () => {
+            chartBuilderState.activeCardId = wellEl.dataset.cbCardId;
+            chartBuilderState.activeWell = wellEl.dataset.cbWell;
+            board.querySelectorAll('.chart-builder-well').forEach((node) => node.classList.remove('is-active'));
+            wellEl.classList.add('is-active');
+        });
+        wellEl.addEventListener('dragover', (evt) => {
+            evt.preventDefault();
+            evt.dataTransfer.dropEffect = 'copy';
+        });
+        wellEl.addEventListener('drop', (evt) => {
+            evt.preventDefault();
+            try {
+                const payload = JSON.parse(evt.dataTransfer.getData('application/json') || '{}');
+                chartBuilderApplyFieldToWell(
+                    wellEl.dataset.cbCardId,
+                    wellEl.dataset.cbWell,
+                    payload.field,
+                    payload.source,
+                    payload.role
+                );
+            } catch (err) {
+                // ignore bad payload
+            }
+        });
+    });
+
+    board.querySelectorAll('[data-cb-action]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const action = btn.dataset.cbAction;
+            const cardId = btn.dataset.cbCardId;
+            if (action === 'run') chartBuilderRunCard(cardId);
+            if (action === 'duplicate') chartBuilderDuplicateCard(cardId);
+            if (action === 'remove') chartBuilderRemoveCard(cardId);
+            if (action === 'export-csv') chartBuilderExportCsv(cardId);
+            if (action === 'export-png') chartBuilderExportPng(cardId);
+            if (action === 'toggle-table') {
+                const card = chartBuilderCardById(cardId);
+                if (!card) return;
+                card.show_table = !card.show_table;
+                chartBuilderRenderBoard();
+            }
+            if (action === 'add-filter') {
+                const card = chartBuilderCardById(cardId);
+                if (!card) return;
+                card.filters.push({ field: '', op: 'eq', value: '' });
+                chartBuilderRenderBoard();
+            }
+            if (action === 'remove-filter') {
+                const card = chartBuilderCardById(cardId);
+                if (!card) return;
+                const idx = Number(btn.dataset.cbFilterIndex);
+                card.filters.splice(idx, 1);
+                chartBuilderRenderBoard();
+            }
+            if (action === 'remove-y') {
+                const card = chartBuilderCardById(cardId);
+                if (!card) return;
+                const idx = Number(btn.dataset.cbYIndex);
+                card.y.splice(idx, 1);
+                chartBuilderRenderBoard();
+            }
+            if (action === 'save-template') {
+                chartBuilderSaveTemplate(false);
+            }
+        });
+    });
+
+    board.querySelectorAll('[data-cb-prop]').forEach((el) => {
+        el.addEventListener('change', () => {
+            const card = chartBuilderCardById(el.dataset.cbCardId);
+            if (!card) return;
+            const prop = el.dataset.cbProp;
+            if (prop === 'source') {
+                chartBuilderResetCardForSource(card, el.value);
+            } else if (prop === 'chart_type') {
+                card.chart_type = el.value;
+            } else if (prop === 'limit') {
+                card.limit = Number(el.value) || 200;
+            } else if (prop === 'x_bucket') {
+                card.x = { ...(card.x || {}), bucket: el.value };
+            } else if (prop === 'size_agg') {
+                card.size = { ...(card.size || {}), agg: el.value };
+            }
+            card.result = null;
+            chartBuilderRenderBoard();
+        });
+    });
+
+    board.querySelectorAll('[data-cb-y-prop]').forEach((el) => {
+        el.addEventListener('change', () => {
+            const card = chartBuilderCardById(el.dataset.cbCardId);
+            if (!card) return;
+            const idx = Number(el.dataset.cbYIndex);
+            if (!card.y[idx]) return;
+            const prop = el.dataset.cbYProp;
+            card.y[idx][prop] = el.value;
+            card.result = null;
+        });
+    });
+
+    board.querySelectorAll('[data-cb-filter-prop]').forEach((el) => {
+        const evtName = el.tagName === 'INPUT' ? 'input' : 'change';
+        el.addEventListener(evtName, () => {
+            const card = chartBuilderCardById(el.dataset.cbCardId);
+            if (!card) return;
+            const idx = Number(el.dataset.cbFilterIndex);
+            if (!card.filters[idx]) return;
+            const prop = el.dataset.cbFilterProp;
+            card.filters[idx][prop] = el.value;
+            card.result = null;
+        });
+    });
+}
+
+function chartBuilderRenderPalette() {
+    const sourceSelect = document.getElementById('chart-builder-source-select');
+    const searchInput = document.getElementById('chart-builder-field-search');
+    const dimEl = document.getElementById('chart-builder-dimension-fields');
+    const measureEl = document.getElementById('chart-builder-measure-fields');
+    if (!sourceSelect || !dimEl || !measureEl) return;
+
+    const selectedSource = sourceSelect.value || chartBuilderState.catalog.default_source || 'deals';
+    const sourceDef = chartBuilderSourceMap()[selectedSource];
+    if (!sourceDef) return;
+    const palette = chartBuilderPaletteMarkup(sourceDef, searchInput?.value || '');
+    dimEl.innerHTML = palette.dimensions;
+    measureEl.innerHTML = palette.measures;
+    chartBuilderBindPaletteInteractions();
+}
+
+function initChartBuilder() {
+    const root = document.getElementById('chart-builder-root');
+    if (!root) return;
+    const catalog = getJsonScriptPayload('chart-builder-catalog-payload');
+    if (!catalog || !Array.isArray(catalog.sources)) return;
+
+    chartBuilderState = {
+        root,
+        catalog,
+        cards: [],
+        templates: [],
+        activeCardId: null,
+        activeWell: 'x',
+        currentTemplateId: null,
+        endpoints: {
+            catalogUrl: root.dataset.catalogUrl,
+            queryUrl: root.dataset.queryUrl,
+            templatesUrl: root.dataset.templatesUrl,
+        },
+    };
+
+    const sourceSelect = document.getElementById('chart-builder-source-select');
+    if (sourceSelect) {
+        sourceSelect.innerHTML = (catalog.sources || [])
+            .map((source) => `<option value="${source.key}">${source.label} (${source.row_count})</option>`)
+            .join('');
+        sourceSelect.value = catalog.default_source || 'deals';
+        sourceSelect.addEventListener('change', () => chartBuilderRenderPalette());
+    }
+    const searchInput = document.getElementById('chart-builder-field-search');
+    if (searchInput) searchInput.addEventListener('input', () => chartBuilderRenderPalette());
+
+    const addCardBtn = document.getElementById('chart-builder-add-card');
+    if (addCardBtn) addCardBtn.addEventListener('click', () => chartBuilderAddCard({ source: sourceSelect?.value || catalog.default_source || 'deals' }));
+
+    const templateSelect = document.getElementById('chart-builder-template-select');
+    if (templateSelect) {
+        templateSelect.addEventListener('change', () => {
+            chartBuilderState.currentTemplateId = templateSelect.value ? Number(templateSelect.value) : null;
+        });
+    }
+    const loadBtn = document.getElementById('chart-builder-template-load');
+    if (loadBtn) loadBtn.addEventListener('click', () => chartBuilderLoadFromTemplate(chartBuilderState.currentTemplateId));
+    const saveBtn = document.getElementById('chart-builder-template-save');
+    if (saveBtn) saveBtn.addEventListener('click', () => chartBuilderSaveTemplate(false));
+    const updateBtn = document.getElementById('chart-builder-template-update');
+    if (updateBtn) updateBtn.addEventListener('click', () => chartBuilderSaveTemplate(true));
+    const deleteBtn = document.getElementById('chart-builder-template-delete');
+    if (deleteBtn) deleteBtn.addEventListener('click', () => chartBuilderDeleteTemplate());
+
+    chartBuilderRenderPalette();
+    chartBuilderAddCard({ source: catalog.default_source || 'deals' });
+    chartBuilderLoadTemplates();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachTableSorting();
     attachDropZone();
@@ -1577,4 +2472,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     bindMethodologyAnchors();
+    initChartBuilder();
 });

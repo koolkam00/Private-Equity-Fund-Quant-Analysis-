@@ -5,6 +5,7 @@ from openpyxl import Workbook, load_workbook
 
 from models import (
     BenchmarkPoint,
+    ChartBuilderTemplate,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
@@ -564,6 +565,133 @@ def test_dashboard_has_methodology_jump_links(client):
     assert response.status_code == 200
     assert b"/methodology#metric-gross-moic" in response.data
     assert b"/methodology#metric-tev-ebitda" in response.data
+
+
+def test_chart_builder_page_renders(client):
+    response = client.get("/analysis/chart-builder")
+    assert response.status_code == 200
+    assert b"Chart Builder" in response.data
+    assert b'id="chart-builder-root"' in response.data
+    assert b'id="chart-builder-catalog-payload"' in response.data
+
+
+def test_chart_builder_catalog_api(client):
+    response = client.get("/api/chart-builder/catalog")
+    assert response.status_code == 200
+    payload = response.get_json()
+    keys = [row["key"] for row in payload["sources"]]
+    assert keys == ["deals", "deal_quarterly", "fund_quarterly", "cashflows", "underwrite", "benchmarks"]
+
+
+def test_chart_builder_query_api_applies_global_and_local_filters(client):
+    d1 = Deal(
+        company_name="CB One",
+        fund_number="Fund I",
+        sector="Tech",
+        status="Fully Realized",
+        year_invested=2021,
+        equity_invested=100,
+        realized_value=150,
+        unrealized_value=0,
+    )
+    d2 = Deal(
+        company_name="CB Two",
+        fund_number="Fund I",
+        sector="Tech",
+        status="Unrealized",
+        year_invested=2021,
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=110,
+    )
+    d3 = Deal(
+        company_name="CB Three",
+        fund_number="Fund II",
+        sector="Health",
+        status="Fully Realized",
+        year_invested=2021,
+        equity_invested=100,
+        realized_value=130,
+        unrealized_value=0,
+    )
+    db.session.add_all([_with_active_scope(d1), _with_active_scope(d2), _with_active_scope(d3)])
+    db.session.commit()
+
+    response = client.post(
+        "/api/chart-builder/query?sector=Tech",
+        json={
+            "source": "deals",
+            "chart_type": "bar",
+            "x": {"field": "sector"},
+            "y": [{"field": "company_name", "agg": "count"}],
+            "filters": [{"field": "status", "op": "eq", "value": "Fully Realized"}],
+        },
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["labels"] == ["Tech"]
+    assert payload["datasets"][0]["data"][0] == 1
+
+
+def test_chart_builder_query_api_rejects_invalid_field(client):
+    response = client.post(
+        "/api/chart-builder/query",
+        json={
+            "source": "deals",
+            "chart_type": "bar",
+            "x": {"field": "fund_number"},
+            "y": [{"field": "not_a_field", "agg": "sum"}],
+        },
+    )
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert "Unknown y field" in payload["error"]
+
+
+def test_chart_builder_template_crud_is_team_scoped(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    other_team = Team(name="Template Other Team", slug="template-other-team")
+    db.session.add(other_team)
+    db.session.flush()
+    db.session.add(
+        ChartBuilderTemplate(
+            team_id=other_team.id,
+            name="Other Team Template",
+            source="deals",
+            config_json='{"config_version":1,"cards":[]}',
+        )
+    )
+    db.session.commit()
+
+    create_response = client.post(
+        "/api/chart-builder/templates",
+        json={
+            "name": "Team Template A",
+            "source": "deals",
+            "config": {"config_version": 1, "cards": []},
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.get_json()
+    template_id = created["id"]
+
+    list_response = client.get("/api/chart-builder/templates")
+    assert list_response.status_code == 200
+    listed_names = [row["name"] for row in list_response.get_json()["templates"]]
+    assert "Team Template A" in listed_names
+    assert "Other Team Template" not in listed_names
+
+    update_response = client.put(
+        f"/api/chart-builder/templates/{template_id}",
+        json={"name": "Team Template B", "config": {"config_version": 1, "cards": [{"source": "deals"}]}},
+    )
+    assert update_response.status_code == 200
+    assert update_response.get_json()["name"] == "Team Template B"
+
+    delete_response = client.delete(f"/api/chart-builder/templates/{template_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.get_json()["deleted"] is True
 
 
 def test_deals_page_recovers_missing_deals_table(client):
