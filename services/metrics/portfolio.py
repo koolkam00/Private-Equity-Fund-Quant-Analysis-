@@ -527,9 +527,6 @@ def compute_deal_track_record(deals, metrics_by_id=None):
         metric = metrics_by_id[d.id]
         status = _normalize_track_status(d.status)
         fund = d.fund_number or "Unknown Fund"
-        ownership_pct = d.ownership_pct
-        if ownership_pct is None:
-            ownership_pct = (metric.get("bridge_additive_fund") or {}).get("ownership_pct")
         gross_irr = d.irr
 
         row = {
@@ -539,7 +536,7 @@ def compute_deal_track_record(deals, metrics_by_id=None):
             "investment_date": d.investment_date,
             "exit_date": d.exit_date,
             "hold_period": metric.get("hold_period"),
-            "ownership_pct": ownership_pct,
+            "ownership_pct": d.ownership_pct,
             "invested_equity": metric.get("equity"),
             "realized_value": metric.get("realized"),
             "unrealized_value": metric.get("unrealized"),

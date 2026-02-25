@@ -507,6 +507,27 @@ def test_track_record_gross_irr_uses_uploaded_only():
     assert row["gross_irr"] is None
 
 
+def test_track_record_does_not_auto_fill_ownership_when_missing():
+    deal = _make_deal(
+        id=1,
+        company_name="No Ownership Input",
+        ownership_pct=None,
+        entry_enterprise_value=240,
+        entry_net_debt=120,
+        exit_enterprise_value=360,
+        exit_net_debt=90,
+        equity_invested=100,
+        realized_value=150,
+        unrealized_value=0,
+    )
+    metrics = {deal.id: compute_deal_metrics(deal)}
+    # Bridge may derive an ownership internally; track record should not surface it
+    assert (metrics[deal.id].get("bridge_additive_fund") or {}).get("ownership_pct") is not None
+    out = compute_deal_track_record([deal], metrics_by_id=metrics)
+    row = out["funds"][0]["rows"][0]
+    assert row["ownership_pct"] is None
+
+
 def test_track_record_percent_columns_use_fund_invested_and_fund_size():
     deals = [
         _make_deal(id=1, company_name="Alpha", fund_number="Fund I", equity_invested=40, realized_value=60, unrealized_value=0, fund_size=200),
