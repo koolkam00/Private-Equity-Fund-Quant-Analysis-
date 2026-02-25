@@ -77,19 +77,12 @@
                     {% for ec in entry_channels %}<option value="{{ ec }}" {% if current_entry_channel == ec %}selected{% endif %}>{{ ec }}</option>{% endfor %}
                 </select>
             </label>
-            <label class="filter-field">
-                <span>Benchmark Asset Class</span>
-                <select name="benchmark_asset_class">
-                    <option value="">No Benchmark</option>
-                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
-                </select>
-            </label>
         </div>
         <div class="filter-actions">
             <button type="submit" class="btn-upload btn-filter-apply">
                 <i class="bi bi-funnel"></i> Apply Filters
             </button>
-            {% if current_fund or current_status or current_sector or current_geography or current_vintage or current_exit_type or current_lead_partner or current_security_type or current_deal_type or current_entry_channel or current_benchmark_asset_class %}
+            {% if current_fund or current_status or current_sector or current_geography or current_vintage or current_exit_type or current_lead_partner or current_security_type or current_deal_type or current_entry_channel %}
             <a class="btn-upload btn-filter-clear" href="{{ url_for('dashboard') }}">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
@@ -112,7 +105,28 @@
 
 {% if fund_summary_rows %}
 <div class="panel panel-tight">
-    <h3>Fund Summary</h3>
+    <div class="fund-summary-head">
+        <h3>Fund Summary</h3>
+        <form class="fund-summary-benchmark-form" method="GET" action="{{ url_for('dashboard') }}">
+            {% if current_fund %}<input type="hidden" name="fund" value="{{ current_fund }}">{% endif %}
+            {% if current_status %}<input type="hidden" name="status" value="{{ current_status }}">{% endif %}
+            {% if current_sector %}<input type="hidden" name="sector" value="{{ current_sector }}">{% endif %}
+            {% if current_geography %}<input type="hidden" name="geography" value="{{ current_geography }}">{% endif %}
+            {% if current_vintage %}<input type="hidden" name="vintage" value="{{ current_vintage }}">{% endif %}
+            {% if current_exit_type %}<input type="hidden" name="exit_type" value="{{ current_exit_type }}">{% endif %}
+            {% if current_lead_partner %}<input type="hidden" name="lead_partner" value="{{ current_lead_partner }}">{% endif %}
+            {% if current_security_type %}<input type="hidden" name="security_type" value="{{ current_security_type }}">{% endif %}
+            {% if current_deal_type %}<input type="hidden" name="deal_type" value="{{ current_deal_type }}">{% endif %}
+            {% if current_entry_channel %}<input type="hidden" name="entry_channel" value="{{ current_entry_channel }}">{% endif %}
+            <label class="filter-field fund-summary-benchmark-picker">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class" onchange="this.form.submit()">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+        </form>
+    </div>
     <table class="data-table compact">
         <thead>
             <tr>

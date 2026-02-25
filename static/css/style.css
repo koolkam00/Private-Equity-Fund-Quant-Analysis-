@@ -413,6 +413,21 @@ body.pe-app {
     justify-content: flex-end;
     gap: 8px;
 }
+.fund-summary-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.fund-summary-head h3 { margin: 0; }
+.fund-summary-benchmark-form {
+    display: flex;
+    align-items: flex-end;
+}
+.fund-summary-benchmark-picker {
+    min-width: 240px;
+}
 .btn-filter-apply {
     background: var(--accent);
     color: #fff;
@@ -1428,6 +1443,9 @@ body.pe-app {
     .chart-builder-filter-row { grid-template-columns: 1fr; }
     .chart-builder-y-row { grid-template-columns: 1fr; }
     .filter-actions { justify-content: flex-start; }
+    .fund-summary-head { flex-direction: column; align-items: stretch; }
+    .fund-summary-benchmark-form { width: 100%; }
+    .fund-summary-benchmark-picker { width: 100%; min-width: 0; }
     .ic-kpi-grid,
     .ic-grid-2,
     .ic-chart-grid { grid-template-columns: 1fr; }

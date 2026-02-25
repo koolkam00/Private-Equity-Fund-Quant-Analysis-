@@ -1575,9 +1575,18 @@ def _build_filtered_deals_context(fund_override=None):
     current_security_type = request.args.get("security_type", "")
     current_deal_type = request.args.get("deal_type", "")
     current_entry_channel = request.args.get("entry_channel", "")
-    current_benchmark_asset_class = (request.args.get("benchmark_asset_class", "") or "").strip()
-    if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
-        current_benchmark_asset_class = ""
+    benchmark_session_key = "selected_benchmark_asset_class"
+    requested_benchmark = request.args.get("benchmark_asset_class")
+    if requested_benchmark is not None:
+        current_benchmark_asset_class = (requested_benchmark or "").strip()
+        if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+            current_benchmark_asset_class = ""
+        session[benchmark_session_key] = current_benchmark_asset_class
+    else:
+        current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+        if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+            current_benchmark_asset_class = ""
+            session[benchmark_session_key] = ""
 
     filtered = all_deals
     if current_fund:

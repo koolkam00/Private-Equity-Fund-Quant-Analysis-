@@ -355,6 +355,41 @@ def test_dashboard_benchmark_exact_vintage_match_required(client):
     assert b"benchmark-rank-na" in response.data
 
 
+def test_dashboard_benchmark_selection_persists_in_session(client):
+    deal = Deal(
+        company_name="Bench Persist",
+        fund_number="Fund Persist",
+        investment_date=date(2019, 1, 1),
+        equity_invested=100,
+        realized_value=150,
+        unrealized_value=0,
+        net_irr=0.20,
+        net_moic=2.0,
+        net_dpi=1.2,
+    )
+    db.session.add(_with_active_scope(deal))
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    db.session.add_all(
+        [
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.16),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.2),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="top_5", value=0.28),
+        ]
+    )
+    db.session.commit()
+
+    first = client.get("/dashboard?benchmark_asset_class=Buyout")
+    assert first.status_code == 200
+
+    second = client.get("/dashboard")
+    assert second.status_code == 200
+    html = second.data.decode("utf-8")
+    assert 'name="benchmark_asset_class"' in html
+    assert '<option value="Buyout" selected>' in html
+
+
 def test_deals_page(client):
     response = client.get("/deals")
     assert response.status_code == 200
