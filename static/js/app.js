@@ -1757,12 +1757,17 @@ function chartBuilderFilterRowsMarkup(card) {
         return '<div class="chart-builder-empty">No local filters</div>';
     }
     const sourceDef = chartBuilderSourceMap()[card.source];
-    const fieldOptions = [...(sourceDef?.dimensions || []), ...(sourceDef?.measures || [])]
-        .map((field) => `<option value="${field.field}">${field.label}</option>`)
-        .join('');
+    const availableFields = [...(sourceDef?.dimensions || []), ...(sourceDef?.measures || [])];
     return card.filters
-        .map(
-            (filterRow, idx) => `
+        .map((filterRow, idx) => {
+            const selectedField = (filterRow.field || '').trim();
+            const fieldOptions = [
+                `<option value="" ${selectedField === '' ? 'selected' : ''}>Select field</option>`,
+                ...availableFields.map(
+                    (field) => `<option value="${field.field}" ${selectedField === field.field ? 'selected' : ''}>${field.label}</option>`
+                ),
+            ].join('');
+            return `
             <div class="chart-builder-filter-row">
                 <select class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}" data-cb-filter-prop="field">
                     ${fieldOptions}
@@ -1779,8 +1784,8 @@ function chartBuilderFilterRowsMarkup(card) {
                 <input class="analysis-input analysis-input-sm" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}" data-cb-filter-prop="value" value="${filterRow.value || ''}">
                 <button type="button" class="btn-link" data-cb-action="remove-filter" data-cb-card-id="${card.id}" data-cb-filter-index="${idx}">Remove</button>
             </div>
-        `
-        )
+        `;
+        })
         .join('');
 }
 
@@ -1855,6 +1860,7 @@ function chartBuilderCardMarkup(card) {
                 <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="series">
                     <h5>Series</h5>
                     <div class="chart-builder-assigned">${seriesMeta ? seriesMeta.label : 'Drop field (optional)'}</div>
+                    <button type="button" class="btn-link" data-cb-action="clear-series" data-cb-card-id="${card.id}" ${seriesMeta ? '' : 'disabled'}>Clear</button>
                 </div>
                 <div class="chart-builder-well" data-cb-card-id="${card.id}" data-cb-well="size">
                     <h5>Size</h5>
@@ -1910,7 +1916,7 @@ function chartBuilderRenderCardOutputs() {
         if (!result) return;
 
         const resolvedType = result.chart_type_resolved || 'bar';
-        const chartType = resolvedType === 'area' ? 'line' : resolvedType;
+        const chartType = resolvedType === 'area' ? 'line' : (resolvedType === 'donut' ? 'doughnut' : resolvedType);
         const datasets = (result.datasets || []).map((dataset) => {
             const copy = { ...dataset };
             if (resolvedType === 'area') {
@@ -2305,6 +2311,13 @@ function chartBuilderBindBoardInteractions() {
                 const card = chartBuilderCardById(cardId);
                 if (!card) return;
                 card.filters.push({ field: '', op: 'eq', value: '' });
+                chartBuilderRenderBoard();
+            }
+            if (action === 'clear-series') {
+                const card = chartBuilderCardById(cardId);
+                if (!card) return;
+                card.series = { field: '' };
+                card.result = null;
                 chartBuilderRenderBoard();
             }
             if (action === 'remove-filter') {

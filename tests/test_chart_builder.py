@@ -103,6 +103,52 @@ def test_chart_builder_query_invalid_field_raises(app_context):
         )
 
 
+def test_chart_builder_query_applies_local_filters(app_context):
+    team, firm = _seed_scope()
+    db.session.add_all(
+        [
+            Deal(
+                company_name="Alpha",
+                fund_number="Fund I",
+                investment_date=date(2020, 1, 1),
+                team_id=team.id,
+                firm_id=firm.id,
+                equity_invested=120,
+                realized_value=180,
+                unrealized_value=0,
+            ),
+            Deal(
+                company_name="Beta",
+                fund_number="Fund II",
+                investment_date=date(2021, 1, 1),
+                team_id=team.id,
+                firm_id=firm.id,
+                equity_invested=80,
+                realized_value=96,
+                unrealized_value=0,
+            ),
+        ]
+    )
+    db.session.commit()
+
+    payload = run_chart_query(
+        {
+            "source": "deals",
+            "chart_type": "bar",
+            "x": {"field": "fund_number"},
+            "y": [{"field": "equity_invested", "agg": "sum"}],
+            "filters": [
+                {"field": "fund_number", "op": "eq", "value": "Fund II"},
+            ],
+        },
+        team_id=team.id,
+        firm_id=firm.id,
+        global_filters={},
+    )
+    assert payload["labels"] == ["Fund II"]
+    assert payload["datasets"][0]["data"] == [80.0]
+
+
 def test_chart_builder_benchmarks_source_team_scoped(app_context):
     team, firm = _seed_scope()
     other_team = Team(name="Other Chart Team", slug="other-chart-team")
@@ -129,4 +175,3 @@ def test_chart_builder_benchmarks_source_team_scoped(app_context):
     )
     assert payload["labels"] == ["Buyout"]
     assert abs(payload["datasets"][0]["data"][0] - 0.18) < 1e-9
-
