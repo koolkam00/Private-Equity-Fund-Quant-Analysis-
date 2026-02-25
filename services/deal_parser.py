@@ -781,6 +781,13 @@ def _refresh_firm_fx_metadata(firm, upload_date=None):
     firm.fx_rate_date = None
     firm.fx_rate_source = fx.get("source")
     firm.fx_last_status = "lookup_failed"
+    raw_warning = clean_str(fx.get("warning"))
+    if raw_warning:
+        warning = raw_warning.splitlines()[0].strip()
+    else:
+        warning = f"FX lookup failed [lookup_failed] for {code}->USD on {as_of.isoformat()}."
+    if "showing native currency values" not in warning.lower():
+        warning = f"{warning} Showing native currency values."
     db.session.flush()
     return {
         "ok": False,
@@ -788,7 +795,7 @@ def _refresh_firm_fx_metadata(firm, upload_date=None):
         "fx_rate_date": None,
         "fx_rate_source": firm.fx_rate_source,
         "fx_status": "lookup_failed",
-        "fx_warning": fx.get("warning") or f"FX lookup failed for {code}. Showing native currency values.",
+        "fx_warning": warning,
     }
 
 

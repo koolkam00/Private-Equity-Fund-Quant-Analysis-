@@ -57,6 +57,9 @@ Run these in a fresh browser session on the deployed URL.
   - upload still succeeds,
   - dashboard shows native-currency warning,
   - reporting currency metadata remains native (not USD).
+- [ ] Post-deploy FX refresh command executed for failed firms:
+  - `flask fx-refresh --failed-only`
+  - verify updated non-USD firms now show conversion banner when rates resolve.
 - [ ] Upload revised workbook for `Fund A` and confirm old `Fund A` rows are replaced.
 - [ ] Upload `Firm A / Fund B` and confirm both funds coexist in the same firm.
 - [ ] Upload a workbook for `Firm B / Fund X` and confirm firm auto-creation or selection works.

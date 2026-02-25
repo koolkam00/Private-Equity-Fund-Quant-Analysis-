@@ -5,8 +5,9 @@ import secrets
 import hashlib
 from io import BytesIO
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
+import click
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from sqlalchemy import or_, text
@@ -32,6 +33,7 @@ from models import (
     ensure_schema_updates,
 )
 from services.deal_parser import parse_deals
+from services.fx_rates import resolve_rate_to_usd
 from services.metrics import (
     build_methodology_payload,
     compute_bridge_aggregate,
@@ -808,6 +810,79 @@ with app.app_context():
     _bootstrap_identity()
 
 
+@app.cli.command("fx-refresh")
+@click.option("--firm-id", type=int, default=None, help="Refresh a single firm by id.")
+@click.option("--failed-only/--all", "failed_only", default=True, show_default=True, help="Refresh failed firms only or all firms.")
+@click.option("--as-of", type=click.DateTime(formats=["%Y-%m-%d"]), default=None, help="Override FX lookup date (YYYY-MM-DD).")
+def fx_refresh_command(firm_id, failed_only, as_of):
+    """Refresh firm FX metadata for USD reporting conversion."""
+    query = Firm.query.order_by(Firm.id.asc())
+    if firm_id is not None:
+        query = query.filter(Firm.id == firm_id)
+    if failed_only:
+        query = query.filter(or_(Firm.fx_last_status.is_(None), Firm.fx_last_status != "ok"))
+
+    firms = query.all()
+    if not firms:
+        click.echo("No firms matched the requested scope.")
+        return
+
+    scanned = 0
+    updated_ok = 0
+    still_failed = 0
+    skipped_usd = 0
+    as_of_override = as_of.date() if as_of is not None else None
+
+    for firm in firms:
+        scanned += 1
+        code = normalize_currency_code(getattr(firm, "base_currency", None), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+        firm.base_currency = code
+
+        if code == DEFAULT_CURRENCY_CODE:
+            skipped_usd += 1
+            continue
+
+        if as_of_override is not None:
+            lookup_date = as_of_override
+        else:
+            latest_created = db.session.query(db.func.max(Deal.created_at)).filter(Deal.firm_id == firm.id).scalar()
+            if latest_created is not None and hasattr(latest_created, "date"):
+                lookup_date = latest_created.date()
+            else:
+                lookup_date = date.today()
+
+        fx = resolve_rate_to_usd(code, lookup_date)
+        if fx.get("ok"):
+            firm.fx_rate_to_usd = fx.get("rate")
+            firm.fx_rate_date = fx.get("effective_date") or lookup_date
+            firm.fx_rate_source = fx.get("source")
+            firm.fx_last_status = "ok"
+            updated_ok += 1
+            click.echo(
+                f"[ok] firm_id={firm.id} name={firm.name} {code}->USD "
+                f"rate={float(firm.fx_rate_to_usd):.6f} date={firm.fx_rate_date.isoformat() if firm.fx_rate_date else 'N/A'}"
+            )
+            continue
+
+        firm.fx_rate_to_usd = None
+        firm.fx_rate_date = None
+        firm.fx_rate_source = fx.get("source")
+        firm.fx_last_status = "lookup_failed"
+        still_failed += 1
+        warning = str(fx.get("warning") or "FX lookup failed").splitlines()[0].strip()
+        click.echo(f"[fail] firm_id={firm.id} name={firm.name} {warning}")
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        raise click.ClickException(f"FX refresh failed: {exc}") from exc
+
+    click.echo(
+        f"Summary: scanned={scanned}, updated_ok={updated_ok}, still_failed={still_failed}, skipped_usd={skipped_usd}"
+    )
+
+
 def _allowed_file(filename):
     return os.path.splitext(filename)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
 
@@ -1226,7 +1301,7 @@ def _handle_upload(parse_func, redirect_route):
                 )
             fx_warning = result.get("fx_warning")
             if fx_warning:
-                flash(fx_warning, "warning")
+                flash(f"FX warning: {str(fx_warning).splitlines()[0].strip()}", "warning")
         replaced_funds = result.get("replaced_funds") or {}
         if replaced_funds:
             replaced_summaries = ", ".join(f"{name} ({count} old deals replaced)" for name, count in replaced_funds.items())

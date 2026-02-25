@@ -376,6 +376,7 @@ def test_parse_deals_allows_upload_when_fx_lookup_fails(app_context, monkeypatch
         assert result["fx_status"] == "lookup_failed"
         assert result["fx_rate_to_usd"] is None
         assert result["fx_warning"] is not None
+        assert "showing native currency values" in result["fx_warning"].lower()
         firm = Firm.query.filter_by(id=result["firm_id"]).first()
         assert firm is not None
         assert firm.base_currency == "EUR"
