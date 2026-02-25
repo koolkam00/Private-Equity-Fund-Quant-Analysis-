@@ -435,6 +435,62 @@ def test_deal_track_record_groups_and_subtotals():
     assert abs(overall["moic"] - (340.0 / 230.0)) < 1e-9
 
 
+def test_deal_track_record_rows_ordered_by_status_then_investment_date():
+    deals = [
+        _make_deal(
+            id=1,
+            fund_number="Fund I",
+            company_name="Unrealized Later",
+            status="Unrealized",
+            investment_date=date(2021, 1, 1),
+            equity_invested=100,
+            realized_value=0,
+            unrealized_value=120,
+        ),
+        _make_deal(
+            id=2,
+            fund_number="Fund I",
+            company_name="Fully Earlier",
+            status="Fully Realized",
+            investment_date=date(2018, 1, 1),
+            equity_invested=90,
+            realized_value=130,
+            unrealized_value=0,
+        ),
+        _make_deal(
+            id=3,
+            fund_number="Fund I",
+            company_name="Partially Earlier",
+            status="Partially Realized",
+            investment_date=date(2017, 6, 1),
+            equity_invested=80,
+            realized_value=50,
+            unrealized_value=35,
+        ),
+        _make_deal(
+            id=4,
+            fund_number="Fund I",
+            company_name="Fully Later",
+            status="Fully Realized",
+            investment_date=date(2020, 1, 1),
+            equity_invested=70,
+            realized_value=90,
+            unrealized_value=0,
+        ),
+    ]
+    metrics = {d.id: compute_deal_metrics(d) for d in deals}
+    out = compute_deal_track_record(deals, metrics_by_id=metrics)
+
+    rows = out["funds"][0]["rows"]
+    ordered = [(r["status"], r["company_name"]) for r in rows]
+    assert ordered == [
+        ("Fully Realized", "Fully Earlier"),
+        ("Fully Realized", "Fully Later"),
+        ("Partially Realized", "Partially Earlier"),
+        ("Unrealized", "Unrealized Later"),
+    ]
+
+
 def test_track_record_gross_irr_prefers_uploaded_irr():
     deal = _make_deal(id=1, company_name="Uploaded IRR Co", irr=0.25, equity_invested=100, realized_value=140, unrealized_value=0)
     metrics = {deal.id: compute_deal_metrics(deal)}

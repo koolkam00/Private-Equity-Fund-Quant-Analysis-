@@ -1749,6 +1749,14 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
             }
         )
 
+    fund_summary_rows.sort(
+        key=lambda row: (
+            row.get("vintage_year") is None,
+            row.get("vintage_year") if row.get("vintage_year") is not None else 9999,
+            (row.get("fund_name") or "").lower(),
+        )
+    )
+
     kpis = {
         "total_deals": len(filtered_deals),
         "total_equity": portfolio["total_equity"],

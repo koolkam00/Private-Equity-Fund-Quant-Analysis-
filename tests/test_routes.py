@@ -1,5 +1,6 @@
 from datetime import date
 from io import BytesIO
+import re
 
 from openpyxl import Workbook, load_workbook
 
@@ -788,6 +789,45 @@ def test_dashboard_fund_summary_table(client):
     assert b"14.0%" in response.data
     assert b"1.80x" in response.data
     assert b"0.40x" in response.data
+
+
+def test_dashboard_fund_summary_sorted_by_vintage_year(client):
+    newer = Deal(
+        company_name="NewCo",
+        fund_number="Fund Newer",
+        status="Unrealized",
+        investment_date=date(2021, 1, 1),
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=110,
+        fund_size=600,
+        net_irr=0.12,
+        net_moic=1.4,
+        net_dpi=0.2,
+    )
+    older = Deal(
+        company_name="OldCo",
+        fund_number="Fund Older",
+        status="Unrealized",
+        investment_date=date(2016, 1, 1),
+        equity_invested=80,
+        realized_value=0,
+        unrealized_value=120,
+        fund_size=500,
+        net_irr=0.15,
+        net_moic=1.6,
+        net_dpi=0.3,
+    )
+    db.session.add_all([_with_active_scope(newer), _with_active_scope(older)])
+    db.session.commit()
+
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    match = re.search(r"<h3>Fund Summary</h3>.*?<tbody>(.*?)</tbody>", html, re.S)
+    assert match is not None
+    table_body = match.group(1)
+    assert table_body.find("Fund Older") < table_body.find("Fund Newer")
 
 
 def test_api_dashboard_series_qualitative_filters(client):

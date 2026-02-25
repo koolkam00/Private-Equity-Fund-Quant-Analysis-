@@ -565,7 +565,16 @@ def compute_deal_track_record(deals, metrics_by_id=None):
     overall_unrealized_totals = _empty_track_totals()
 
     for fund in sorted(grouped.keys(), key=lambda v: (v == "Unknown Fund", v)):
-        fund_rows = sorted(grouped[fund], key=lambda r: (status_index.get(r["status"], 99), r["company_name"], r["deal_id"]))
+        fund_rows = sorted(
+            grouped[fund],
+            key=lambda r: (
+                status_index.get(r["status"], 99),
+                r.get("investment_date") is None,
+                r.get("investment_date").toordinal() if r.get("investment_date") is not None else 3652059,
+                r["company_name"],
+                r["deal_id"],
+            ),
+        )
         fund_totals = _empty_track_totals()
         fund_status_totals = {status: _empty_track_totals() for status in TRACK_RECORD_STATUS_ORDER}
 
