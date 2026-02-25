@@ -78,6 +78,31 @@
             </p>
             <button type="submit" class="btn-upload">Upload Benchmarks</button>
         </form>
+        {% if benchmark_dataset %}
+        <div class="warn-box">
+            <p><strong>Current Benchmark Dataset</strong></p>
+            <p class="tiny">
+                Rows: {{ benchmark_dataset.rows_loaded }}
+                {% if benchmark_dataset.upload_batch %} | Batch: {{ benchmark_dataset.upload_batch }}{% endif %}
+                {% if benchmark_dataset.vintage_min is not none and benchmark_dataset.vintage_max is not none %}
+                | Vintages: {{ benchmark_dataset.vintage_min }}-{{ benchmark_dataset.vintage_max }}
+                {% endif %}
+            </p>
+            {% if benchmark_dataset.asset_classes %}
+            <p class="tiny">Asset Classes: {{ benchmark_dataset.asset_classes|join(", ") }}</p>
+            {% endif %}
+            <form
+                method="POST"
+                action="{{ url_for('delete_benchmarks') }}"
+                class="inline-form"
+                onsubmit="return confirm('Delete the current benchmark dataset for your team? This cannot be undone.');"
+            >
+                <button type="submit" class="btn-upload btn-sm btn-danger-soft">Delete Benchmark Data</button>
+            </form>
+        </div>
+        {% else %}
+        <p class="tiny">No benchmark dataset is currently loaded for your team.</p>
+        {% endif %}
     </section>
 
     <section class="panel">

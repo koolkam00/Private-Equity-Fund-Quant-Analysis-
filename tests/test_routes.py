@@ -66,6 +66,7 @@ def test_upload_page(client):
     assert b"Download Current Deal Template" in response.data
     assert b"Benchmark File" in response.data
     assert b"Upload Benchmarks" in response.data
+    assert b"No benchmark dataset is currently loaded for your team." in response.data
     assert b"Recent Uploads" in response.data
     assert b"Firm Currency" in response.data
 
@@ -232,7 +233,48 @@ def test_upload_benchmarks_route_success(client):
     )
     assert response.status_code == 200
     assert b"Loaded 4 benchmark rows" in response.data
+    assert b"Delete Benchmark Data" in response.data
     assert BenchmarkPoint.query.filter_by(team_id=membership.team_id).count() == 4
+
+
+def test_delete_benchmark_dataset_is_team_scoped(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+
+    other_team = Team(name="Other Bench Team", slug="other-bench-team")
+    db.session.add(other_team)
+    db.session.flush()
+
+    db.session.add_all(
+        [
+            BenchmarkPoint(
+                team_id=membership.team_id,
+                asset_class="Buyout",
+                vintage_year=2019,
+                metric="net_irr",
+                quartile="median",
+                value=0.16,
+                upload_batch="bench-a",
+            ),
+            BenchmarkPoint(
+                team_id=other_team.id,
+                asset_class="Growth",
+                vintage_year=2020,
+                metric="net_moic",
+                quartile="median",
+                value=1.7,
+                upload_batch="bench-b",
+            ),
+        ]
+    )
+    db.session.commit()
+
+    response = client.post("/upload/benchmarks/delete", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.location.endswith("/upload")
+
+    assert BenchmarkPoint.query.filter_by(team_id=membership.team_id).count() == 0
+    assert BenchmarkPoint.query.filter_by(team_id=other_team.id).count() == 1
 
 
 def test_dashboard_benchmark_selector_and_labels(client):

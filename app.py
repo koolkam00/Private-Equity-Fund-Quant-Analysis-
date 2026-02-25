@@ -1902,6 +1902,31 @@ def _upload_batches_for_firm(firm_id, limit=30):
     return history_rows
 
 
+def _benchmark_dataset_for_team(team_id):
+    if team_id is None:
+        return None
+
+    rows = (
+        BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id)
+        .order_by(BenchmarkPoint.created_at.desc(), BenchmarkPoint.id.desc())
+        .all()
+    )
+    if not rows:
+        return None
+
+    asset_classes = sorted({row.asset_class for row in rows if row.asset_class})
+    vintages = [int(row.vintage_year) for row in rows if row.vintage_year is not None]
+    latest = rows[0]
+    return {
+        "rows_loaded": len(rows),
+        "upload_batch": latest.upload_batch,
+        "asset_classes": asset_classes,
+        "vintage_min": min(vintages) if vintages else None,
+        "vintage_max": max(vintages) if vintages else None,
+        "updated_at": latest.created_at,
+    }
+
+
 def _delete_upload_batch_for_firm(firm_id, batch_id):
     batch_id = (batch_id or "").strip()
     if firm_id is None or not batch_id:
@@ -2598,13 +2623,15 @@ def deal_bridge_api(deal_id):
 @app.route("/upload")
 @login_required
 def upload():
-    _require_team_scope()
+    membership = _require_team_scope()
     active_firm = _resolve_active_firm_for_team()
     upload_batches = _upload_batches_for_firm(active_firm.id if active_firm is not None else None)
+    benchmark_dataset = _benchmark_dataset_for_team(membership.team_id)
     return render_template(
         "upload.html",
         upload_batches=upload_batches,
         active_firm=active_firm,
+        benchmark_dataset=benchmark_dataset,
     )
 
 
@@ -2749,6 +2776,26 @@ def upload_benchmarks():
         if os.path.exists(file_path):
             os.remove(file_path)
 
+    return redirect(url_for("upload"))
+
+
+@app.route("/upload/benchmarks/delete", methods=["POST"])
+@login_required
+def delete_benchmarks():
+    membership = _require_team_scope()
+    try:
+        deleted = BenchmarkPoint.query.filter_by(team_id=membership.team_id).delete(synchronize_session=False)
+        db.session.commit()
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        deleted = BenchmarkPoint.query.filter_by(team_id=membership.team_id).delete(synchronize_session=False)
+        db.session.commit()
+
+    if deleted == 0:
+        flash("No benchmark dataset loaded for your team.", "warning")
+    else:
+        flash(f"Deleted benchmark dataset for your team ({deleted} rows).", "success")
     return redirect(url_for("upload"))
 
 
