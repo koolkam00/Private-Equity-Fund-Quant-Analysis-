@@ -627,7 +627,7 @@ body.pe-app {
     padding: 0;
     border: 1px solid #607f9c;
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
 }
 .vca-ebitda-title-row {
     display: flex;
@@ -669,12 +669,8 @@ body.pe-app {
 .vca-ebitda-table td:last-child {
     border-right: none;
 }
-.vca-ebitda-table thead th {
-    position: sticky;
-    z-index: 5;
-    background-clip: padding-box;
-}
 .vca-ebitda-table .vca-head-band th {
+    position: sticky;
     top: 0;
     background: #173b61;
     color: #ecf3fa;
@@ -682,35 +678,36 @@ body.pe-app {
     letter-spacing: 0.05em;
     font-size: 10px;
     height: var(--vca-band-h);
-    z-index: 8;
+    z-index: 12;
+    background-clip: padding-box;
 }
 .vca-ebitda-table .vca-head-cols th {
+    position: sticky;
     top: var(--vca-band-h);
     background: #24547f;
     color: #edf4fa;
     font-size: 11px;
     text-transform: none;
     height: var(--vca-col-h);
-    z-index: 7;
+    z-index: 11;
+    background-clip: padding-box;
 }
 .vca-ebitda-table .vca-formula-row th {
-    top: calc(var(--vca-band-h) + var(--vca-col-h));
+    position: static;
     background: #e6eef5;
     color: #33506a;
     font-family: var(--mono);
     font-size: 9px;
     font-weight: 600;
     text-transform: none;
-    z-index: 6;
+    z-index: 1;
 }
 .vca-ebitda-table .vca-head-cols th:nth-child(1),
-.vca-ebitda-table .vca-formula-row th:nth-child(1),
 .vca-ebitda-table tbody td:nth-child(1) {
     position: sticky;
     left: 0;
 }
 .vca-ebitda-table .vca-head-cols th:nth-child(2),
-.vca-ebitda-table .vca-formula-row th:nth-child(2),
 .vca-ebitda-table tbody td:nth-child(2) {
     position: sticky;
     left: 42px;
@@ -723,18 +720,12 @@ body.pe-app {
 .vca-ebitda-table .vca-head-cols th:nth-child(2) {
     z-index: 10;
 }
-.vca-ebitda-table .vca-formula-row th:nth-child(1),
-.vca-ebitda-table .vca-formula-row th:nth-child(2) {
-    z-index: 9;
-}
 .vca-ebitda-table .vca-head-cols th:nth-child(1),
-.vca-ebitda-table .vca-formula-row th:nth-child(1),
 .vca-ebitda-table tbody td:nth-child(1) {
     min-width: 42px;
     width: 42px;
 }
 .vca-ebitda-table .vca-head-cols th:nth-child(2),
-.vca-ebitda-table .vca-formula-row th:nth-child(2),
 .vca-ebitda-table tbody td:nth-child(2) {
     min-width: 220px;
     width: 220px;
@@ -1668,9 +1659,7 @@ body.pe-app {
     .vca-ebitda-table td:nth-child(1),
     .vca-ebitda-table td:nth-child(2),
     .vca-ebitda-table .vca-head-cols th:nth-child(1),
-    .vca-ebitda-table .vca-head-cols th:nth-child(2),
-    .vca-ebitda-table .vca-formula-row th:nth-child(1),
-    .vca-ebitda-table .vca-formula-row th:nth-child(2) {
+    .vca-ebitda-table .vca-head-cols th:nth-child(2) {
         position: static !important;
         left: auto !important;
         width: auto !important;
