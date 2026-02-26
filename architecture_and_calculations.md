@@ -372,3 +372,33 @@ Active firm precedence:
   - `chart_builder_templates(team_id, name, source, config_json, created_by_user_id, timestamps)`
 - `config_json` stores configuration only (`config_version=1`), no data snapshots.
 - Templates run live against current active firm and current global filters.
+
+## 12. Value Creation Analysis - by EBITDA (PDF-Style Tab)
+- Route:
+  - `GET /analysis/vca-ebitda`
+- API:
+  - `GET /api/analysis/vca-ebitda/series`
+- Scope:
+  - Uses the same active-firm + page filter context as other analysis pages.
+- Table shape:
+  - 40 fixed columns with grouped multi-row headers and formula legend row.
+  - Fund sections include deal rows, subtotal rows, and deterministic summary rows:
+    - `Average`
+    - `Median`
+    - `Weighted Average` (equity-weighted where denominator is valid)
+  - Overall block includes:
+    - realized-only, partial-only, realized+partial, unrealized-only, and grand total rows.
+- Core mapping rules:
+  - `Fund Total Cost = equity`
+  - `Total Value = realized + unrealized`
+  - `Gross Profit = Total Value - Fund Total Cost`
+  - `Gross IRR = uploaded deal IRR`
+  - `Gross Profit % of Total` uses fund total gross profit for fund sections and grand total gross profit for overall rows.
+  - `EBITDA Growth ($)` in this table maps to `bridge.revenue + bridge.margin`.
+  - `Value Creation %` columns are each driver `$` divided by row gross profit.
+- Entry/exit block:
+  - Uses weighted entry/exit operating aggregates and reports delta as `exit - entry`.
+- Currency:
+  - Monetary fields are run through the standard reporting-currency scaling pipeline.
+- Print/PDF:
+  - Browser-native print (`window.print()`), with Letter landscape print CSS and sticky headers disabled in print mode.

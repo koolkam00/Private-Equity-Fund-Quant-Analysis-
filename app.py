@@ -62,6 +62,7 @@ from services.metrics import (
     compute_underwrite_outcome_analysis,
     compute_value_creation_mix,
     compute_valuation_quality_analysis,
+    compute_vca_ebitda_analysis,
     compute_vintage_series,
     run_chart_query,
 )
@@ -114,6 +115,10 @@ ANALYSIS_PAGES = {
     "deal-trajectory": {
         "title": "Deal Trajectory",
         "description": "Quarterly EV/net debt/equity and cash-flow path for an individual deal.",
+    },
+    "vca-ebitda": {
+        "title": "Value Creation Analysis - by EBITDA",
+        "description": "PDF-style value creation table with fund blocks, subtotal rollups, and operating deltas.",
     },
     "chart-builder": {
         "title": "Chart Builder",
@@ -511,6 +516,37 @@ def _scale_analysis_payload(page, payload, scale):
         for row in payload.get("cashflow_curve") or []:
             for key in ("calls", "distributions", "cum_calls", "cum_distributions"):
                 row[key] = _scale_money(row.get(key), scale)
+        return
+
+    if page == "vca-ebitda":
+        money_keys = (
+            "fund_total_cost",
+            "realized_proceeds",
+            "unrealized_value",
+            "total_value",
+            "gross_profit",
+            "vc_ebitda_growth_dollar",
+            "vc_multiple_dollar",
+            "vc_debt_dollar",
+            "vc_total_dollar",
+            "entry_ltm_ebitda",
+            "exit_ltm_ebitda",
+            "diff_ebitda",
+        )
+
+        for fund in payload.get("fund_blocks") or []:
+            fund["fund_size"] = _scale_money(fund.get("fund_size"), scale)
+            for key in ("deal_rows", "subtotal_rows", "summary_rows"):
+                for row in fund.get(key) or []:
+                    for money_key in money_keys:
+                        row[money_key] = _scale_money(row.get(money_key), scale)
+
+        overall = payload.get("overall_block") or {}
+        for key in ("subtotal_rows", "summary_rows"):
+            for row in overall.get(key) or []:
+                for money_key in money_keys:
+                    row[money_key] = _scale_money(row.get(money_key), scale)
+        return
 
 
 
@@ -1856,6 +1892,8 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None):
             deal_id=request.args.get("deal_id"),
             metrics_by_id=metrics_by_id,
         )
+    if page == "vca-ebitda":
+        return compute_vca_ebitda_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     abort(404)
 
 
@@ -2506,7 +2544,7 @@ def analysis_page(page):
         _scale_analysis_payload(page, payload, reporting["money_scale"])
 
     return render_template(
-        "analysis_page.html",
+        "analysis_vca_ebitda.html" if page == "vca-ebitda" else "analysis_page.html",
         page_key=page,
         page_meta=ANALYSIS_PAGES[page],
         analysis=payload,

@@ -19,12 +19,20 @@
     {%- if value is none -%}—{%- else -%}{{ value.strftime("%b-%y") }}{%- endif -%}
 {%- endmacro %}
 
+{% macro fmt_date_mdy(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ value.strftime("%m/%d/%y") }}{%- endif -%}
+{%- endmacro %}
+
 {% macro fmt_years_1dp(value) -%}
     {%- if value is none -%}—{%- else -%}{{ "%.1f"|format(value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_pct_1dp(value) -%}
     {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value * 100) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_pp_1dp(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_growth_pct(value) -%}

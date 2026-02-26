@@ -623,6 +623,134 @@ body.pe-app {
     border-top: 1px solid #bdd0e2;
     border-bottom: 1px solid #bdd0e2;
 }
+.vca-ebitda-root {
+    padding: 0;
+    border: 1px solid #607f9c;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.vca-ebitda-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 12px 14px 0;
+}
+.vca-ebitda-title-row h3 {
+    margin: 0;
+    color: #163a5a;
+}
+.vca-ebitda-wrap {
+    overflow: auto;
+    background: #cedcea;
+    padding: 8px;
+}
+.vca-ebitda-table {
+    --vca-band-h: 32px;
+    --vca-col-h: 36px;
+    min-width: 4320px;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid #5f7d98;
+    background: #ffffff;
+    font-size: 11px;
+    color: #11263b;
+}
+.vca-ebitda-table th,
+.vca-ebitda-table td {
+    border-right: 1px solid #b7c9d8;
+    border-bottom: 1px solid #c9d6e2;
+    padding: 4px 6px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.vca-ebitda-table th:last-child,
+.vca-ebitda-table td:last-child {
+    border-right: none;
+}
+.vca-ebitda-table thead th {
+    position: sticky;
+    z-index: 5;
+    background-clip: padding-box;
+}
+.vca-ebitda-table .vca-head-band th {
+    top: 0;
+    background: #173b61;
+    color: #ecf3fa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 10px;
+    height: var(--vca-band-h);
+    z-index: 8;
+}
+.vca-ebitda-table .vca-head-cols th {
+    top: var(--vca-band-h);
+    background: #24547f;
+    color: #edf4fa;
+    font-size: 11px;
+    text-transform: none;
+    height: var(--vca-col-h);
+    z-index: 7;
+}
+.vca-ebitda-table .vca-formula-row th {
+    top: calc(var(--vca-band-h) + var(--vca-col-h));
+    background: #e6eef5;
+    color: #33506a;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: none;
+    z-index: 6;
+}
+.vca-ebitda-table .vca-fund-header td {
+    background: #8eb0cf;
+    color: #0d2740;
+    font-weight: 800;
+    border-top: 1px solid #4f6e89;
+    border-bottom: 1px solid #4f6e89;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.vca-ebitda-table .vca-overall-header td {
+    background: #6f97bd;
+    color: #0d2740;
+    font-weight: 800;
+    border-top: 1px solid #4f6e89;
+    border-bottom: 1px solid #4f6e89;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.vca-ebitda-table .vca-row-deal td {
+    background: #f3f3f3;
+}
+.vca-ebitda-table .vca-row-deal:nth-child(even) td {
+    background: #e7e7e7;
+}
+.vca-ebitda-table .vca-row-subtotal td {
+    background: #98b7d5;
+    font-weight: 700;
+    border-top: 1px solid #5d7f9b;
+}
+.vca-ebitda-table .vca-row-summary td {
+    background: #dce8f3;
+    font-weight: 700;
+}
+.vca-ebitda-table .vca-gap td {
+    background: #cedcea;
+    border: none;
+    height: 14px;
+    padding: 0;
+}
+.vca-footnotes {
+    padding: 10px 14px 14px;
+    background: #f6fafc;
+    border-top: 1px solid #d7e3ee;
+}
+.vca-footnotes p {
+    margin: 3px 0;
+    font-size: 11px;
+    color: #3b556c;
+}
 .rollup-subsection-title {
     margin: 14px 0 8px;
 }
@@ -1316,6 +1444,11 @@ body.pe-app {
     margin: 0.4in;
 }
 
+@page vcaebitda {
+    size: Letter landscape;
+    margin: 0.35in;
+}
+
 @page methodology {
     size: Letter portrait;
     margin: 0.45in;
@@ -1323,6 +1456,10 @@ body.pe-app {
 
 .ic-page {
     page: memo;
+}
+
+.vca-ebitda-root {
+    page: vcaebitda;
 }
 
 .methodology-root {
@@ -1426,6 +1563,62 @@ body.pe-app {
 
     .methodology-root,
     .methodology-root * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .vca-print-btn {
+        display: none !important;
+    }
+
+    .vca-ebitda-root {
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .vca-ebitda-title-row {
+        padding: 0 0 4px !important;
+    }
+
+    .vca-ebitda-wrap {
+        background: #ffffff !important;
+        border: none !important;
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+
+    .vca-ebitda-table {
+        min-width: 0 !important;
+        width: 100% !important;
+        font-size: 7.7px !important;
+        border-color: #b5c5d4 !important;
+    }
+
+    .vca-ebitda-table th,
+    .vca-ebitda-table td {
+        padding: 2px 3px !important;
+    }
+
+    .vca-ebitda-table thead th {
+        position: static !important;
+    }
+
+    .vca-ebitda-table tr {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+
+    .vca-footnotes {
+        background: #ffffff !important;
+        border-top: 1px solid #d0dce7 !important;
+        padding: 6px 0 0 !important;
+    }
+
+    .vca-ebitda-root,
+    .vca-ebitda-root * {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
     }

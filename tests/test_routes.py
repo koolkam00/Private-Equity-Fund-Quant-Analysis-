@@ -1350,6 +1350,7 @@ def test_analysis_pages_render(client):
         "exit-readiness": b"Exit Readiness &amp; Aging",
         "stress-lab": b"Concentration Stress Lab",
         "deal-trajectory": b"Deal Trajectory",
+        "vca-ebitda": b"Value Creation Analysis - by EBITDA",
     }
     for page, marker in pages.items():
         response = client.get(f"/analysis/{page}")
@@ -1362,6 +1363,8 @@ def test_analysis_pages_render(client):
             assert b"Expected Hold (Yrs)" in response.data
             assert b"Delay (Years)" not in response.data
             assert b"Print / Save PDF" in response.data
+        if page == "vca-ebitda":
+            assert b"Download / Print PDF" in response.data
 
 
 def test_analysis_api_series_schema(client):
@@ -1392,12 +1395,78 @@ def test_analysis_api_series_schema(client):
         "exit-readiness",
         "stress-lab",
         "deal-trajectory",
+        "vca-ebitda",
     ):
         response = client.get(f"/api/analysis/{page}/series")
         assert response.status_code == 200
         payload = response.get_json()
         assert payload["page"] == page
         assert "payload" in payload
+
+
+def test_analysis_vca_ebitda_api_payload_shape(client):
+    deal = Deal(
+        company_name="VCA API Co",
+        fund_number="Fund VCA",
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=80,
+        entry_ebitda=10,
+        exit_ebitda=16,
+        entry_enterprise_value=120,
+        exit_enterprise_value=210,
+        entry_net_debt=35,
+        exit_net_debt=20,
+        irr=0.21,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/api/analysis/vca-ebitda/series")
+    assert response.status_code == 200
+    body = response.get_json()
+    payload = body["payload"]
+    assert body["page"] == "vca-ebitda"
+    assert "meta" in payload
+    assert "header" in payload
+    assert "fund_blocks" in payload
+    assert "overall_block" in payload
+
+
+def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
+    deal = Deal(
+        company_name="VCA Page Co",
+        fund_number="Fund VCA",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=160,
+        unrealized_value=0,
+        entry_revenue=55,
+        exit_revenue=90,
+        entry_ebitda=11,
+        exit_ebitda=17,
+        entry_enterprise_value=130,
+        exit_enterprise_value=220,
+        entry_net_debt=40,
+        exit_net_debt=25,
+        irr=0.2,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/analysis/vca-ebitda")
+    assert response.status_code == 200
+    assert b"EBITDA Growth During Hold Period" in response.data
+    assert b"Value Creation (%)" in response.data
+    assert b"Value Creation ($)" in response.data
+    assert b"Difference Exit/Current vs Entry" in response.data
 
 
 def test_stress_lab_api_supports_per_deal_overrides(client):

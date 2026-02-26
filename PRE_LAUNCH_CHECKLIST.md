@@ -75,6 +75,8 @@ Run these in a fresh browser session on the deployed URL.
 - [ ] `/api/deals/<id>/bridge` returns `404` when deal belongs to a non-active firm.
 - [ ] Track record PDF export works (`/track-record/pdf`).
 - [ ] IC memo print-to-PDF works via `window.print()`.
+- [ ] `GET /analysis/vca-ebitda` renders grouped headers, subtotal blocks, and `Download / Print PDF`.
+- [ ] `GET /api/analysis/vca-ebitda/series` returns payload with `meta`, `header`, `fund_blocks`, and `overall_block`.
 - [ ] `GET /analysis/chart-builder` loads field catalog and renders board.
 - [ ] Chart Builder query run succeeds (`/api/chart-builder/query`) and chart/table render with active firm scope.
 - [ ] Chart Builder template CRUD works (`create`, `load`, `update`, `delete`) and remains team-scoped.

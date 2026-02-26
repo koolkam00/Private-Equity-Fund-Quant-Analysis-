@@ -1,0 +1,654 @@
+"""Value Creation Analysis (by EBITDA) payload builder."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import date
+from statistics import median
+
+from services.metrics.common import safe_divide
+from services.metrics.deal import compute_deal_metrics
+from services.metrics.portfolio import compute_bridge_aggregate, compute_portfolio_analytics
+
+STATUS_ORDER = ("Fully Realized", "Partially Realized", "Unrealized", "Other")
+STATUS_INDEX = {status: idx for idx, status in enumerate(STATUS_ORDER)}
+
+COLUMN_KEYS = (
+    "row_num",
+    "platform",
+    "close_date",
+    "final_exit_date",
+    "hold_period",
+    "status",
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "realized_moic",
+    "gross_moic",
+    "ebitda_cagr",
+    "ebitda_cumulative_growth",
+    "vc_ebitda_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "vc_ebitda_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_ebitda",
+    "entry_ebitda_margin",
+    "entry_ev_ebitda",
+    "entry_net_debt_ebitda",
+    "entry_net_debt_ev",
+    "exit_ltm_ebitda",
+    "exit_ebitda_margin",
+    "exit_ev_ebitda",
+    "exit_net_debt_ebitda",
+    "exit_net_debt_ev",
+    "diff_ebitda",
+    "diff_ebitda_margin",
+    "diff_ev_ebitda",
+    "diff_net_debt_ebitda",
+    "diff_net_debt_ev",
+)
+
+NUMERIC_SUMMARY_KEYS = (
+    "hold_period",
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "realized_moic",
+    "gross_moic",
+    "ebitda_cagr",
+    "ebitda_cumulative_growth",
+    "vc_ebitda_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "vc_ebitda_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_ebitda",
+    "entry_ebitda_margin",
+    "entry_ev_ebitda",
+    "entry_net_debt_ebitda",
+    "entry_net_debt_ev",
+    "exit_ltm_ebitda",
+    "exit_ebitda_margin",
+    "exit_ev_ebitda",
+    "exit_net_debt_ebitda",
+    "exit_net_debt_ev",
+    "diff_ebitda",
+    "diff_ebitda_margin",
+    "diff_ev_ebitda",
+    "diff_net_debt_ebitda",
+    "diff_net_debt_ev",
+)
+
+VCA_COLUMNS = [
+    {"key": "row_num", "label": "#", "numeric": True},
+    {"key": "platform", "label": "Platform", "numeric": False},
+    {"key": "close_date", "label": "Close Date", "numeric": False},
+    {"key": "final_exit_date", "label": "Final Exit Date", "numeric": False},
+    {"key": "hold_period", "label": "Hold Period*", "numeric": True},
+    {"key": "status", "label": "Status", "numeric": False},
+    {"key": "fund_total_cost", "label": "Fund Total Cost", "numeric": True},
+    {"key": "realized_proceeds", "label": "Realized Proceeds", "numeric": True},
+    {"key": "unrealized_value", "label": "Unrealized Value", "numeric": True},
+    {"key": "total_value", "label": "Total Value", "numeric": True},
+    {"key": "gross_profit", "label": "Gross Profit", "numeric": True},
+    {"key": "gross_profit_pct_of_total", "label": "Gross Profit % of Total", "numeric": True},
+    {"key": "gross_irr", "label": "Gross IRR", "numeric": True},
+    {"key": "realized_moic", "label": "Realized MOIC", "numeric": True},
+    {"key": "gross_moic", "label": "Gross MOIC", "numeric": True},
+    {"key": "ebitda_cagr", "label": "EBITDA CAGR*", "numeric": True},
+    {"key": "ebitda_cumulative_growth", "label": "EBITDA Cumulative Growth*", "numeric": True},
+    {"key": "vc_ebitda_growth_pct", "label": "EBITDA Growth", "numeric": True},
+    {"key": "vc_multiple_pct", "label": "Multiple Expansion", "numeric": True},
+    {"key": "vc_debt_pct", "label": "Debt Reduction/(Increase)", "numeric": True},
+    {"key": "vc_total_pct", "label": "Total", "numeric": True},
+    {"key": "vc_ebitda_growth_dollar", "label": "EBITDA Growth", "numeric": True},
+    {"key": "vc_multiple_dollar", "label": "Multiple Expansion", "numeric": True},
+    {"key": "vc_debt_dollar", "label": "Debt Reduction/(Increase)", "numeric": True},
+    {"key": "vc_total_dollar", "label": "Total", "numeric": True},
+    {"key": "entry_ltm_ebitda", "label": "Entry LTM EBITDA", "numeric": True},
+    {"key": "entry_ebitda_margin", "label": "Entry EBITDA Margin", "numeric": True},
+    {"key": "entry_ev_ebitda", "label": "Entry EV/EBITDA*", "numeric": True},
+    {"key": "entry_net_debt_ebitda", "label": "Entry Net Debt/EBITDA*", "numeric": True},
+    {"key": "entry_net_debt_ev", "label": "Entry Net Debt/EV", "numeric": True},
+    {"key": "exit_ltm_ebitda", "label": "Exit/Current LTM EBITDA", "numeric": True},
+    {"key": "exit_ebitda_margin", "label": "Exit/Current EBITDA Margin", "numeric": True},
+    {"key": "exit_ev_ebitda", "label": "Exit/Current EV/EBITDA*", "numeric": True},
+    {"key": "exit_net_debt_ebitda", "label": "Exit/Current Net Debt/EBITDA*", "numeric": True},
+    {"key": "exit_net_debt_ev", "label": "Exit/Current Net Debt/EV", "numeric": True},
+    {"key": "diff_ebitda", "label": "Difference EBITDA", "numeric": True},
+    {"key": "diff_ebitda_margin", "label": "Difference EBITDA Margin", "numeric": True},
+    {"key": "diff_ev_ebitda", "label": "Difference EV/EBITDA*", "numeric": True},
+    {"key": "diff_net_debt_ebitda", "label": "Difference Net Debt/EBITDA*", "numeric": True},
+    {"key": "diff_net_debt_ev", "label": "Difference Net Debt/EV", "numeric": True},
+]
+
+VCA_HEADER_GROUPS = [
+    {"label": "Deal Profile", "span": 6},
+    {"label": "Fund Performance", "span": 9},
+    {"label": "EBITDA Growth During Hold Period", "span": 2},
+    {"label": "Value Creation (%)", "span": 4},
+    {"label": "Value Creation ($)", "span": 4},
+    {"label": "Company Op. Metrics At Entry", "span": 5},
+    {"label": "Company Op. Metrics At Exit / Current", "span": 5},
+    {"label": "Difference Exit/Current vs Entry", "span": 5},
+]
+
+FORMULA_LEGEND = {
+    "hold_period": "(Exit - Close) / 365.25",
+    "total_value": "C = A + B",
+    "gross_profit": "D = C - Cost",
+    "gross_profit_pct_of_total": "E = D / Total GP",
+    "realized_moic": "F = Realized / Cost",
+    "gross_moic": "G = Total / Cost",
+    "ebitda_cagr": "H = ((Exit/Entry)^(1/Hold))-1",
+    "ebitda_cumulative_growth": "I = Exit/Entry - 1",
+    "vc_ebitda_growth_pct": "J = O / D",
+    "vc_multiple_pct": "K = P / D",
+    "vc_debt_pct": "L = Q / D",
+    "vc_total_pct": "M = J + K + L",
+    "vc_total_dollar": "R = O + P + Q",
+    "diff_ebitda": "S = Exit - Entry",
+    "diff_ebitda_margin": "T = Exit - Entry",
+    "diff_ev_ebitda": "U = Exit - Entry",
+    "diff_net_debt_ebitda": "V = Exit - Entry",
+    "diff_net_debt_ev": "W = Exit - Entry",
+}
+
+
+def _normalize_status(raw_status):
+    status = (raw_status or "").strip().lower()
+    if "partial" in status and "realized" in status:
+        return "Partially Realized"
+    if "fully" in status and "realized" in status:
+        return "Fully Realized"
+    if status == "realized" or ("realized" in status and "unrealized" not in status):
+        return "Fully Realized"
+    if "unrealized" in status or status == "":
+        return "Unrealized"
+    return "Other"
+
+
+def _date_sort_value(value):
+    if value is None:
+        return 3652059
+    return value.toordinal()
+
+
+def _mean(values):
+    return (sum(values) / len(values)) if values else None
+
+
+def _weighted_average(pairs):
+    numer = 0.0
+    denom = 0.0
+    for value, weight in pairs:
+        if value is None:
+            continue
+        if weight is None or weight <= 0:
+            continue
+        numer += value * weight
+        denom += weight
+    if denom <= 0:
+        return None
+    return numer / denom
+
+
+def _pick_wavg(metric_block):
+    if not isinstance(metric_block, dict):
+        return None
+    if metric_block.get("wavg") is not None:
+        return metric_block.get("wavg")
+    return metric_block.get("avg")
+
+
+def _coalesce_sum(*values):
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    return sum(present)
+
+
+def _blank_vca_row(row_kind="detail", platform=None):
+    row = {key: None for key in COLUMN_KEYS}
+    row["platform"] = platform
+    row["row_kind"] = row_kind
+    return row
+
+
+def _bridge_values_from_metric(metric, gross_profit):
+    bridge = metric.get("bridge_additive_fund") or {}
+    if not bridge.get("ready"):
+        return {
+            "vc_ebitda_growth_dollar": None,
+            "vc_multiple_dollar": None,
+            "vc_debt_dollar": None,
+            "vc_total_dollar": None,
+            "vc_ebitda_growth_pct": None,
+            "vc_multiple_pct": None,
+            "vc_debt_pct": None,
+            "vc_total_pct": None,
+        }
+
+    drivers = bridge.get("drivers_dollar") or {}
+    ebitda_growth_dollar = _coalesce_sum(drivers.get("revenue"), drivers.get("margin"))
+    multiple_dollar = drivers.get("multiple")
+    debt_dollar = drivers.get("leverage")
+    total_dollar = _coalesce_sum(ebitda_growth_dollar, multiple_dollar, debt_dollar)
+
+    return {
+        "vc_ebitda_growth_dollar": ebitda_growth_dollar,
+        "vc_multiple_dollar": multiple_dollar,
+        "vc_debt_dollar": debt_dollar,
+        "vc_total_dollar": total_dollar,
+        "vc_ebitda_growth_pct": safe_divide(ebitda_growth_dollar, gross_profit),
+        "vc_multiple_pct": safe_divide(multiple_dollar, gross_profit),
+        "vc_debt_pct": safe_divide(debt_dollar, gross_profit),
+        "vc_total_pct": safe_divide(total_dollar, gross_profit),
+    }
+
+
+def _bridge_values_from_subset(deals_subset, gross_profit):
+    aggregate = compute_bridge_aggregate(deals_subset, basis="fund")
+    if (aggregate.get("ready_count") or 0) <= 0:
+        return {
+            "vc_ebitda_growth_dollar": None,
+            "vc_multiple_dollar": None,
+            "vc_debt_dollar": None,
+            "vc_total_dollar": None,
+            "vc_ebitda_growth_pct": None,
+            "vc_multiple_pct": None,
+            "vc_debt_pct": None,
+            "vc_total_pct": None,
+            "bridge_ready_count": 0,
+        }
+
+    drivers = (aggregate.get("drivers") or {}).get("dollar") or {}
+    ebitda_growth_dollar = _coalesce_sum(drivers.get("revenue"), drivers.get("margin"))
+    multiple_dollar = drivers.get("multiple")
+    debt_dollar = drivers.get("leverage")
+    total_dollar = _coalesce_sum(ebitda_growth_dollar, multiple_dollar, debt_dollar)
+
+    return {
+        "vc_ebitda_growth_dollar": ebitda_growth_dollar,
+        "vc_multiple_dollar": multiple_dollar,
+        "vc_debt_dollar": debt_dollar,
+        "vc_total_dollar": total_dollar,
+        "vc_ebitda_growth_pct": safe_divide(ebitda_growth_dollar, gross_profit),
+        "vc_multiple_pct": safe_divide(multiple_dollar, gross_profit),
+        "vc_debt_pct": safe_divide(debt_dollar, gross_profit),
+        "vc_total_pct": safe_divide(total_dollar, gross_profit),
+        "bridge_ready_count": aggregate.get("ready_count") or 0,
+    }
+
+
+def _operating_fields_from_portfolio(portfolio):
+    entry = portfolio.get("entry") or {}
+    exit_ = portfolio.get("exit") or {}
+
+    entry_ltm_ebitda = _pick_wavg(entry.get("ebitda"))
+    exit_ltm_ebitda = _pick_wavg(exit_.get("ebitda"))
+
+    entry_margin = _pick_wavg(entry.get("ebitda_margin"))
+    exit_margin = _pick_wavg(exit_.get("ebitda_margin"))
+
+    entry_ev_ebitda = _pick_wavg(entry.get("tev_ebitda"))
+    exit_ev_ebitda = _pick_wavg(exit_.get("tev_ebitda"))
+
+    entry_nd_ebitda = _pick_wavg(entry.get("net_debt_ebitda"))
+    exit_nd_ebitda = _pick_wavg(exit_.get("net_debt_ebitda"))
+
+    entry_nd_ev = _pick_wavg(entry.get("net_debt_tev"))
+    exit_nd_ev = _pick_wavg(exit_.get("net_debt_tev"))
+
+    return {
+        "entry_ltm_ebitda": entry_ltm_ebitda,
+        "entry_ebitda_margin": entry_margin,
+        "entry_ev_ebitda": entry_ev_ebitda,
+        "entry_net_debt_ebitda": entry_nd_ebitda,
+        "entry_net_debt_ev": entry_nd_ev,
+        "exit_ltm_ebitda": exit_ltm_ebitda,
+        "exit_ebitda_margin": exit_margin,
+        "exit_ev_ebitda": exit_ev_ebitda,
+        "exit_net_debt_ebitda": exit_nd_ebitda,
+        "exit_net_debt_ev": exit_nd_ev,
+        "diff_ebitda": (exit_ltm_ebitda - entry_ltm_ebitda)
+        if exit_ltm_ebitda is not None and entry_ltm_ebitda is not None
+        else None,
+        "diff_ebitda_margin": (exit_margin - entry_margin)
+        if exit_margin is not None and entry_margin is not None
+        else None,
+        "diff_ev_ebitda": (exit_ev_ebitda - entry_ev_ebitda)
+        if exit_ev_ebitda is not None and entry_ev_ebitda is not None
+        else None,
+        "diff_net_debt_ebitda": (exit_nd_ebitda - entry_nd_ebitda)
+        if exit_nd_ebitda is not None and entry_nd_ebitda is not None
+        else None,
+        "diff_net_debt_ev": (exit_nd_ev - entry_nd_ev)
+        if exit_nd_ev is not None and entry_nd_ev is not None
+        else None,
+    }
+
+
+def build_vca_row(deal, metric, row_num, gross_profit_denominator):
+    row = _blank_vca_row(row_kind="deal", platform=deal.company_name or "Unknown")
+    row["row_num"] = row_num
+    row["close_date"] = deal.investment_date
+    row["final_exit_date"] = deal.exit_date
+    row["hold_period"] = metric.get("hold_period")
+    row["status"] = _normalize_status(deal.status)
+
+    row["fund_total_cost"] = metric.get("equity")
+    row["realized_proceeds"] = metric.get("realized")
+    row["unrealized_value"] = metric.get("unrealized")
+    row["total_value"] = metric.get("value_total")
+    row["gross_profit"] = metric.get("value_created")
+    row["gross_profit_pct_of_total"] = safe_divide(row["gross_profit"], gross_profit_denominator)
+
+    row["gross_irr"] = deal.irr
+    row["realized_moic"] = metric.get("realized_moic")
+    row["gross_moic"] = metric.get("moic")
+    row["ebitda_cagr"] = metric.get("ebitda_cagr")
+    row["ebitda_cumulative_growth"] = metric.get("ebitda_growth")
+
+    row.update(_bridge_values_from_metric(metric, row["gross_profit"]))
+
+    row["entry_ltm_ebitda"] = metric.get("entry_ebitda")
+    row["entry_ebitda_margin"] = metric.get("entry_ebitda_margin")
+    row["entry_ev_ebitda"] = metric.get("entry_tev_ebitda")
+    row["entry_net_debt_ebitda"] = metric.get("entry_net_debt_ebitda")
+    row["entry_net_debt_ev"] = metric.get("entry_net_debt_tev")
+
+    row["exit_ltm_ebitda"] = metric.get("exit_ebitda")
+    row["exit_ebitda_margin"] = metric.get("exit_ebitda_margin")
+    row["exit_ev_ebitda"] = metric.get("exit_tev_ebitda")
+    row["exit_net_debt_ebitda"] = metric.get("exit_net_debt_ebitda")
+    row["exit_net_debt_ev"] = metric.get("exit_net_debt_tev")
+
+    row["diff_ebitda"] = (
+        row["exit_ltm_ebitda"] - row["entry_ltm_ebitda"]
+        if row["exit_ltm_ebitda"] is not None and row["entry_ltm_ebitda"] is not None
+        else None
+    )
+    row["diff_ebitda_margin"] = (
+        row["exit_ebitda_margin"] - row["entry_ebitda_margin"]
+        if row["exit_ebitda_margin"] is not None and row["entry_ebitda_margin"] is not None
+        else None
+    )
+    row["diff_ev_ebitda"] = (
+        row["exit_ev_ebitda"] - row["entry_ev_ebitda"]
+        if row["exit_ev_ebitda"] is not None and row["entry_ev_ebitda"] is not None
+        else None
+    )
+    row["diff_net_debt_ebitda"] = (
+        row["exit_net_debt_ebitda"] - row["entry_net_debt_ebitda"]
+        if row["exit_net_debt_ebitda"] is not None and row["entry_net_debt_ebitda"] is not None
+        else None
+    )
+    row["diff_net_debt_ev"] = (
+        row["exit_net_debt_ev"] - row["entry_net_debt_ev"]
+        if row["exit_net_debt_ev"] is not None and row["entry_net_debt_ev"] is not None
+        else None
+    )
+
+    return row
+
+
+def build_vca_subtotal(label, deals_subset, metrics_by_id=None, gross_profit_denominator=None):
+    metrics_by_id = metrics_by_id or {deal.id: compute_deal_metrics(deal) for deal in deals_subset}
+    if not deals_subset:
+        return None
+
+    row = _blank_vca_row(row_kind="subtotal", platform=label)
+
+    portfolio = compute_portfolio_analytics(deals_subset, metrics_by_id=metrics_by_id)
+    realized_total = sum((metrics_by_id[deal.id].get("realized") or 0.0) for deal in deals_subset)
+    unrealized_total = sum((metrics_by_id[deal.id].get("unrealized") or 0.0) for deal in deals_subset)
+
+    row["status"] = ""
+    row["fund_total_cost"] = portfolio.get("total_equity")
+    row["realized_proceeds"] = realized_total
+    row["unrealized_value"] = unrealized_total
+    row["total_value"] = portfolio.get("total_value")
+    row["gross_profit"] = portfolio.get("total_value_created")
+    row["gross_profit_pct_of_total"] = safe_divide(row["gross_profit"], gross_profit_denominator)
+
+    returns = portfolio.get("returns") or {}
+    growth = portfolio.get("growth") or {}
+
+    row["hold_period"] = _pick_wavg(returns.get("hold_period"))
+    row["gross_irr"] = _pick_wavg(returns.get("gross_irr"))
+    row["realized_moic"] = safe_divide(realized_total, row["fund_total_cost"])
+    row["gross_moic"] = safe_divide(row["total_value"], row["fund_total_cost"])
+
+    row["ebitda_cagr"] = _pick_wavg(growth.get("ebitda_cagr"))
+    row["ebitda_cumulative_growth"] = _pick_wavg(growth.get("ebitda_growth"))
+
+    row.update(_bridge_values_from_subset(deals_subset, row["gross_profit"]))
+    row.update(_operating_fields_from_portfolio(portfolio))
+
+    return row
+
+
+def build_vca_summary_rows(deal_rows):
+    output = []
+    summary_modes = ("Average", "Median", "Weighted Average")
+
+    for label in summary_modes:
+        row = _blank_vca_row(row_kind="summary", platform=label)
+        row["status"] = ""
+
+        for key in NUMERIC_SUMMARY_KEYS:
+            values = [r.get(key) for r in deal_rows if r.get(key) is not None]
+
+            if label == "Average":
+                row[key] = _mean(values)
+                continue
+
+            if label == "Median":
+                row[key] = median(values) if values else None
+                continue
+
+            weighted_pairs = [
+                (r.get(key), r.get("fund_total_cost"))
+                for r in deal_rows
+                if r.get(key) is not None
+            ]
+            row[key] = _weighted_average(weighted_pairs)
+
+        output.append(row)
+
+    return output
+
+
+def _fund_sort_key(fund_name):
+    return (fund_name == "Unknown Fund", (fund_name or "").lower())
+
+
+def _ordered_deals_for_fund(deals):
+    return sorted(
+        deals,
+        key=lambda d: (
+            STATUS_INDEX.get(_normalize_status(d.status), 99),
+            d.investment_date is None,
+            _date_sort_value(d.investment_date),
+            (d.company_name or "").lower(),
+            d.id,
+        ),
+    )
+
+
+def _subtotal_deal_sets(fund_name, ordered_deals):
+    by_status = defaultdict(list)
+    for deal in ordered_deals:
+        by_status[_normalize_status(deal.status)].append(deal)
+
+    rows = []
+    fully = by_status.get("Fully Realized", [])
+    partial = by_status.get("Partially Realized", [])
+    unrealized = by_status.get("Unrealized", [])
+
+    if fully:
+        rows.append((f"{fund_name} - Fully & Majority Realized", fully))
+    if partial:
+        rows.append((f"{fund_name} - Partially Realized", partial))
+    if fully and partial:
+        rows.append((f"{fund_name} - Fully and Partially Realized", fully + partial))
+    if unrealized:
+        rows.append((f"{fund_name} - Unrealized", unrealized))
+
+    rows.append((f"{fund_name} - All", ordered_deals))
+    return rows
+
+
+def _overall_subtotal_deal_sets(ordered_deals):
+    by_status = defaultdict(list)
+    for deal in ordered_deals:
+        by_status[_normalize_status(deal.status)].append(deal)
+
+    rows = []
+    fully = by_status.get("Fully Realized", [])
+    partial = by_status.get("Partially Realized", [])
+    unrealized = by_status.get("Unrealized", [])
+
+    if fully:
+        rows.append(("Total Fully & Majority Realized Only", fully))
+    if partial:
+        rows.append(("Total Partially Realized Only", partial))
+    if fully or partial:
+        rows.append(("Total Fully and Partially Realized", fully + partial))
+    if unrealized:
+        rows.append(("Total Unrealized Only", unrealized))
+
+    rows.append(("Grand Total", ordered_deals))
+    return rows
+
+
+def _as_of_date(deals):
+    exit_dates = [deal.exit_date for deal in deals if deal.exit_date is not None]
+    if exit_dates:
+        return max(exit_dates)
+
+    close_dates = [deal.investment_date for deal in deals if deal.investment_date is not None]
+    if close_dates:
+        return max(close_dates)
+
+    return date.today()
+
+
+def compute_vca_ebitda_analysis(deals, metrics_by_id=None):
+    metrics_by_id = metrics_by_id or {deal.id: compute_deal_metrics(deal) for deal in deals}
+    by_fund = defaultdict(list)
+
+    for deal in deals:
+        fund_name = deal.fund_number or "Unknown Fund"
+        by_fund[fund_name].append(deal)
+
+    grand_gross_profit = sum((metrics_by_id[deal.id].get("value_created") or 0.0) for deal in deals)
+
+    fund_blocks = []
+    all_deal_rows = []
+
+    for fund_name in sorted(by_fund.keys(), key=_fund_sort_key):
+        ordered_deals = _ordered_deals_for_fund(by_fund[fund_name])
+        fund_gross_profit = sum((metrics_by_id[deal.id].get("value_created") or 0.0) for deal in ordered_deals)
+
+        fund_size_values = [deal.fund_size for deal in ordered_deals if deal.fund_size is not None]
+        fund_size = fund_size_values[0] if fund_size_values else None
+        fund_size_conflict = any(abs(value - fund_size) > 1e-9 for value in fund_size_values[1:]) if fund_size is not None else False
+
+        deal_rows = []
+        for idx, deal in enumerate(ordered_deals, start=1):
+            row = build_vca_row(
+                deal,
+                metrics_by_id[deal.id],
+                row_num=idx,
+                gross_profit_denominator=fund_gross_profit,
+            )
+            row["deal_id"] = deal.id
+            deal_rows.append(row)
+
+        subtotal_rows = []
+        for label, subset in _subtotal_deal_sets(fund_name, ordered_deals):
+            subset_metrics = {deal.id: metrics_by_id[deal.id] for deal in subset}
+            subtotal = build_vca_subtotal(
+                label,
+                subset,
+                metrics_by_id=subset_metrics,
+                gross_profit_denominator=fund_gross_profit,
+            )
+            if subtotal is not None:
+                subtotal_rows.append(subtotal)
+
+        summary_rows = build_vca_summary_rows(deal_rows)
+
+        fund_blocks.append(
+            {
+                "fund_name": fund_name,
+                "fund_size": fund_size,
+                "fund_size_conflict": fund_size_conflict,
+                "deal_rows": deal_rows,
+                "subtotal_rows": subtotal_rows,
+                "summary_rows": summary_rows,
+            }
+        )
+
+        all_deal_rows.extend(deal_rows)
+
+    ordered_all_deals = []
+    for fund_name in sorted(by_fund.keys(), key=_fund_sort_key):
+        ordered_all_deals.extend(_ordered_deals_for_fund(by_fund[fund_name]))
+
+    overall_subtotals = []
+    for label, subset in _overall_subtotal_deal_sets(ordered_all_deals):
+        subset_metrics = {deal.id: metrics_by_id[deal.id] for deal in subset}
+        subtotal = build_vca_subtotal(
+            label,
+            subset,
+            metrics_by_id=subset_metrics,
+            gross_profit_denominator=grand_gross_profit,
+        )
+        if subtotal is not None:
+            overall_subtotals.append(subtotal)
+
+    overall_summary = build_vca_summary_rows(all_deal_rows)
+
+    formula_row = [FORMULA_LEGEND.get(column["key"], "") for column in VCA_COLUMNS]
+
+    return {
+        "meta": {
+            "title": "Value Creation Analysis - by EBITDA",
+            "as_of_date": _as_of_date(deals),
+            "currency_unit_label": "USD $M",
+            "footnotes": [
+                "* Hold period and CAGR calculations use year fractions with a 365.25-day basis.",
+                "Value Creation EBITDA Growth ($) maps to Revenue Growth + Margin Expansion from the additive bridge.",
+                "Value Creation % fields are calculated as lever $ divided by Gross Profit.",
+            ],
+            "formula_legend": FORMULA_LEGEND,
+        },
+        "header": {
+            "groups": VCA_HEADER_GROUPS,
+            "columns": VCA_COLUMNS,
+            "formula_row": formula_row,
+        },
+        "fund_blocks": fund_blocks,
+        "overall_block": {
+            "subtotal_rows": overall_subtotals,
+            "summary_rows": overall_summary,
+        },
+    }

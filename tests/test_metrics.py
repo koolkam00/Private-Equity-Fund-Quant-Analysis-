@@ -28,6 +28,7 @@ from services.metrics import (
     compute_stress_lab_analysis,
     compute_underwrite_outcome_analysis,
     compute_valuation_quality_analysis,
+    compute_vca_ebitda_analysis,
     compute_value_creation_mix,
     safe_divide,
     safe_log,
@@ -765,6 +766,214 @@ def test_methodology_payload_contains_canonical_formula_strings():
     assert "Entry Revenue and Exit Revenue are missing/near-zero" in by_id["metric-bridge-fallback-missing-revenue"]["formula"]
     assert by_id["metric-tvpi"]["formula"] == "(Distributed + NAV) / Paid-In"
     assert "Stressed EBITDA = max(0, Current EBITDA * (1 + EBITDA Shock))" in by_id["metric-stress-lab-core"]["formula"]
+
+
+def test_vca_ebitda_rows_cover_columns_sorting_and_bridge_mapping():
+    deals = [
+        _make_deal(
+            id=101,
+            company_name="Unrealized Later",
+            fund_number="Fund VCA",
+            status="Unrealized",
+            investment_date=date(2021, 1, 1),
+            equity_invested=100,
+            realized_value=0,
+            unrealized_value=150,
+            entry_revenue=50,
+            entry_ebitda=10,
+            entry_enterprise_value=120,
+            entry_net_debt=40,
+            exit_revenue=75,
+            exit_ebitda=15,
+            exit_enterprise_value=190,
+            exit_net_debt=30,
+        ),
+        _make_deal(
+            id=102,
+            company_name="Fully Earlier",
+            fund_number="Fund VCA",
+            status="Fully Realized",
+            investment_date=date(2018, 1, 1),
+            exit_date=date(2022, 6, 1),
+            equity_invested=90,
+            realized_value=160,
+            unrealized_value=0,
+            entry_revenue=60,
+            entry_ebitda=12,
+            entry_enterprise_value=140,
+            entry_net_debt=45,
+            exit_revenue=95,
+            exit_ebitda=18,
+            exit_enterprise_value=240,
+            exit_net_debt=35,
+            irr=0.22,
+        ),
+        _make_deal(
+            id=103,
+            company_name="Partially Mid",
+            fund_number="Fund VCA",
+            status="Partially Realized",
+            investment_date=date(2019, 1, 1),
+            exit_date=date(2023, 1, 1),
+            equity_invested=80,
+            realized_value=60,
+            unrealized_value=45,
+            entry_revenue=45,
+            entry_ebitda=9,
+            entry_enterprise_value=100,
+            entry_net_debt=30,
+            exit_revenue=65,
+            exit_ebitda=12,
+            exit_enterprise_value=150,
+            exit_net_debt=28,
+            irr=0.17,
+        ),
+    ]
+    metrics = {deal.id: compute_deal_metrics(deal) for deal in deals}
+    payload = compute_vca_ebitda_analysis(deals, metrics_by_id=metrics)
+
+    assert payload["fund_blocks"]
+    fund = payload["fund_blocks"][0]
+    rows = fund["deal_rows"]
+    ordered = [(r["status"], r["platform"]) for r in rows]
+    assert ordered == [
+        ("Fully Realized", "Fully Earlier"),
+        ("Partially Realized", "Partially Mid"),
+        ("Unrealized", "Unrealized Later"),
+    ]
+
+    expected_keys = {
+        "row_num",
+        "platform",
+        "close_date",
+        "final_exit_date",
+        "hold_period",
+        "status",
+        "fund_total_cost",
+        "realized_proceeds",
+        "unrealized_value",
+        "total_value",
+        "gross_profit",
+        "gross_profit_pct_of_total",
+        "gross_irr",
+        "realized_moic",
+        "gross_moic",
+        "ebitda_cagr",
+        "ebitda_cumulative_growth",
+        "vc_ebitda_growth_pct",
+        "vc_multiple_pct",
+        "vc_debt_pct",
+        "vc_total_pct",
+        "vc_ebitda_growth_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+        "vc_total_dollar",
+        "entry_ltm_ebitda",
+        "entry_ebitda_margin",
+        "entry_ev_ebitda",
+        "entry_net_debt_ebitda",
+        "entry_net_debt_ev",
+        "exit_ltm_ebitda",
+        "exit_ebitda_margin",
+        "exit_ev_ebitda",
+        "exit_net_debt_ebitda",
+        "exit_net_debt_ev",
+        "diff_ebitda",
+        "diff_ebitda_margin",
+        "diff_ev_ebitda",
+        "diff_net_debt_ebitda",
+        "diff_net_debt_ev",
+    }
+    assert expected_keys.issubset(set(rows[0].keys()))
+
+    bridge = metrics[102]["bridge_additive_fund"]["drivers_dollar"]
+    expected_ebitda_growth = (bridge.get("revenue") or 0.0) + (bridge.get("margin") or 0.0)
+    fully_row = rows[0]
+    assert abs((fully_row["vc_ebitda_growth_dollar"] or 0.0) - expected_ebitda_growth) < 1e-9
+
+
+def test_vca_ebitda_percent_columns_handle_zero_gross_profit():
+    deal = _make_deal(
+        id=104,
+        company_name="Zero Profit",
+        fund_number="Fund VCA",
+        equity_invested=100,
+        realized_value=100,
+        unrealized_value=0,
+        entry_revenue=40,
+        exit_revenue=40,
+        entry_ebitda=10,
+        exit_ebitda=10,
+        entry_enterprise_value=120,
+        exit_enterprise_value=120,
+        entry_net_debt=30,
+        exit_net_debt=30,
+    )
+    payload = compute_vca_ebitda_analysis([deal], metrics_by_id={deal.id: compute_deal_metrics(deal)})
+    row = payload["fund_blocks"][0]["deal_rows"][0]
+    assert row["gross_profit"] == 0
+    assert row["vc_ebitda_growth_pct"] is None
+    assert row["vc_multiple_pct"] is None
+    assert row["vc_debt_pct"] is None
+    assert row["vc_total_pct"] is None
+
+
+def test_vca_ebitda_subtotals_totals_and_summary_rows():
+    d1 = _make_deal(
+        id=105,
+        company_name="A",
+        fund_number="Fund I",
+        status="Fully Realized",
+        equity_invested=100,
+        realized_value=200,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=90,
+        entry_ebitda=10,
+        exit_ebitda=18,
+        entry_enterprise_value=120,
+        exit_enterprise_value=220,
+        entry_net_debt=30,
+        exit_net_debt=20,
+        irr=0.25,
+    )
+    d2 = _make_deal(
+        id=106,
+        company_name="B",
+        fund_number="Fund I",
+        status="Unrealized",
+        equity_invested=300,
+        realized_value=0,
+        unrealized_value=300,
+        entry_revenue=100,
+        exit_revenue=100,
+        entry_ebitda=20,
+        exit_ebitda=20,
+        entry_enterprise_value=200,
+        exit_enterprise_value=200,
+        entry_net_debt=50,
+        exit_net_debt=50,
+        irr=0.10,
+    )
+    payload = compute_vca_ebitda_analysis([d1, d2], metrics_by_id={d1.id: compute_deal_metrics(d1), d2.id: compute_deal_metrics(d2)})
+
+    fund = payload["fund_blocks"][0]
+    all_row = next(row for row in fund["subtotal_rows"] if row["platform"] == "Fund I - All")
+    assert abs(all_row["fund_total_cost"] - 400.0) < 1e-9
+    assert abs(all_row["total_value"] - 500.0) < 1e-9
+    assert abs(all_row["gross_profit"] - 100.0) < 1e-9
+    assert abs(all_row["gross_profit_pct_of_total"] - 1.0) < 1e-9
+
+    grand_total = next(row for row in payload["overall_block"]["subtotal_rows"] if row["platform"] == "Grand Total")
+    assert abs(grand_total["fund_total_cost"] - 400.0) < 1e-9
+    assert abs(grand_total["total_value"] - 500.0) < 1e-9
+    assert abs(grand_total["gross_profit"] - 100.0) < 1e-9
+
+    summary = {row["platform"]: row for row in fund["summary_rows"]}
+    assert set(summary.keys()) == {"Average", "Median", "Weighted Average"}
+    assert abs(summary["Average"]["fund_total_cost"] - 200.0) < 1e-9
+    assert abs(summary["Median"]["fund_total_cost"] - 200.0) < 1e-9
+    assert abs(summary["Weighted Average"]["gross_moic"] - 1.25) < 1e-9
 
 def _add_db_deal(**kwargs):
     defaults = {
