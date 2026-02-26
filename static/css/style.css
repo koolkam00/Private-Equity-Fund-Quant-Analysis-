@@ -640,7 +640,8 @@ body.pe-app {
     color: #163a5a;
 }
 .vca-ebitda-wrap {
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     background: #cedcea;
     padding: 8px;
 }
@@ -701,6 +702,64 @@ body.pe-app {
     font-weight: 600;
     text-transform: none;
     z-index: 6;
+}
+.vca-ebitda-table .vca-head-cols th:nth-child(1),
+.vca-ebitda-table .vca-formula-row th:nth-child(1),
+.vca-ebitda-table tbody td:nth-child(1) {
+    position: sticky;
+    left: 0;
+}
+.vca-ebitda-table .vca-head-cols th:nth-child(2),
+.vca-ebitda-table .vca-formula-row th:nth-child(2),
+.vca-ebitda-table tbody td:nth-child(2) {
+    position: sticky;
+    left: 42px;
+}
+.vca-ebitda-table tbody td:nth-child(1),
+.vca-ebitda-table tbody td:nth-child(2) {
+    z-index: 4;
+}
+.vca-ebitda-table .vca-head-cols th:nth-child(1),
+.vca-ebitda-table .vca-head-cols th:nth-child(2) {
+    z-index: 10;
+}
+.vca-ebitda-table .vca-formula-row th:nth-child(1),
+.vca-ebitda-table .vca-formula-row th:nth-child(2) {
+    z-index: 9;
+}
+.vca-ebitda-table .vca-head-cols th:nth-child(1),
+.vca-ebitda-table .vca-formula-row th:nth-child(1),
+.vca-ebitda-table tbody td:nth-child(1) {
+    min-width: 42px;
+    width: 42px;
+}
+.vca-ebitda-table .vca-head-cols th:nth-child(2),
+.vca-ebitda-table .vca-formula-row th:nth-child(2),
+.vca-ebitda-table tbody td:nth-child(2) {
+    min-width: 220px;
+    width: 220px;
+}
+.vca-ebitda-table .vca-row-deal td:nth-child(1),
+.vca-ebitda-table .vca-row-deal td:nth-child(2) {
+    background: #f3f3f3;
+}
+.vca-ebitda-table .vca-row-deal:nth-child(even) td:nth-child(1),
+.vca-ebitda-table .vca-row-deal:nth-child(even) td:nth-child(2) {
+    background: #e7e7e7;
+}
+.vca-ebitda-table .vca-row-subtotal td:nth-child(1),
+.vca-ebitda-table .vca-row-subtotal td:nth-child(2) {
+    background: #98b7d5;
+}
+.vca-ebitda-table .vca-row-summary td:nth-child(1),
+.vca-ebitda-table .vca-row-summary td:nth-child(2) {
+    background: #dce8f3;
+}
+.vca-ebitda-table .vca-fund-header td,
+.vca-ebitda-table .vca-overall-header td,
+.vca-ebitda-table .vca-gap td {
+    position: static !important;
+    left: auto !important;
 }
 .vca-ebitda-table .vca-fund-header td {
     background: #8eb0cf;
@@ -1604,6 +1663,18 @@ body.pe-app {
 
     .vca-ebitda-table thead th {
         position: static !important;
+    }
+
+    .vca-ebitda-table td:nth-child(1),
+    .vca-ebitda-table td:nth-child(2),
+    .vca-ebitda-table .vca-head-cols th:nth-child(1),
+    .vca-ebitda-table .vca-head-cols th:nth-child(2),
+    .vca-ebitda-table .vca-formula-row th:nth-child(1),
+    .vca-ebitda-table .vca-formula-row th:nth-child(2) {
+        position: static !important;
+        left: auto !important;
+        width: auto !important;
+        min-width: 0 !important;
     }
 
     .vca-ebitda-table tr {
