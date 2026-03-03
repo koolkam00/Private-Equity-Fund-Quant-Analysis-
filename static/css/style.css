@@ -1033,6 +1033,26 @@ body.pe-app {
     text-transform: none;
     letter-spacing: 0.01em;
 }
+/* Visual separators between major VCA sections for print preview/PDF readability. */
+.vca-print-table .vca-head-band th:not(:last-child) {
+    border-right: 1px solid #000000;
+}
+.vca-print-table tr > th:nth-child(6),
+.vca-print-table tr > td:nth-child(6),
+.vca-print-table tr > th:nth-child(15),
+.vca-print-table tr > td:nth-child(15),
+.vca-print-table tr > th:nth-child(17),
+.vca-print-table tr > td:nth-child(17),
+.vca-print-table tr > th:nth-child(21),
+.vca-print-table tr > td:nth-child(21),
+.vca-print-table tr > th:nth-child(25),
+.vca-print-table tr > td:nth-child(25),
+.vca-print-table tr > th:nth-child(30),
+.vca-print-table tr > td:nth-child(30),
+.vca-print-table tr > th:nth-child(35),
+.vca-print-table tr > td:nth-child(35) {
+    border-right: 1px solid #000000;
+}
 .vca-print-table .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -2080,6 +2100,26 @@ body.pe-app {
     .vca-print-table .vca-head-legend th {
         font-size: 6.1px !important;
         padding: 1px 2px !important;
+    }
+
+    .vca-print-table .vca-head-band th:not(:last-child) {
+        border-right: 1px solid #000000 !important;
+    }
+    .vca-print-table tr > th:nth-child(6),
+    .vca-print-table tr > td:nth-child(6),
+    .vca-print-table tr > th:nth-child(15),
+    .vca-print-table tr > td:nth-child(15),
+    .vca-print-table tr > th:nth-child(17),
+    .vca-print-table tr > td:nth-child(17),
+    .vca-print-table tr > th:nth-child(21),
+    .vca-print-table tr > td:nth-child(21),
+    .vca-print-table tr > th:nth-child(25),
+    .vca-print-table tr > td:nth-child(25),
+    .vca-print-table tr > th:nth-child(30),
+    .vca-print-table tr > td:nth-child(30),
+    .vca-print-table tr > th:nth-child(35),
+    .vca-print-table tr > td:nth-child(35) {
+        border-right: 1px solid #000000 !important;
     }
 
     .vca-print-table th,
