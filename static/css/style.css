@@ -625,7 +625,7 @@ body.pe-app {
 }
 .vca-ebitda-root {
     padding: 0;
-    border: 1px solid #607f9c;
+    border: 0.75px solid #6f8aa2;
     border-radius: 6px;
     overflow: visible;
 }
@@ -681,15 +681,15 @@ body.pe-app {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    border: 1px solid #5f7d98;
+    border: 0.75px solid #6f8aa2;
     background: #ffffff;
     font-size: 11px;
     color: #11263b;
 }
 .vca-ebitda-table th,
 .vca-ebitda-table td {
-    border-right: 1px solid #b7c9d8;
-    border-bottom: 1px solid #c9d6e2;
+    border-right: 0.75px solid #c6d4df;
+    border-bottom: 0.75px solid #d5dfe8;
     padding: 4px 6px;
     line-height: 1.2;
     white-space: nowrap;
@@ -785,8 +785,8 @@ body.pe-app {
     background: #8eb0cf;
     color: #0d2740;
     font-weight: 800;
-    border-top: 1px solid #4f6e89;
-    border-bottom: 1px solid #4f6e89;
+    border-top: 0.75px solid #5e7a93;
+    border-bottom: 0.75px solid #5e7a93;
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
@@ -794,8 +794,8 @@ body.pe-app {
     background: #6f97bd;
     color: #0d2740;
     font-weight: 800;
-    border-top: 1px solid #4f6e89;
-    border-bottom: 1px solid #4f6e89;
+    border-top: 0.75px solid #5e7a93;
+    border-bottom: 0.75px solid #5e7a93;
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
@@ -808,14 +808,14 @@ body.pe-app {
 .vca-ebitda-table .vca-row-subtotal td {
     background: #b3cae0;
     font-weight: 800;
-    border-top: 1px solid #4f6f8d;
-    border-bottom: 1px solid #4f6f8d;
+    border-top: 0.75px solid #5e7b96;
+    border-bottom: 0.75px solid #5e7b96;
 }
 .vca-ebitda-table .vca-row-summary td {
     background: #dbe8f4;
     font-weight: 800;
-    border-top: 1px solid #8ea5bc;
-    border-bottom: 1px solid #8ea5bc;
+    border-top: 0.75px solid #9db1c5;
+    border-bottom: 0.75px solid #9db1c5;
 }
 .vca-ebitda-table .vca-row-subtotal td:first-child {
     box-shadow: inset 5px 0 0 #245278;
@@ -843,7 +843,7 @@ body.pe-app {
 .vca-footnotes {
     padding: 10px 14px 14px;
     background: #f6fafc;
-    border-top: 1px solid #d7e3ee;
+    border-top: 0.75px solid #dde6ef;
 }
 .vca-footnotes p {
     margin: 3px 0;
@@ -890,7 +890,7 @@ body.pe-app {
 }
 .vca-print-exec-table th,
 .vca-print-exec-table td {
-    border: 1px solid #c8d5e0;
+    border: 0.75px solid #d1dce5;
     padding: 2px 4px;
 }
 .vca-print-exec-table thead th {
@@ -915,15 +915,15 @@ body.pe-app {
 }
 .vca-print-fund-page,
 .vca-print-overall-page {
-    border: 1px solid #c2d0dd;
+    border: 0.75px solid #ccd7e2;
     border-radius: 4px;
     background: #ffffff;
     padding: 6px;
 }
 .vca-print-table .vca-net-summary td {
     background: #f2f6fa;
-    border-top: 1px solid #ccd8e4;
-    border-bottom: 1px solid #ccd8e4;
+    border-top: 0.75px solid #d6e0e9;
+    border-bottom: 0.75px solid #d6e0e9;
     color: #183650;
     font-size: 8px;
     line-height: 1.15;
@@ -974,7 +974,7 @@ body.pe-app {
 }
 .vca-print-table th,
 .vca-print-table td {
-    border: 1px solid #c6d4df;
+    border: 0.75px solid #d0dbe5;
     padding: 1px 3px;
     vertical-align: middle;
     white-space: nowrap;
@@ -1016,14 +1016,14 @@ body.pe-app {
 .vca-print-table .vca-row-subtotal td {
     background: #ccdbe8;
     font-weight: 800;
-    border-top: 1px solid #6f859b;
-    border-bottom: 1px solid #6f859b;
+    border-top: 0.75px solid #8096ab;
+    border-bottom: 0.75px solid #8096ab;
 }
 .vca-print-table .vca-row-summary td {
     background: #e4ecf4;
     font-weight: 800;
-    border-top: 1px solid #a6b5c4;
-    border-bottom: 1px solid #a6b5c4;
+    border-top: 0.75px solid #b2bfcc;
+    border-bottom: 0.75px solid #b2bfcc;
 }
 .vca-print-table .vca-row-subtotal td:first-child {
     box-shadow: inset 4px 0 0 #4d677f;
@@ -1058,7 +1058,7 @@ body.pe-app {
     letter-spacing: 0.02em;
     text-transform: uppercase;
     font-weight: 700;
-    border-top: 1px solid #b7c7d6;
+    border-top: 0.75px solid #c2cfdb;
 }
 .vca-print-table .vca-cell-pos {
     color: inherit;
@@ -1951,7 +1951,7 @@ body.pe-app {
 
     .vca-print-fund-page,
     .vca-print-overall-page {
-        border: 1px solid #b9c9d8 !important;
+        border: 0.75px solid #c3d0dc !important;
         border-radius: 0 !important;
         margin: 0 0 4px 0 !important;
         padding: 2px !important;
@@ -2061,7 +2061,7 @@ body.pe-app {
 
     .vca-footnotes {
         background: #ffffff !important;
-        border-top: 1px solid #d0dce7 !important;
+        border-top: 0.75px solid #d9e2ea !important;
         padding: 6px 0 0 !important;
     }
 
