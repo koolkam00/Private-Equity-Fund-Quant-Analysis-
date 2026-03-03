@@ -274,14 +274,14 @@
     </div>
 
     <div class="vca-print-layout">
+        <div class="vca-print-header">
+            <h4>{{ analysis.meta.title }}</h4>
+            <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
+            <p class="vca-print-meta">{{ vca_filter_summary }}</p>
+        </div>
         <div class="vca-print-book">
             {% for fund in analysis.fund_blocks %}
             <section class="vca-print-fund-page" data-vca-fund-page="{{ loop.index }}">
-                <div class="vca-print-header">
-                    <h4>{{ analysis.meta.title }} — {{ fund.fund_name }}</h4>
-                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
-                    <p class="vca-print-meta">{{ vca_filter_summary }}</p>
-                </div>
                 <div class="vca-print-table-wrap">
                     <table class="vca-print-table">
                         <thead>
@@ -323,11 +323,6 @@
             {% endfor %}
 
             <section class="vca-print-overall-page" data-vca-overall-page="1">
-                <div class="vca-print-header">
-                    <h4>{{ analysis.meta.title }} — Overall Portfolio</h4>
-                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
-                    <p class="vca-print-meta">{{ vca_filter_summary }}</p>
-                </div>
                 <div class="vca-print-table-wrap">
                     <table class="vca-print-table">
                         <thead>
