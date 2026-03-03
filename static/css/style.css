@@ -624,8 +624,38 @@ body.pe-app {
     border-bottom: 1px solid #bdd0e2;
 }
 .vca-ebitda-root {
+    --vca-border-width: 0.6px;
+    --vca-border-outer: #6f8aa2;
+    --vca-border-cell-v: #c6d4df;
+    --vca-border-cell-h: #d5dfe8;
+    --vca-table-text: #11263b;
+    --vca-head-band-bg: #173b61;
+    --vca-head-band-fg: #ecf3fa;
+    --vca-head-cols-bg: #24547f;
+    --vca-head-cols-fg: #edf4fa;
+    --vca-head-legend-bg: #e6eef5;
+    --vca-head-legend-fg: #33506a;
+    --vca-row-deal-odd: #f6f8fa;
+    --vca-row-deal-even: #edf1f5;
+    --vca-row-deal-sticky-odd: #f3f3f3;
+    --vca-row-deal-sticky-even: #e7e7e7;
+    --vca-row-subtotal-bg: #b3cae0;
+    --vca-row-subtotal-sticky-bg: #98b7d5;
+    --vca-row-subtotal-border: #5e7b96;
+    --vca-row-subtotal-accent: #245278;
+    --vca-row-summary-bg: #dbe8f4;
+    --vca-row-summary-sticky-bg: #dce8f3;
+    --vca-row-summary-border: #9db1c5;
+    --vca-row-summary-accent: #567998;
+    --vca-fund-header-bg: #8eb0cf;
+    --vca-overall-header-bg: #6f97bd;
+    --vca-header-text: #0d2740;
+    --vca-header-border: #5e7a93;
+    --vca-gap-bg: #cedcea;
+    --vca-flat: #596c7e;
+    --vca-neg: #8a2031;
     padding: 0;
-    border: 0.75px solid #6f8aa2;
+    border: var(--vca-border-width) solid var(--vca-border-outer);
     border-radius: 6px;
     overflow: visible;
 }
@@ -681,15 +711,15 @@ body.pe-app {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    border: 0.75px solid #6f8aa2;
+    border: var(--vca-border-width) solid var(--vca-border-outer);
     background: #ffffff;
     font-size: 11px;
-    color: #11263b;
+    color: var(--vca-table-text);
 }
 .vca-ebitda-table th,
 .vca-ebitda-table td {
-    border-right: 0.75px solid #c6d4df;
-    border-bottom: 0.75px solid #d5dfe8;
+    border-right: var(--vca-border-width) solid var(--vca-border-cell-v);
+    border-bottom: var(--vca-border-width) solid var(--vca-border-cell-h);
     padding: 4px 6px;
     line-height: 1.2;
     white-space: nowrap;
@@ -701,8 +731,8 @@ body.pe-app {
 .vca-ebitda-table .vca-head-band th {
     position: sticky;
     top: 0;
-    background: #173b61;
-    color: #ecf3fa;
+    background: var(--vca-head-band-bg);
+    color: var(--vca-head-band-fg);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-size: 10px;
@@ -713,8 +743,8 @@ body.pe-app {
 .vca-ebitda-table .vca-head-cols th {
     position: sticky;
     top: var(--vca-band-h);
-    background: #24547f;
-    color: #edf4fa;
+    background: var(--vca-head-cols-bg);
+    color: var(--vca-head-cols-fg);
     font-size: 11px;
     text-transform: none;
     height: var(--vca-col-h);
@@ -723,8 +753,8 @@ body.pe-app {
 }
 .vca-ebitda-table .vca-formula-row th {
     position: static;
-    background: #e6eef5;
-    color: #33506a;
+    background: var(--vca-head-legend-bg);
+    color: var(--vca-head-legend-fg);
     font-family: var(--mono);
     font-size: 9px;
     font-weight: 600;
@@ -761,19 +791,19 @@ body.pe-app {
 }
 .vca-ebitda-table .vca-row-deal td:nth-child(1),
 .vca-ebitda-table .vca-row-deal td:nth-child(2) {
-    background: #f3f3f3;
+    background: var(--vca-row-deal-sticky-odd);
 }
 .vca-ebitda-table .vca-row-deal:nth-child(even) td:nth-child(1),
 .vca-ebitda-table .vca-row-deal:nth-child(even) td:nth-child(2) {
-    background: #e7e7e7;
+    background: var(--vca-row-deal-sticky-even);
 }
 .vca-ebitda-table .vca-row-subtotal td:nth-child(1),
 .vca-ebitda-table .vca-row-subtotal td:nth-child(2) {
-    background: #98b7d5;
+    background: var(--vca-row-subtotal-sticky-bg);
 }
 .vca-ebitda-table .vca-row-summary td:nth-child(1),
 .vca-ebitda-table .vca-row-summary td:nth-child(2) {
-    background: #dce8f3;
+    background: var(--vca-row-summary-sticky-bg);
 }
 .vca-ebitda-table .vca-fund-header td,
 .vca-ebitda-table .vca-overall-header td,
@@ -782,60 +812,60 @@ body.pe-app {
     left: auto !important;
 }
 .vca-ebitda-table .vca-fund-header td {
-    background: #8eb0cf;
-    color: #0d2740;
+    background: var(--vca-fund-header-bg);
+    color: var(--vca-header-text);
     font-weight: 800;
-    border-top: 0.75px solid #5e7a93;
-    border-bottom: 0.75px solid #5e7a93;
+    border-top: var(--vca-border-width) solid var(--vca-header-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-header-border);
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
 .vca-ebitda-table .vca-overall-header td {
-    background: #6f97bd;
-    color: #0d2740;
+    background: var(--vca-overall-header-bg);
+    color: var(--vca-header-text);
     font-weight: 800;
-    border-top: 0.75px solid #5e7a93;
-    border-bottom: 0.75px solid #5e7a93;
+    border-top: var(--vca-border-width) solid var(--vca-header-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-header-border);
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
 .vca-ebitda-table .vca-row-deal td {
-    background: #f6f8fa;
+    background: var(--vca-row-deal-odd);
 }
 .vca-ebitda-table .vca-row-deal:nth-child(even) td {
-    background: #edf1f5;
+    background: var(--vca-row-deal-even);
 }
 .vca-ebitda-table .vca-row-subtotal td {
-    background: #b3cae0;
+    background: var(--vca-row-subtotal-bg);
     font-weight: 800;
-    border-top: 0.75px solid #5e7b96;
-    border-bottom: 0.75px solid #5e7b96;
+    border-top: var(--vca-border-width) solid var(--vca-row-subtotal-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-row-subtotal-border);
 }
 .vca-ebitda-table .vca-row-summary td {
-    background: #dbe8f4;
+    background: var(--vca-row-summary-bg);
     font-weight: 800;
-    border-top: 0.75px solid #9db1c5;
-    border-bottom: 0.75px solid #9db1c5;
+    border-top: var(--vca-border-width) solid var(--vca-row-summary-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-row-summary-border);
 }
 .vca-ebitda-table .vca-row-subtotal td:first-child {
-    box-shadow: inset 5px 0 0 #245278;
+    box-shadow: inset 5px 0 0 var(--vca-row-subtotal-accent);
 }
 .vca-ebitda-table .vca-row-summary td:first-child {
-    box-shadow: inset 5px 0 0 #567998;
+    box-shadow: inset 5px 0 0 var(--vca-row-summary-accent);
 }
 .vca-ebitda-table .vca-cell-pos {
     color: inherit;
     font-weight: inherit;
 }
 .vca-ebitda-table .vca-cell-neg {
-    color: #8a2031;
+    color: var(--vca-neg);
     font-weight: 700;
 }
 .vca-ebitda-table .vca-cell-flat {
-    color: #596c7e;
+    color: var(--vca-flat);
 }
 .vca-ebitda-table .vca-gap td {
-    background: #cedcea;
+    background: var(--vca-gap-bg);
     border: none;
     height: 14px;
     padding: 0;
@@ -870,7 +900,7 @@ body.pe-app {
 .vca-print-exec-main {
     display: none;
     margin-bottom: 8px;
-    border: 1px solid #c2d0dd;
+    border: var(--vca-border-width) solid var(--vca-border-outer);
     border-radius: 4px;
     background: #ffffff;
     padding: 6px;
@@ -886,22 +916,22 @@ body.pe-app {
     width: 100%;
     border-collapse: collapse;
     font-size: 9px;
-    color: #123049;
+    color: var(--vca-table-text);
 }
 .vca-print-exec-table th,
 .vca-print-exec-table td {
-    border: 0.75px solid #d1dce5;
+    border: var(--vca-border-width) solid var(--vca-border-cell-h);
     padding: 2px 4px;
 }
 .vca-print-exec-table thead th {
-    background: #e6edf4;
-    color: #1d3c58;
+    background: var(--vca-head-cols-bg);
+    color: var(--vca-head-cols-fg);
     text-transform: uppercase;
     letter-spacing: 0.03em;
     font-size: 8px;
 }
 .vca-print-exec-overall-row td {
-    background: #d9e4ef;
+    background: var(--vca-row-summary-bg);
     font-weight: 800;
 }
 .vca-print-appendix-title {
@@ -921,10 +951,10 @@ body.pe-app {
     padding: 6px;
 }
 .vca-print-table .vca-net-summary td {
-    background: #f2f6fa;
-    border-top: 0.75px solid #d6e0e9;
-    border-bottom: 0.75px solid #d6e0e9;
-    color: #183650;
+    background: var(--vca-head-legend-bg);
+    border-top: var(--vca-border-width) solid var(--vca-border-cell-h);
+    border-bottom: var(--vca-border-width) solid var(--vca-border-cell-h);
+    color: var(--vca-head-legend-fg);
     font-size: 8px;
     line-height: 1.15;
     padding: 2px 4px;
@@ -965,7 +995,7 @@ body.pe-app {
     border-spacing: 0;
     font-size: var(--vca-print-font-size);
     line-height: 1.02;
-    color: #0f2437;
+    color: var(--vca-table-text);
     transform: scale(var(--vca-print-scale));
     transform-origin: top left;
 }
@@ -974,29 +1004,29 @@ body.pe-app {
 }
 .vca-print-table th,
 .vca-print-table td {
-    border: 0.75px solid #d0dbe5;
+    border: var(--vca-border-width) solid var(--vca-border-cell-h);
     padding: 1px 3px;
     vertical-align: middle;
     white-space: nowrap;
     overflow-wrap: normal;
 }
 .vca-print-table .vca-head-band th {
-    background: #2f4760;
-    color: #eef4fa;
+    background: var(--vca-head-band-bg);
+    color: var(--vca-head-band-fg);
     text-transform: uppercase;
     letter-spacing: 0.03em;
     font-size: 7.3px;
     font-weight: 700;
 }
 .vca-print-table .vca-head-cols th {
-    background: #e1e9f0;
-    color: #1e364c;
+    background: var(--vca-head-cols-bg);
+    color: var(--vca-head-cols-fg);
     font-size: 7px;
     font-weight: 700;
 }
 .vca-print-table .vca-head-legend th {
-    background: #f1f5f9;
-    color: #35516b;
+    background: var(--vca-head-legend-bg);
+    color: var(--vca-head-legend-fg);
     font-family: var(--mono);
     font-size: 6.7px;
     font-weight: 600;
@@ -1008,42 +1038,46 @@ body.pe-app {
     font-variant-numeric: tabular-nums;
 }
 .vca-print-table .vca-row-deal td {
-    background: #f7f8fa;
+    background: var(--vca-row-deal-odd);
 }
 .vca-print-table .vca-row-deal:nth-child(even) td {
-    background: #edf1f4;
+    background: var(--vca-row-deal-even);
 }
 .vca-print-table .vca-row-subtotal td {
-    background: #ccdbe8;
+    background: var(--vca-row-subtotal-bg);
     font-weight: 800;
-    border-top: 0.75px solid #8096ab;
-    border-bottom: 0.75px solid #8096ab;
+    border-top: var(--vca-border-width) solid var(--vca-row-subtotal-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-row-subtotal-border);
 }
 .vca-print-table .vca-row-summary td {
-    background: #e4ecf4;
+    background: var(--vca-row-summary-bg);
     font-weight: 800;
-    border-top: 0.75px solid #b2bfcc;
-    border-bottom: 0.75px solid #b2bfcc;
+    border-top: var(--vca-border-width) solid var(--vca-row-summary-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-row-summary-border);
 }
 .vca-print-table .vca-row-subtotal td:first-child {
-    box-shadow: inset 4px 0 0 #4d677f;
+    box-shadow: inset 5px 0 0 var(--vca-row-subtotal-accent);
 }
 .vca-print-table .vca-row-summary td:first-child {
-    box-shadow: inset 4px 0 0 #7d93a8;
+    box-shadow: inset 5px 0 0 var(--vca-row-summary-accent);
 }
 .vca-print-table .vca-fund-header td {
-    background: #d8e4ee;
-    color: #0f2a43;
+    background: var(--vca-fund-header-bg);
+    color: var(--vca-header-text);
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.02em;
+    border-top: var(--vca-border-width) solid var(--vca-header-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-header-border);
 }
 .vca-print-table .vca-overall-header td {
-    background: #c8d9e8;
-    color: #0f2a43;
+    background: var(--vca-overall-header-bg);
+    color: var(--vca-header-text);
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.02em;
+    border-top: var(--vca-border-width) solid var(--vca-header-border);
+    border-bottom: var(--vca-border-width) solid var(--vca-header-border);
 }
 .vca-print-table .vca-gap td {
     background: #ffffff;
@@ -1052,25 +1086,25 @@ body.pe-app {
     padding: 0;
 }
 .vca-print-table .vca-print-footer td {
-    background: #f3f6fa;
-    color: #2c4a65;
+    background: var(--vca-row-summary-bg);
+    color: var(--vca-header-text);
     font-size: 7px;
     letter-spacing: 0.02em;
     text-transform: uppercase;
     font-weight: 700;
-    border-top: 0.75px solid #c2cfdb;
+    border-top: var(--vca-border-width) solid var(--vca-row-summary-border);
 }
 .vca-print-table .vca-cell-pos {
     color: inherit;
     font-weight: inherit;
 }
 .vca-print-table .vca-cell-neg {
-    color: #842336;
+    color: var(--vca-neg);
     font-weight: 700;
-    background-image: linear-gradient(90deg, rgba(132, 35, 54, 0.1) 0%, rgba(132, 35, 54, 0.02) 75%);
+    background-image: none;
 }
 .vca-print-table .vca-cell-flat {
-    color: #5f7080;
+    color: var(--vca-flat);
 }
 .vca-ebitda-root.vca-mode-executive .vca-print-exec-main,
 .vca-ebitda-root.vca-mode-executive .vca-print-appendix-title {
@@ -2006,7 +2040,7 @@ body.pe-app {
         min-width: 100% !important;
         table-layout: auto !important;
         font-size: var(--vca-print-font-size, 8px) !important;
-        border-color: #c6d1dc !important;
+        border-color: var(--vca-border-outer) !important;
         line-height: 1.0 !important;
         transform: scale(var(--vca-print-scale, 1)) !important;
         transform-origin: top left !important;
@@ -2015,12 +2049,12 @@ body.pe-app {
     }
 
     .vca-print-exec-main {
-        border: 0.5px solid #ccd7e1 !important;
+        border: var(--vca-border-width) solid var(--vca-border-outer) !important;
     }
 
     .vca-print-exec-table th,
     .vca-print-exec-table td {
-        border: 0.5px solid #d7e0e8 !important;
+        border: var(--vca-border-width) solid var(--vca-border-cell-h) !important;
     }
 
     .vca-print-table thead {
@@ -2050,8 +2084,8 @@ body.pe-app {
 
     .vca-print-table th,
     .vca-print-table td {
-        border-width: 0.5px !important;
-        border-color: #d6dfe7 !important;
+        border-width: var(--vca-border-width) !important;
+        border-color: var(--vca-border-cell-h) !important;
         white-space: nowrap !important;
         overflow-wrap: normal !important;
         padding: 1px 2px !important;
@@ -2069,16 +2103,16 @@ body.pe-app {
     }
 
     .vca-print-table .vca-net-summary td {
-        border-top-width: 0.5px !important;
-        border-bottom-width: 0.5px !important;
+        border-top-width: var(--vca-border-width) !important;
+        border-bottom-width: var(--vca-border-width) !important;
         padding: 0 2px !important;
     }
 
     .vca-print-table .vca-row-subtotal td,
     .vca-print-table .vca-row-summary td,
     .vca-print-table .vca-print-footer td {
-        border-top-width: 0.5px !important;
-        border-bottom-width: 0.5px !important;
+        border-top-width: var(--vca-border-width) !important;
+        border-bottom-width: var(--vca-border-width) !important;
     }
 
     .vca-print-table .vca-print-footer td {
