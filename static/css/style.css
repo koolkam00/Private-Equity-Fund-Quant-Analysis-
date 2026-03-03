@@ -625,33 +625,33 @@ body.pe-app {
 }
 .vca-ebitda-root {
     --vca-border-width: 0.6px;
-    --vca-border-outer: #6f8aa2;
-    --vca-border-cell-v: #c6d4df;
-    --vca-border-cell-h: #d5dfe8;
-    --vca-table-text: #11263b;
-    --vca-head-band-bg: #173b61;
-    --vca-head-band-fg: #ecf3fa;
-    --vca-head-cols-bg: #24547f;
-    --vca-head-cols-fg: #edf4fa;
-    --vca-head-legend-bg: #e6eef5;
-    --vca-head-legend-fg: #33506a;
-    --vca-row-deal-odd: #f6f8fa;
-    --vca-row-deal-even: #edf1f5;
-    --vca-row-deal-sticky-odd: #f3f3f3;
-    --vca-row-deal-sticky-even: #e7e7e7;
-    --vca-row-subtotal-bg: #b3cae0;
-    --vca-row-subtotal-sticky-bg: #98b7d5;
-    --vca-row-subtotal-border: #5e7b96;
-    --vca-row-subtotal-accent: #245278;
-    --vca-row-summary-bg: #dbe8f4;
-    --vca-row-summary-sticky-bg: #dce8f3;
-    --vca-row-summary-border: #9db1c5;
-    --vca-row-summary-accent: #567998;
+    --vca-border-outer: #5e7894;
+    --vca-border-cell-v: #9eb3c5;
+    --vca-border-cell-h: #c3d1dd;
+    --vca-table-text: #10263c;
+    --vca-head-band-bg: #1f4d78;
+    --vca-head-band-fg: #e8f0f8;
+    --vca-head-cols-bg: #1f4d78;
+    --vca-head-cols-fg: #e8f0f8;
+    --vca-head-legend-bg: #eef4f2;
+    --vca-head-legend-fg: #11283f;
+    --vca-row-deal-odd: #f1f1f1;
+    --vca-row-deal-even: #e5e5e5;
+    --vca-row-deal-sticky-odd: #f1f1f1;
+    --vca-row-deal-sticky-even: #e5e5e5;
+    --vca-row-subtotal-bg: #9dbbda;
+    --vca-row-subtotal-sticky-bg: #9dbbda;
+    --vca-row-subtotal-border: #557894;
+    --vca-row-subtotal-accent: #557894;
+    --vca-row-summary-bg: #8db0d0;
+    --vca-row-summary-sticky-bg: #8db0d0;
+    --vca-row-summary-border: #4f6e89;
+    --vca-row-summary-accent: #4f6e89;
     --vca-fund-header-bg: #8eb0cf;
     --vca-overall-header-bg: #6f97bd;
     --vca-header-text: #0d2740;
-    --vca-header-border: #5e7a93;
-    --vca-gap-bg: #cedcea;
+    --vca-header-border: #4f6e89;
+    --vca-gap-bg: #c8d9e8;
     --vca-flat: #596c7e;
     --vca-neg: #8a2031;
     padding: 0;
@@ -701,7 +701,7 @@ body.pe-app {
 .vca-ebitda-wrap {
     overflow-x: auto;
     overflow-y: visible;
-    background: #cedcea;
+    background: var(--vca-gap-bg);
     padding: 8px;
 }
 .vca-ebitda-table {
@@ -945,7 +945,7 @@ body.pe-app {
 }
 .vca-print-fund-page,
 .vca-print-overall-page {
-    border: 0.75px solid #ccd7e2;
+    border: var(--vca-border-width) solid var(--vca-border-outer);
     border-radius: 4px;
     background: #ffffff;
     padding: 6px;
@@ -1987,7 +1987,7 @@ body.pe-app {
 
     .vca-print-fund-page,
     .vca-print-overall-page {
-        border: 0.5px solid #cbd6e0 !important;
+        border: var(--vca-border-width) solid var(--vca-border-outer) !important;
         border-radius: 0 !important;
         margin: 0 0 2px 0 !important;
         padding: 1px !important;
