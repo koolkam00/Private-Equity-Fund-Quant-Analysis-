@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_currency_unit_symbol_label, fmt_date_mdy, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, fmt_years_1dp with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_currency_unit_symbol_label, fmt_date_mdy, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, fmt_years_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_actions %}
@@ -89,7 +89,7 @@
 {% elif key == "platform" -%}
 {{ value or "—" }}
 {% elif key in ["close_date", "final_exit_date"] -%}
-{{ fmt_date_mdy(value) }}
+{{ fmt_date_monyy(value) }}
 {% elif key == "hold_period" -%}
 {{ fmt_years_1dp(value) }}
 {% elif key == "status" -%}
