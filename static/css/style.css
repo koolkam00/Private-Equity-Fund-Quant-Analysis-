@@ -1759,6 +1759,10 @@ body.pe-app {
         display: none !important;
     }
 
+    .vca-intro-panel {
+        display: none !important;
+    }
+
     .vca-ebitda-root {
         border: none !important;
         border-radius: 0 !important;
