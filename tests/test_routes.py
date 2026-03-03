@@ -1469,10 +1469,9 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"Value Creation ($)" in response.data
     assert b"Difference Exit/Current vs Entry" in response.data
     assert b"vca-print-layout" in response.data
-    assert b"Deal Profile + Fund Performance + EBITDA Growth" in response.data
-    assert b"Value Creation (%) + Value Creation ($)" in response.data
-    assert b"Entry/Exit Operating Metrics" in response.data
-    assert b"Exit vs Entry Differences" in response.data
+    assert b"vca-print-book" in response.data
+    assert b"vca-print-fund-page" in response.data
+    assert b"vca-print-overall-page" in response.data
 
 
 def test_stress_lab_api_supports_per_deal_overrides(client):

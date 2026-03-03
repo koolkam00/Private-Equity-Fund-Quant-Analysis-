@@ -401,4 +401,7 @@ Active firm precedence:
 - Currency:
   - Monetary fields are run through the standard reporting-currency scaling pipeline.
 - Print/PDF:
-  - Browser-native print (`window.print()`), with Letter landscape print CSS and sticky headers disabled in print mode.
+  - Browser-native print (`window.print()`), with Legal landscape print CSS and compact non-wrapping rows.
+  - Print layout renders a single full-width 40-column table per fund page; each fund starts on a new page.
+  - Overall portfolio block prints on a dedicated final page.
+  - Formula legend row remains on-screen but is suppressed in print for density/readability.

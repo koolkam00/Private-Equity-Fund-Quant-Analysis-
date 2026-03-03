@@ -814,58 +814,71 @@ body.pe-app {
 .vca-ebitda-root.vca-preview-print .vca-print-layout {
     display: block;
 }
+.vca-print-book {
+    display: grid;
+    gap: 10px;
+}
+.vca-print-fund-page,
+.vca-print-overall-page {
+    border: 1px solid #c2d0dd;
+    border-radius: 4px;
+    background: #ffffff;
+    padding: 6px;
+}
 .vca-print-header {
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 .vca-print-header h4 {
     margin: 0;
     color: #163a5a;
-    font-size: 15px;
+    font-size: 12px;
 }
 .vca-print-meta {
-    margin: 2px 0 0;
-    font-size: 11px;
-    color: #3a5269;
-}
-.vca-print-section {
-    border: 1px solid #bccbd9;
-    border-radius: 4px;
-    margin: 0 0 10px;
-    background: #ffffff;
-}
-.vca-print-section-title {
-    margin: 0;
-    padding: 6px 8px;
-    border-bottom: 1px solid #cad7e3;
-    background: #edf2f7;
-    color: #1a3650;
-    font-size: 11px;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
+    margin: 1px 0 0;
+    font-size: 9px;
+    color: #355067;
 }
 .vca-print-table-wrap {
     overflow: hidden;
+    width: 100%;
 }
 .vca-print-table {
-    --vca-print-font-size: 9.6px;
-    width: 100%;
-    table-layout: fixed;
+    --vca-print-font-size: 8px;
+    --vca-print-scale: 1;
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
     border-collapse: collapse;
     border-spacing: 0;
     font-size: var(--vca-print-font-size);
+    line-height: 1.02;
     color: #0f2437;
+    transform: scale(var(--vca-print-scale));
+    transform-origin: top left;
+}
+.vca-print-table thead {
+    display: table-header-group;
 }
 .vca-print-table th,
 .vca-print-table td {
     border: 1px solid #c6d4df;
-    padding: 3px 4px;
-    vertical-align: top;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    padding: 1px 3px;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow-wrap: normal;
 }
-.vca-print-table th {
-    background: #e2ebf3;
-    color: #1d3b56;
+.vca-print-table .vca-head-band th {
+    background: #2f4760;
+    color: #eef4fa;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 7.3px;
+    font-weight: 700;
+}
+.vca-print-table .vca-head-cols th {
+    background: #e1e9f0;
+    color: #1e364c;
+    font-size: 7px;
     font-weight: 700;
 }
 .vca-print-table .num {
@@ -873,28 +886,28 @@ body.pe-app {
     font-variant-numeric: tabular-nums;
 }
 .vca-print-table .vca-row-deal td {
-    background: #f7f7f7;
+    background: #fafafa;
 }
 .vca-print-table .vca-row-deal:nth-child(even) td {
-    background: #f1f1f1;
+    background: #f4f4f4;
 }
 .vca-print-table .vca-row-subtotal td {
-    background: #dbe7f2;
+    background: #e7eef5;
     font-weight: 700;
 }
 .vca-print-table .vca-row-summary td {
-    background: #ebf2f8;
+    background: #f0f5f9;
     font-weight: 700;
 }
 .vca-print-table .vca-fund-header td {
-    background: #cdddea;
+    background: #d8e4ee;
     color: #0f2a43;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.02em;
 }
 .vca-print-table .vca-overall-header td {
-    background: #bed1e2;
+    background: #c8d9e8;
     color: #0f2a43;
     font-weight: 800;
     text-transform: uppercase;
@@ -903,7 +916,7 @@ body.pe-app {
 .vca-print-table .vca-gap td {
     background: #ffffff;
     border: none;
-    height: 8px;
+    height: 4px;
     padding: 0;
 }
 .rollup-subsection-title {
@@ -1600,8 +1613,8 @@ body.pe-app {
 }
 
 @page vcaebitda {
-    size: Letter landscape;
-    margin: 0.35in;
+    size: Legal landscape;
+    margin: 0.28in;
 }
 
 @page methodology {
@@ -1763,49 +1776,77 @@ body.pe-app {
         display: block !important;
     }
 
+    .vca-print-book {
+        display: block !important;
+    }
+
+    .vca-print-fund-page,
+    .vca-print-overall-page {
+        border: 1px solid #b9c9d8 !important;
+        border-radius: 0 !important;
+        margin: 0 0 8px 0 !important;
+        padding: 4px !important;
+    }
+
+    .vca-print-fund-page {
+        break-before: page;
+        page-break-before: always;
+    }
+
+    .vca-print-fund-page:first-child {
+        break-before: auto !important;
+        page-break-before: auto !important;
+    }
+
+    .vca-print-overall-page {
+        break-before: page;
+        page-break-before: always;
+    }
+
     .vca-print-header h4 {
-        font-size: 13px !important;
+        font-size: 10px !important;
     }
 
     .vca-print-meta {
         display: block !important;
-        font-size: 10px !important;
-    }
-
-    .vca-print-section {
-        border: 1px solid #bac8d6 !important;
-        border-radius: 0 !important;
-        margin: 0 0 8px 0 !important;
-        break-after: page;
-        page-break-after: always;
-    }
-
-    .vca-print-section:last-child {
-        break-after: auto !important;
-        page-break-after: auto !important;
-    }
-
-    .vca-print-section-title {
-        background: #e9eff5 !important;
-        color: #1b3349 !important;
+        font-size: 7.5px !important;
     }
 
     .vca-print-table {
-        width: 100% !important;
-        table-layout: fixed !important;
-        font-size: var(--vca-print-font-size, 9.6px) !important;
+        width: max-content !important;
+        min-width: 100% !important;
+        table-layout: auto !important;
+        font-size: var(--vca-print-font-size, 8px) !important;
         border-color: #c6d1dc !important;
+        line-height: 1.0 !important;
+        transform: scale(var(--vca-print-scale, 1)) !important;
+        transform-origin: top left !important;
+    }
+
+    .vca-print-table thead {
+        display: table-header-group !important;
+    }
+
+    .vca-print-table .vca-head-band th {
+        font-size: 6.8px !important;
+        padding: 1px 2px !important;
+    }
+
+    .vca-print-table .vca-head-cols th {
+        font-size: 6.6px !important;
+        padding: 1px 2px !important;
     }
 
     .vca-print-table th,
     .vca-print-table td {
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-        padding: 2px 3px !important;
+        white-space: nowrap !important;
+        overflow-wrap: normal !important;
+        padding: 1px 2px !important;
     }
 
     .vca-print-table th.num,
     .vca-print-table td.num {
+        text-align: right !important;
         font-variant-numeric: tabular-nums;
     }
 
