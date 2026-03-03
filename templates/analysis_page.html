@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy  with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy  with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 
@@ -69,9 +69,9 @@
 
 {% if page_key == 'fund-liquidity' %}
 <div class="kpi-grid">
-    <div class="kpi-card"><span>Paid-In</span><strong>{{ fmt_currency(analysis.latest.paid_in) }}</strong></div>
-    <div class="kpi-card"><span>Distributed</span><strong>{{ fmt_currency(analysis.latest.distributed) }}</strong></div>
-    <div class="kpi-card"><span>NAV</span><strong>{{ fmt_currency(analysis.latest.nav) }}</strong></div>
+    <div class="kpi-card"><span>Paid-In</span><strong>{{ fmt_currency_symbol(analysis.latest.paid_in) }}</strong></div>
+    <div class="kpi-card"><span>Distributed</span><strong>{{ fmt_currency_symbol(analysis.latest.distributed) }}</strong></div>
+    <div class="kpi-card"><span>NAV</span><strong>{{ fmt_currency_symbol(analysis.latest.nav) }}</strong></div>
     <div class="kpi-card"><span>TVPI</span><strong>{{ fmt_multiple(analysis.latest.tvpi) }}</strong></div>
     <div class="kpi-card"><span>DPI</span><strong>{{ fmt_multiple(analysis.latest.dpi) }}</strong></div>
     <div class="kpi-card"><span>RVPI</span><strong>{{ fmt_multiple(analysis.latest.rvpi) }}</strong></div>
@@ -101,10 +101,10 @@
             {% set idx = loop.index0 %}
             <tr>
                 <td>{{ fmt_date_monyy(q) }}</td>
-                <td class="num">{{ fmt_currency(analysis.paid_in[idx]) }}</td>
-                <td class="num">{{ fmt_currency(analysis.distributed[idx]) }}</td>
-                <td class="num">{{ fmt_currency(analysis.nav[idx]) }}</td>
-                <td class="num">{{ fmt_currency(analysis.unfunded[idx]) }}</td>
+                <td class="num">{{ fmt_currency_symbol(analysis.paid_in[idx]) }}</td>
+                <td class="num">{{ fmt_currency_symbol(analysis.distributed[idx]) }}</td>
+                <td class="num">{{ fmt_currency_symbol(analysis.nav[idx]) }}</td>
+                <td class="num">{{ fmt_currency_symbol(analysis.unfunded[idx]) }}</td>
                 <td class="num">{{ fmt_multiple(analysis.tvpi[idx]) }}</td>
                 <td class="num">{{ fmt_multiple(analysis.dpi[idx]) }}</td>
                 <td class="num">{{ fmt_multiple(analysis.rvpi[idx]) }}</td>
@@ -141,10 +141,10 @@
             <tr>
                 <td>{{ row.fund_number }}</td>
                 <td>{{ fmt_date_monyy(row.quarter_end) }}</td>
-                <td class="num">{{ fmt_currency(row.committed_capital) }}</td>
-                <td class="num">{{ fmt_currency(row.paid_in_capital) }}</td>
-                <td class="num">{{ fmt_currency(row.distributed_capital) }}</td>
-                <td class="num">{{ fmt_currency(row.nav) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.committed_capital) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.paid_in_capital) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.distributed_capital) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.nav) }}</td>
                 <td class="num">{{ fmt_multiple(row.tvpi) }}</td>
                 <td class="num">{{ fmt_multiple(row.dpi) }}</td>
                 <td class="num">{{ fmt_multiple(row.rvpi) }}</td>
@@ -162,7 +162,7 @@
 {% if page_key == 'underwrite-outcome' %}
 <div class="kpi-grid">
     <div class="kpi-card"><span>Deals with Underwrite</span><strong>{{ analysis.coverage.deal_count }}</strong></div>
-    <div class="kpi-card"><span>Coverage Equity</span><strong>{{ fmt_currency(analysis.coverage.invested_equity) }}</strong></div>
+    <div class="kpi-card"><span>Coverage Equity</span><strong>{{ fmt_currency_symbol(analysis.coverage.invested_equity) }}</strong></div>
     <div class="kpi-card"><span>Hit Rate (MOIC)</span><strong>{{ fmt_pct_1dp(analysis.coverage.hit_rate_moic) }}</strong></div>
     <div class="kpi-card"><span>Avg Delta IRR</span><strong>{{ fmt_pct_1dp(analysis.coverage.avg_delta_irr) }}</strong></div>
     <div class="kpi-card"><span>Avg Delta MOIC</span><strong>{{ fmt_multiple(analysis.coverage.avg_delta_moic) }}</strong></div>
@@ -298,8 +298,8 @@
             <tr>
                 <td>{{ row.company_name }}</td>
                 <td>{{ row.fund_number }}</td>
-                <td class="num">{{ fmt_currency(row.pre_exit_mark) }}</td>
-                <td class="num">{{ fmt_currency(row.realized_value) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.pre_exit_mark) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.realized_value) }}</td>
                 <td class="num">{{ fmt_pct_1dp(row.mark_error) }}</td>
             </tr>
             {% else %}
@@ -329,8 +329,8 @@
                 <tr>
                     <td>{{ row.bucket }}</td>
                     <td class="num">{{ row.deal_count }}</td>
-                    <td class="num">{{ fmt_currency(row.invested_equity) }}</td>
-                    <td class="num">{{ fmt_currency(row.unrealized_value) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.invested_equity) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.unrealized_value) }}</td>
                 </tr>
                 {% else %}
                 <tr><td colspan="4" class="num">No unrealized deals in current filter.</td></tr>
@@ -346,10 +346,10 @@
                 {% for row in analysis.aging_by_fund %}
                 <tr>
                     <td>{{ row.label }}</td>
-                    <td class="num">{{ fmt_currency(row.buckets['<3y']) }}</td>
-                    <td class="num">{{ fmt_currency(row.buckets['3-5y']) }}</td>
-                    <td class="num">{{ fmt_currency(row.buckets['5-7y']) }}</td>
-                    <td class="num">{{ fmt_currency(row.buckets['>=7y']) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.buckets['<3y']) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.buckets['3-5y']) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.buckets['5-7y']) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.buckets['>=7y']) }}</td>
                 </tr>
                 {% else %}
                 <tr><td colspan="5" class="num">No fund aging matrix available.</td></tr>
@@ -404,11 +404,11 @@
         {% if current_vintage %}<input type="hidden" name="vintage" value="{{ current_vintage }}">{% endif %}
         {% if current_exit_type %}<input type="hidden" name="exit_type" value="{{ current_exit_type }}">{% endif %}
         <div class="kpi-grid stress-kpi-grid">
-            <div class="kpi-card"><span>Current Value</span><strong>{{ fmt_currency(analysis.summary.current_value) }}</strong></div>
-            <div class="kpi-card"><span>Stressed Value</span><strong>{{ fmt_currency(analysis.summary.stressed_value) }}</strong></div>
+            <div class="kpi-card"><span>Current Value</span><strong>{{ fmt_currency_symbol(analysis.summary.current_value) }}</strong></div>
+            <div class="kpi-card"><span>Stressed Value</span><strong>{{ fmt_currency_symbol(analysis.summary.stressed_value) }}</strong></div>
             <div class="kpi-card"><span>Current Total MOIC</span><strong>{{ fmt_multiple(analysis.summary.current_total_moic) }}</strong></div>
             <div class="kpi-card"><span>Stressed Total MOIC</span><strong>{{ fmt_multiple(analysis.summary.stressed_total_moic) }}</strong></div>
-            <div class="kpi-card"><span>Delta Value</span><strong>{{ fmt_currency(analysis.summary.delta_value) }}</strong></div>
+            <div class="kpi-card"><span>Delta Value</span><strong>{{ fmt_currency_symbol(analysis.summary.delta_value) }}</strong></div>
         </div>
         <div class="stress-note">
             <span>Edit expected hold, multiple change, and EBITDA change per deal, then recalculate.</span>
@@ -460,17 +460,17 @@
                         <td class="num">{{ fmt_years_1dp(subtotal.expected_hold_period) if subtotal else "—" }}</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
-                        <td class="num">{{ fmt_currency(subtotal.current_total_value) if subtotal else "—" }}</td>
+                        <td class="num">{{ fmt_currency_symbol(subtotal.current_total_value) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_multiple(subtotal.current_moic) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_pct_1dp(subtotal.current_implied_irr) if subtotal else "—" }}</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
-                        <td class="num">{{ fmt_currency(subtotal.stressed_total_value) if subtotal else "—" }}</td>
+                        <td class="num">{{ fmt_currency_symbol(subtotal.stressed_total_value) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_multiple(subtotal.stressed_moic) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_pct_1dp(subtotal.stressed_implied_irr) if subtotal else "—" }}</td>
-                        <td class="num {% if subtotal and subtotal.delta_value is not none and subtotal.delta_value < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_value is not none and subtotal.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency(subtotal.delta_value) if subtotal else "—" }}</td>
+                        <td class="num {% if subtotal and subtotal.delta_value is not none and subtotal.delta_value < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_value is not none and subtotal.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency_symbol(subtotal.delta_value) if subtotal else "—" }}</td>
                         <td class="num {% if subtotal and subtotal.delta_moic is not none and subtotal.delta_moic < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_moic is not none and subtotal.delta_moic > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_multiple(subtotal.delta_moic) if subtotal else "—" }}</td>
                     </tr>
                     {% endif %}
@@ -489,9 +489,9 @@
                         <td class="num stress-input-cell">
                             <input class="analysis-input analysis-input-sm num-input" type="number" step="0.1" min="0" name="hp_{{ row.deal_id }}" value="{{ "%.1f"|format(row.expected_hold_period) if row.expected_hold_period is not none else "" }}">
                         </td>
-                        <td class="num stress-current">{{ fmt_currency(row.current_ebitda) }}</td>
+                        <td class="num stress-current">{{ fmt_currency_symbol(row.current_ebitda) }}</td>
                         <td class="num stress-current">{{ fmt_multiple(row.current_multiple) }}</td>
-                        <td class="num stress-current">{{ fmt_currency(row.current_total_value) }}</td>
+                        <td class="num stress-current">{{ fmt_currency_symbol(row.current_total_value) }}</td>
                         <td class="num stress-current">{{ fmt_multiple(row.current_moic) }}</td>
                         <td class="num stress-current">{{ fmt_pct_1dp(row.current_implied_irr) }}</td>
                         <td class="num stress-input-cell">
@@ -500,12 +500,12 @@
                         <td class="num stress-input-cell">
                             <input class="analysis-input analysis-input-sm num-input" type="number" step="0.1" name="es_{{ row.deal_id }}" value="{{ "%.1f"|format((row.ebitda_shock or 0) * 100) }}">
                         </td>
-                        <td class="num stress-stressed">{{ fmt_currency(row.stressed_ebitda) }}</td>
+                        <td class="num stress-stressed">{{ fmt_currency_symbol(row.stressed_ebitda) }}</td>
                         <td class="num stress-stressed">{{ fmt_multiple(row.stressed_multiple) }}</td>
-                        <td class="num stress-stressed">{{ fmt_currency(row.stressed_total_value) }}</td>
+                        <td class="num stress-stressed">{{ fmt_currency_symbol(row.stressed_total_value) }}</td>
                         <td class="num stress-stressed">{{ fmt_multiple(row.stressed_moic) }}</td>
                         <td class="num stress-stressed">{{ fmt_pct_1dp(row.stressed_implied_irr) }}</td>
-                        <td class="num {% if row.delta_value is not none and row.delta_value < 0 %}stress-delta-neg{% elif row.delta_value is not none and row.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency(row.delta_value) }}</td>
+                        <td class="num {% if row.delta_value is not none and row.delta_value < 0 %}stress-delta-neg{% elif row.delta_value is not none and row.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency_symbol(row.delta_value) }}</td>
                         <td class="num {% if delta_moic is not none and delta_moic < 0 %}stress-delta-neg{% elif delta_moic is not none and delta_moic > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_multiple(delta_moic) }}</td>
                     </tr>
                     {% else %}
@@ -521,17 +521,17 @@
                         <td class="num">{{ fmt_years_1dp(subtotal.expected_hold_period) if subtotal else "—" }}</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
-                        <td class="num">{{ fmt_currency(subtotal.current_total_value) if subtotal else "—" }}</td>
+                        <td class="num">{{ fmt_currency_symbol(subtotal.current_total_value) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_multiple(subtotal.current_moic) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_pct_1dp(subtotal.current_implied_irr) if subtotal else "—" }}</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
                         <td class="num">—</td>
-                        <td class="num">{{ fmt_currency(subtotal.stressed_total_value) if subtotal else "—" }}</td>
+                        <td class="num">{{ fmt_currency_symbol(subtotal.stressed_total_value) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_multiple(subtotal.stressed_moic) if subtotal else "—" }}</td>
                         <td class="num">{{ fmt_pct_1dp(subtotal.stressed_implied_irr) if subtotal else "—" }}</td>
-                        <td class="num {% if subtotal and subtotal.delta_value is not none and subtotal.delta_value < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_value is not none and subtotal.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency(subtotal.delta_value) if subtotal else "—" }}</td>
+                        <td class="num {% if subtotal and subtotal.delta_value is not none and subtotal.delta_value < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_value is not none and subtotal.delta_value > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_currency_symbol(subtotal.delta_value) if subtotal else "—" }}</td>
                         <td class="num {% if subtotal and subtotal.delta_moic is not none and subtotal.delta_moic < 0 %}stress-delta-neg{% elif subtotal and subtotal.delta_moic is not none and subtotal.delta_moic > 0 %}stress-delta-pos{% else %}stress-delta-flat{% endif %}">{{ fmt_multiple(subtotal.delta_moic) if subtotal else "—" }}</td>
                     </tr>
                     {% endif %}
@@ -574,7 +574,7 @@
     <div class="kpi-card"><span>Fund</span><strong>{{ analysis.summary.fund_number or "—" }}</strong></div>
     <div class="kpi-card"><span>Hold</span><strong>{{ fmt_years_1dp(analysis.summary.hold_years) }}</strong></div>
     <div class="kpi-card"><span>Current MOIC</span><strong>{{ fmt_multiple(analysis.summary.current_moic) }}</strong></div>
-    <div class="kpi-card"><span>Current Equity Value</span><strong>{{ fmt_currency(analysis.summary.current_equity_value) }}</strong></div>
+    <div class="kpi-card"><span>Current Equity Value</span><strong>{{ fmt_currency_symbol(analysis.summary.current_equity_value) }}</strong></div>
 </div>
 
 <div class="panel">
@@ -595,11 +595,11 @@
             {% for row in analysis.trajectory %}
             <tr>
                 <td>{{ fmt_date_monyy(row.quarter_end) }}</td>
-                <td class="num">{{ fmt_currency(row.revenue) }}</td>
-                <td class="num">{{ fmt_currency(row.ebitda) }}</td>
-                <td class="num">{{ fmt_currency(row.enterprise_value) }}</td>
-                <td class="num">{{ fmt_currency(row.net_debt) }}</td>
-                <td class="num">{{ fmt_currency(row.equity_value) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.revenue) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.ebitda) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.enterprise_value) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.net_debt) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.equity_value) }}</td>
                 <td class="num">{{ fmt_multiple(row.implied_multiple) }}</td>
             </tr>
             {% else %}
@@ -617,10 +617,10 @@
             {% for row in analysis.cashflow_curve %}
             <tr>
                 <td>{{ fmt_date_monyy(row.quarter_end) }}</td>
-                <td class="num">{{ fmt_currency(row.calls) }}</td>
-                <td class="num">{{ fmt_currency(row.distributions) }}</td>
-                <td class="num">{{ fmt_currency(row.cum_calls) }}</td>
-                <td class="num">{{ fmt_currency(row.cum_distributions) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.calls) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.distributions) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.cum_calls) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.cum_distributions) }}</td>
             </tr>
             {% else %}
             <tr><td colspan="5" class="num">No cashflow events for the selected deal.</td></tr>

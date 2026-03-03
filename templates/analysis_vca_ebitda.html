@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_date_mdy, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, fmt_years_1dp with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_currency_unit_symbol_label, fmt_date_mdy, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, fmt_years_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_actions %}
@@ -108,7 +108,7 @@
     "exit_ltm_ebitda",
     "diff_ebitda"
 ] -%}
-{{ fmt_currency(value) }}
+{{ fmt_currency_symbol(value) }}
 {% elif key in [
     "gross_profit_pct_of_total",
     "gross_irr",
@@ -210,7 +210,7 @@
     <div class="vca-ebitda-title-row">
         <div>
             <h3>{{ analysis.meta.title }}</h3>
-            <p class="subtitle">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} • {{ fmt_currency_unit_label() }}</p>
+            <p class="subtitle">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} • {{ fmt_currency_unit_symbol_label() }}</p>
         </div>
     </div>
 
@@ -238,7 +238,7 @@
                 <tr class="vca-fund-header">
                     <td colspan="{{ analysis.header.columns|length }}">
                         {{ fund.fund_name }}
-                        {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
+                        {% if fund.fund_size is not none %} ({{ fmt_currency_symbol(fund.fund_size) }}){% endif %}
                         {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
                     </td>
                 </tr>
@@ -279,7 +279,7 @@
             <section class="vca-print-fund-page" data-vca-fund-page="{{ loop.index }}">
                 <div class="vca-print-header">
                     <h4>{{ analysis.meta.title }} — {{ fund.fund_name }}</h4>
-                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_label() }}</p>
+                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
                     <p class="vca-print-meta">{{ vca_filter_summary }}</p>
                 </div>
                 <div class="vca-print-table-wrap">
@@ -300,7 +300,7 @@
                             <tr class="vca-fund-header">
                                 <td colspan="{{ analysis.header.columns|length }}">
                                     {{ fund.fund_name }}
-                                    {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
+                                    {% if fund.fund_size is not none %} ({{ fmt_currency_symbol(fund.fund_size) }}){% endif %}
                                     {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
                                 </td>
                             </tr>
@@ -325,7 +325,7 @@
             <section class="vca-print-overall-page" data-vca-overall-page="1">
                 <div class="vca-print-header">
                     <h4>{{ analysis.meta.title }} — Overall Portfolio</h4>
-                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_label() }}</p>
+                    <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
                     <p class="vca-print-meta">{{ vca_filter_summary }}</p>
                 </div>
                 <div class="vca-print-table-wrap">

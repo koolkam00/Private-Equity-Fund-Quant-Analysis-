@@ -771,19 +771,26 @@ body.pe-app {
     letter-spacing: 0.03em;
 }
 .vca-ebitda-table .vca-row-deal td {
-    background: #f3f3f3;
+    background: #f6f8fa;
 }
 .vca-ebitda-table .vca-row-deal:nth-child(even) td {
-    background: #e7e7e7;
+    background: #edf1f5;
 }
 .vca-ebitda-table .vca-row-subtotal td {
-    background: #98b7d5;
-    font-weight: 700;
+    background: #b8d0e6;
+    font-weight: 800;
     border-top: 1px solid #5d7f9b;
+    border-bottom: 1px solid #5d7f9b;
 }
 .vca-ebitda-table .vca-row-summary td {
-    background: #dce8f3;
-    font-weight: 700;
+    background: #d0e0f0;
+    font-weight: 800;
+}
+.vca-ebitda-table .vca-row-subtotal td:first-child {
+    box-shadow: inset 4px 0 0 #2d5f89;
+}
+.vca-ebitda-table .vca-row-summary td:first-child {
+    box-shadow: inset 4px 0 0 #5b7ea2;
 }
 .vca-ebitda-table .vca-gap td {
     background: #cedcea;
@@ -886,18 +893,26 @@ body.pe-app {
     font-variant-numeric: tabular-nums;
 }
 .vca-print-table .vca-row-deal td {
-    background: #fafafa;
+    background: #f7f8fa;
 }
 .vca-print-table .vca-row-deal:nth-child(even) td {
-    background: #f4f4f4;
+    background: #edf1f4;
 }
 .vca-print-table .vca-row-subtotal td {
-    background: #e7eef5;
-    font-weight: 700;
+    background: #d4e0eb;
+    font-weight: 800;
+    border-top: 1px solid #8598ac;
+    border-bottom: 1px solid #8598ac;
 }
 .vca-print-table .vca-row-summary td {
-    background: #f0f5f9;
-    font-weight: 700;
+    background: #dde7f0;
+    font-weight: 800;
+}
+.vca-print-table .vca-row-subtotal td:first-child {
+    box-shadow: inset 3px 0 0 #5b748d;
+}
+.vca-print-table .vca-row-summary td:first-child {
+    box-shadow: inset 3px 0 0 #7d90a3;
 }
 .vca-print-table .vca-fund-header td {
     background: #d8e4ee;
@@ -1789,13 +1804,8 @@ body.pe-app {
     }
 
     .vca-print-fund-page {
-        break-before: page;
-        page-break-before: always;
-    }
-
-    .vca-print-fund-page:first-child {
-        break-before: auto !important;
-        page-break-before: auto !important;
+        break-inside: avoid-page;
+        page-break-inside: avoid;
     }
 
     .vca-print-overall-page {

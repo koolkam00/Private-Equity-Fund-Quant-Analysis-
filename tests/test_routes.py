@@ -1472,6 +1472,36 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"vca-print-book" in response.data
     assert b"vca-print-fund-page" in response.data
     assert b"vca-print-overall-page" in response.data
+    assert b"$M" in response.data
+    assert b"| $M" in response.data
+    assert b"| USD $M" not in response.data
+
+
+def test_analysis_non_vca_page_uses_symbol_only_money(client):
+    deal = Deal(
+        company_name="Stress Symbol Co",
+        fund_number="Fund Symbol",
+        status="Unrealized",
+        investment_date=date(2020, 1, 1),
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=130,
+        entry_revenue=60,
+        entry_ebitda=12,
+        entry_enterprise_value=140,
+        entry_net_debt=30,
+        exit_revenue=90,
+        exit_ebitda=20,
+        exit_enterprise_value=220,
+        exit_net_debt=25,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/analysis/stress-lab")
+    assert response.status_code == 200
+    assert re.search(rb"\$\d+\.\dM", response.data) is not None
+    assert b"Current Value</span><strong>$" in response.data
 
 
 def test_stress_lab_api_supports_per_deal_overrides(client):
