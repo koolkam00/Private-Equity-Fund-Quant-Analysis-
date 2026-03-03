@@ -412,3 +412,30 @@ Active firm precedence:
   - Formula legend row remains on-screen but is suppressed in print for density/readability.
   - Subtotal/summary/overall rows use stronger contrast and accent borders than deal rows; negative delta/value-creation cells are highlighted while positive values use the default text color.
   - Analysis pages render symbol-only money display (`$`, `€`, etc.) with currency code suppressed in table values and unit labels.
+
+## 13. Value Creation Analysis - by Revenue (PDF-Style Tab)
+- Route:
+  - `GET /analysis/vca-revenue`
+- API:
+  - `GET /api/analysis/vca-revenue/series`
+- Scope:
+  - Uses the same active-firm + page filter context as other analysis pages.
+- Table shape:
+  - 40 fixed columns with grouped multi-row headers and formula legend row.
+  - Fund and overall block row ordering matches the EBITDA VCA tab.
+- Core mapping rules:
+  - `Fund Total Cost = equity`
+  - `Total Value = realized + unrealized`
+  - `Gross Profit = Total Value - Fund Total Cost`
+  - `Gross IRR = uploaded deal IRR`
+  - `Revenue Growth ($) = bridge.revenue` (growth lever is revenue-only).
+  - `Debt ($) = bridge.leverage`.
+  - `Total ($) = Gross Profit`.
+  - `Multiple ($) = Total - Revenue Growth - Debt` (residualized, so margin/other effects are captured and decomposition fully reconciles).
+  - `Value Creation %` columns are each driver `$` divided by row gross profit.
+- Entry/exit block:
+  - Uses revenue/TEV/EV-to-revenue/net-debt-to-revenue/net-debt-to-EV weighted aggregates at entry and exit, with delta as `exit - entry`.
+- Currency:
+  - Monetary fields are run through the standard reporting-currency scaling pipeline.
+- Print/PDF:
+  - Shares the same print DOM/CSS/JS behavior as the EBITDA VCA tab, including legal-landscape formatting, fund packing, executive summary mode, and black major-section separators.

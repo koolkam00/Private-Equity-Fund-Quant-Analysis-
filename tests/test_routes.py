@@ -1351,6 +1351,7 @@ def test_analysis_pages_render(client):
         "stress-lab": b"Concentration Stress Lab",
         "deal-trajectory": b"Deal Trajectory",
         "vca-ebitda": b"Value Creation Analysis - by EBITDA",
+        "vca-revenue": b"Value Creation Analysis - by Revenue",
     }
     for page, marker in pages.items():
         response = client.get(f"/analysis/{page}")
@@ -1363,7 +1364,7 @@ def test_analysis_pages_render(client):
             assert b"Expected Hold (Yrs)" in response.data
             assert b"Delay (Years)" not in response.data
             assert b"Print / Save PDF" in response.data
-        if page == "vca-ebitda":
+        if page in {"vca-ebitda", "vca-revenue"}:
             assert b"Download / Print PDF" in response.data
             assert b"Preview Print Layout" in response.data
 
@@ -1397,6 +1398,7 @@ def test_analysis_api_series_schema(client):
         "stress-lab",
         "deal-trajectory",
         "vca-ebitda",
+        "vca-revenue",
     ):
         response = client.get(f"/api/analysis/{page}/series")
         assert response.status_code == 200
@@ -1440,6 +1442,46 @@ def test_analysis_vca_ebitda_api_payload_shape(client):
     assert "net_performance" in payload["fund_blocks"][0]
     assert "print_sort_metrics" in payload["fund_blocks"][0]
     assert "summary_metrics" in payload["overall_block"]
+
+
+def test_analysis_vca_revenue_api_payload_shape(client):
+    deal = Deal(
+        company_name="VCA Revenue API Co",
+        fund_number="Fund VCA Rev",
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=80,
+        entry_ebitda=10,
+        exit_ebitda=16,
+        entry_enterprise_value=120,
+        exit_enterprise_value=210,
+        entry_net_debt=35,
+        exit_net_debt=20,
+        irr=0.21,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/api/analysis/vca-revenue/series")
+    assert response.status_code == 200
+    body = response.get_json()
+    payload = body["payload"]
+    assert body["page"] == "vca-revenue"
+    assert "meta" in payload
+    assert "header" in payload
+    assert "fund_blocks" in payload
+    assert "overall_block" in payload
+    assert "net_performance" in payload["fund_blocks"][0]
+    assert "print_sort_metrics" in payload["fund_blocks"][0]
+    assert "summary_metrics" in payload["overall_block"]
+    assert any(col.get("key") == "revenue_cagr" for col in payload["header"]["columns"])
+    assert any(col.get("key") == "entry_ev_revenue" for col in payload["header"]["columns"])
+    assert not any(col.get("key") == "entry_ev_ebitda" for col in payload["header"]["columns"])
 
 
 def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
@@ -1494,6 +1536,52 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"Net MOIC" in response.data
     assert b"Net DPI" in response.data
     assert b"$M" in response.data
+    assert b"| $M" in response.data
+    assert b"| USD $M" not in response.data
+
+
+def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
+    deal = Deal(
+        company_name="VCA Revenue Page Co",
+        fund_number="Fund VCA Rev",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=160,
+        unrealized_value=0,
+        entry_revenue=55,
+        exit_revenue=90,
+        entry_ebitda=11,
+        exit_ebitda=17,
+        entry_enterprise_value=130,
+        exit_enterprise_value=220,
+        entry_net_debt=40,
+        exit_net_debt=25,
+        irr=0.2,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/analysis/vca-revenue")
+    assert response.status_code == 200
+    assert b"Revenue Growth During Hold Period" in response.data
+    assert b"Value Creation (%)" in response.data
+    assert b"Value Creation ($)" in response.data
+    assert b"Difference Exit/Current vs Entry" in response.data
+    assert b"EBITDA Growth During Hold Period" not in response.data
+    assert b"vca-print-layout" in response.data
+    assert b"vca-print-book" in response.data
+    assert response.data.count(b"vca-print-fund-page") >= 1
+    assert b"vca-print-overall-page" in response.data
+    assert b'id="vcaPrintSort"' in response.data
+    assert b'id="vcaDensityToggle"' in response.data
+    assert b'id="vcaModeToggle"' in response.data
+    assert b"vca-print-exec-main" in response.data
+    assert b"vca-net-summary" in response.data
+    assert b"Net IRR" in response.data
+    assert b"Net MOIC" in response.data
+    assert b"Net DPI" in response.data
     assert b"| $M" in response.data
     assert b"| USD $M" not in response.data
 

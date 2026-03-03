@@ -32,6 +32,7 @@ from services.metrics.chart_builder import (
     run_chart_query,
 )
 from services.metrics.vca_ebitda import compute_vca_ebitda_analysis
+from services.metrics.vca_revenue import compute_vca_revenue_analysis
 
 __all__ = [
     "DRIVERS",
@@ -65,4 +66,5 @@ __all__ = [
     "run_chart_query",
     "resolve_auto_chart_type",
     "compute_vca_ebitda_analysis",
+    "compute_vca_revenue_analysis",
 ]

@@ -39,8 +39,12 @@
                     class="bi bi-buildings"></i> Deals</a>
             <a href="{{ url_for('track_record') }}" class="nav-item {% if request.endpoint == 'track_record' %}active{% endif %}"><i
                     class="bi bi-table"></i> Track Record</a>
-            <div class="nav-section">Analysis</div>
             {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
+            <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item nav-sub {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
+                    class="bi bi-table"></i> Value Creation (EBITDA)</a>
+            <a href="{{ url_for('analysis_page', page='vca-revenue') }}" class="nav-item nav-sub {% if active_analysis == 'vca-revenue' %}active{% endif %}"><i
+                    class="bi bi-table"></i> Value Creation (Revenue)</a>
+            <div class="nav-section">Analysis</div>
             <a href="{{ url_for('analysis_page', page='fund-liquidity') }}" class="nav-item nav-sub {% if active_analysis == 'fund-liquidity' %}active{% endif %}"><i
                     class="bi bi-graph-up-arrow"></i> Fund Liquidity</a>
             <a href="{{ url_for('analysis_page', page='underwrite-outcome') }}" class="nav-item nav-sub {% if active_analysis == 'underwrite-outcome' %}active{% endif %}"><i
@@ -53,8 +57,6 @@
                     class="bi bi-activity"></i> Stress Lab</a>
             <a href="{{ url_for('analysis_page', page='deal-trajectory') }}" class="nav-item nav-sub {% if active_analysis == 'deal-trajectory' %}active{% endif %}"><i
                     class="bi bi-bezier2"></i> Deal Trajectory</a>
-            <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item nav-sub {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Value Creation (EBITDA)</a>
             <a href="{{ url_for('analysis_page', page='chart-builder') }}" class="nav-item nav-sub {% if active_analysis == 'chart-builder' %}active{% endif %}"><i
                     class="bi bi-bar-chart-line"></i> Chart Builder</a>
             <a href="{{ url_for('ic_memo') }}" class="nav-item nav-sub {% if request.endpoint == 'ic_memo' %}active{% endif %}"><i
