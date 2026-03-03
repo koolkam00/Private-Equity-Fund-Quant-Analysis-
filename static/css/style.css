@@ -1951,7 +1951,7 @@ body.pe-app {
 
     .vca-print-fund-page,
     .vca-print-overall-page {
-        border: 0.75px solid #c3d0dc !important;
+        border: 0.5px solid #cbd6e0 !important;
         border-radius: 0 !important;
         margin: 0 0 4px 0 !important;
         padding: 2px !important;
@@ -2002,6 +2002,15 @@ body.pe-app {
         transform-origin: top left !important;
     }
 
+    .vca-print-exec-main {
+        border: 0.5px solid #ccd7e1 !important;
+    }
+
+    .vca-print-exec-table th,
+    .vca-print-exec-table td {
+        border: 0.5px solid #d7e0e8 !important;
+    }
+
     .vca-print-table thead {
         display: table-header-group !important;
     }
@@ -2025,6 +2034,8 @@ body.pe-app {
 
     .vca-print-table th,
     .vca-print-table td {
+        border-width: 0.5px !important;
+        border-color: #d6dfe7 !important;
         white-space: nowrap !important;
         overflow-wrap: normal !important;
         padding: 1px 2px !important;
@@ -2042,7 +2053,16 @@ body.pe-app {
     }
 
     .vca-print-table .vca-net-summary td {
+        border-top-width: 0.5px !important;
+        border-bottom-width: 0.5px !important;
         padding: 1px 2px !important;
+    }
+
+    .vca-print-table .vca-row-subtotal td,
+    .vca-print-table .vca-row-summary td,
+    .vca-print-table .vca-print-footer td {
+        border-top-width: 0.5px !important;
+        border-bottom-width: 0.5px !important;
     }
 
     .vca-ebitda-root.vca-density-compact .vca-print-table th,
