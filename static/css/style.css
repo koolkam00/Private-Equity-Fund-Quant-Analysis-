@@ -824,8 +824,8 @@ body.pe-app {
     box-shadow: inset 5px 0 0 #567998;
 }
 .vca-ebitda-table .vca-cell-pos {
-    color: #0f5f4b;
-    font-weight: 700;
+    color: inherit;
+    font-weight: inherit;
 }
 .vca-ebitda-table .vca-cell-neg {
     color: #8a2031;
@@ -865,7 +865,7 @@ body.pe-app {
 }
 .vca-print-book {
     display: grid;
-    gap: 10px;
+    gap: 6px;
 }
 .vca-print-exec-main {
     display: none;
@@ -920,20 +920,20 @@ body.pe-app {
     background: #ffffff;
     padding: 6px;
 }
-.vca-net-summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 4px;
-    padding: 2px 4px;
-    border: 1px solid #ccd8e4;
+.vca-print-table .vca-net-summary td {
     background: #f2f6fa;
+    border-top: 1px solid #ccd8e4;
+    border-bottom: 1px solid #ccd8e4;
     color: #183650;
-    font-size: 8.5px;
+    font-size: 8px;
     line-height: 1.15;
+    padding: 2px 4px;
 }
-.vca-net-summary .vca-net-label {
+.vca-print-table .vca-net-summary td > span {
+    display: inline-block;
+    margin-right: 10px;
+}
+.vca-print-table .vca-net-summary .vca-net-label {
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -1061,8 +1061,8 @@ body.pe-app {
     border-top: 1px solid #b7c7d6;
 }
 .vca-print-table .vca-cell-pos {
-    color: #0f5f4b;
-    font-weight: 700;
+    color: inherit;
+    font-weight: inherit;
 }
 .vca-print-table .vca-cell-neg {
     color: #842336;
@@ -1079,8 +1079,8 @@ body.pe-app {
 .vca-ebitda-root.vca-density-compact .vca-print-exec-table {
     font-size: 8px;
 }
-.vca-ebitda-root.vca-density-compact .vca-net-summary {
-    font-size: 8px;
+.vca-ebitda-root.vca-density-compact .vca-print-table .vca-net-summary td {
+    font-size: 7.4px;
     padding: 1px 3px;
 }
 .rollup-subsection-title {
@@ -1953,13 +1953,13 @@ body.pe-app {
     .vca-print-overall-page {
         border: 1px solid #b9c9d8 !important;
         border-radius: 0 !important;
-        margin: 0 0 8px 0 !important;
-        padding: 4px !important;
+        margin: 0 0 4px 0 !important;
+        padding: 2px !important;
     }
 
     .vca-print-fund-page {
-        break-inside: avoid-page;
-        page-break-inside: avoid;
+        break-inside: auto;
+        page-break-inside: auto;
     }
     .vca-print-fund-page:first-child {
         break-before: auto !important;
@@ -2039,6 +2039,10 @@ body.pe-app {
     .vca-print-table tr {
         page-break-inside: avoid;
         break-inside: avoid;
+    }
+
+    .vca-print-table .vca-net-summary td {
+        padding: 1px 2px !important;
     }
 
     .vca-ebitda-root.vca-density-compact .vca-print-table th,

@@ -400,12 +400,6 @@ N/A
                 data-sort-gross-irr="{{ fund.print_sort_metrics.gross_irr if fund.print_sort_metrics.gross_irr is not none else '' }}"
                 data-sort-status-rank="{{ fund.print_sort_metrics.status_rank if fund.print_sort_metrics.status_rank is not none else 99 }}"
             >
-                <div class="vca-net-summary">
-                    <span class="vca-net-label">{{ fund.fund_name }} Net Performance</span>
-                    <span>Net IRR: <strong>{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</strong></span>
-                    <span>Net MOIC: <strong>{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</strong></span>
-                    <span>Net DPI: <strong>{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</strong></span>
-                </div>
                 <div class="vca-print-table-wrap">
                     <table class="vca-print-table">
                         <thead>
@@ -445,6 +439,14 @@ N/A
                             {% endfor %}
                         </tbody>
                         <tfoot>
+                            <tr class="vca-print-net-row vca-net-summary">
+                                <td colspan="{{ analysis.header.columns|length }}">
+                                    <span class="vca-net-label">{{ fund.fund_name }} Net Performance</span>
+                                    <span>Net IRR: <strong>{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</strong></span>
+                                    <span>Net MOIC: <strong>{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</strong></span>
+                                    <span>Net DPI: <strong>{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</strong></span>
+                                </td>
+                            </tr>
                             <tr class="vca-print-footer">
                                 <td colspan="{{ analysis.header.columns|length }}">Fund {{ loop.index }} of {{ analysis.fund_blocks|length }} • {{ fund.fund_name }}</td>
                             </tr>
@@ -615,7 +617,8 @@ N/A
                 const rawScale = wrap.clientWidth / table.scrollWidth;
                 const scale = Math.max(settings.minScale, rawScale);
                 table.style.setProperty("--vca-print-scale", `${roundToHundredth(scale)}`);
-                wrap.style.height = `${Math.ceil(table.scrollHeight * scale)}px`;
+                const scaledHeight = Math.ceil(table.getBoundingClientRect().height);
+                wrap.style.height = `${(scaledHeight > 0 ? scaledHeight : Math.ceil(table.scrollHeight * scale)) + 1}px`;
             }
 
             table.dataset.vcaPrintAutosized = "1";

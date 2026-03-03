@@ -1481,6 +1481,14 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"vca-print-exec-main" in response.data
     assert b"vca-print-appendix-title" in response.data
     assert b"vca-net-summary" in response.data
+    assert (
+        re.search(
+            rb'<tbody>.*?</tbody>\s*<tfoot>\s*<tr class="vca-print-net-row vca-net-summary">.*?</tr>\s*<tr class="vca-print-footer">',
+            response.data,
+            re.S,
+        )
+        is not None
+    )
     assert b"Net IRR" in response.data
     assert b"Net MOIC" in response.data
     assert b"Net DPI" in response.data
