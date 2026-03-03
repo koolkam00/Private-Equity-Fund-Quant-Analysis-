@@ -1967,6 +1967,10 @@ body.pe-app {
         break-after: auto;
         page-break-after: auto;
     }
+    .vca-print-fund-page.vca-force-page-break {
+        break-before: page !important;
+        page-break-before: always !important;
+    }
     .vca-print-fund-page:first-child {
         break-before: auto !important;
         page-break-before: auto !important;

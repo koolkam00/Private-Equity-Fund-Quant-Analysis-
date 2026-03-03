@@ -519,8 +519,11 @@ N/A
     const DEFAULT_DENSITY = "readable";
     const DEFAULT_MODE = "detailed";
     const PREVIEW_CLASS = "vca-preview-print";
+    const FORCE_BREAK_CLASS = "vca-force-page-break";
+    const LEGAL_PAGE_HEIGHT_IN = 8.5 - (0.28 * 2);
     const previewToggleBtn = document.getElementById("vcaPreviewToggle");
     const vcaRoot = document.querySelector(".vca-ebitda-root");
+    const printLayout = document.querySelector(".vca-print-layout");
     const sortSelect = document.getElementById("vcaPrintSort");
     const densitySelect = document.getElementById("vcaDensityToggle");
     const modeSelect = document.getElementById("vcaModeToggle");
@@ -598,6 +601,70 @@ N/A
         vcaRoot.classList.toggle("vca-mode-executive", mode === "executive");
     };
 
+    const clearFundPackingBreaks = () => {
+        const forced = document.querySelectorAll(`.vca-print-fund-page.${FORCE_BREAK_CLASS}`);
+        forced.forEach((node) => node.classList.remove(FORCE_BREAK_CLASS));
+    };
+
+    const outerHeightWithMargins = (element) => {
+        if (!element) return 0;
+        const rect = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+        const marginTop = Number.parseFloat(styles.marginTop) || 0;
+        const marginBottom = Number.parseFloat(styles.marginBottom) || 0;
+        return rect.height + marginTop + marginBottom;
+    };
+
+    const pixelsPerInch = () => {
+        const probe = document.createElement("div");
+        probe.style.position = "absolute";
+        probe.style.visibility = "hidden";
+        probe.style.height = "1in";
+        probe.style.width = "1in";
+        document.body.appendChild(probe);
+        const ppi = probe.getBoundingClientRect().height || 96;
+        probe.remove();
+        return ppi;
+    };
+
+    const applyFundPackingBreaks = () => {
+        if (!printLayout || !printBook) return;
+        clearFundPackingBreaks();
+
+        const ppi = pixelsPerInch();
+        const pageHeightPx = LEGAL_PAGE_HEIGHT_IN * ppi;
+        if (pageHeightPx <= 0) return;
+
+        let firstPageConsumed = 0;
+        const printChildren = Array.from(printLayout.children);
+        for (const child of printChildren) {
+            if (child === printBook) break;
+            const style = window.getComputedStyle(child);
+            if (style.display === "none" || style.visibility === "hidden") continue;
+            firstPageConsumed += outerHeightWithMargins(child);
+        }
+
+        let remaining = Math.max(0, pageHeightPx - firstPageConsumed);
+        const fundPages = Array.from(printBook.querySelectorAll(".vca-print-fund-page"));
+        fundPages.forEach((fundPage) => {
+            const blockHeight = outerHeightWithMargins(fundPage);
+            if (blockHeight <= 0) return;
+
+            if (blockHeight > pageHeightPx) {
+                // Too tall for one page; browser must split this block.
+                remaining = pageHeightPx;
+                return;
+            }
+
+            if (blockHeight > remaining) {
+                fundPage.classList.add(FORCE_BREAK_CLASS);
+                remaining = pageHeightPx - blockHeight;
+            } else {
+                remaining -= blockHeight;
+            }
+        });
+    };
+
     const autosizePrintTables = () => {
         const settings = densitySettings();
         const tables = document.querySelectorAll(".vca-print-table");
@@ -638,13 +705,17 @@ N/A
             table.style.removeProperty("--vca-print-scale");
             delete table.dataset.vcaPrintAutosized;
         });
+        clearFundPackingBreaks();
     };
 
     const applyPrintOptions = () => {
         applyRootDisplayState();
         sortFundPages();
         sortExecutiveRows();
-        if (vcaRoot && vcaRoot.classList.contains(PREVIEW_CLASS)) autosizePrintTables();
+        if (vcaRoot && vcaRoot.classList.contains(PREVIEW_CLASS)) {
+            autosizePrintTables();
+            applyFundPackingBreaks();
+        }
     };
 
     const setPreviewMode = (enabled) => {
@@ -658,6 +729,7 @@ N/A
             sortFundPages();
             sortExecutiveRows();
             autosizePrintTables();
+            applyFundPackingBreaks();
         }
         else resetPrintTableSizing();
     };
@@ -696,6 +768,7 @@ N/A
     window.addEventListener("beforeprint", () => {
         applyPrintOptions();
         autosizePrintTables();
+        applyFundPackingBreaks();
     });
     window.addEventListener("afterprint", resetPrintTableSizing);
 
