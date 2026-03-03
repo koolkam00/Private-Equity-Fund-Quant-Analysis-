@@ -3,6 +3,15 @@
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_actions %}
+<button
+    type="button"
+    id="vcaPreviewToggle"
+    class="btn-upload btn-secondary vca-preview-btn"
+    aria-pressed="false"
+    {% if not analysis.fund_blocks %}disabled title="Preview becomes available once rows are loaded"{% endif %}
+>
+    <i class="bi bi-layout-text-window"></i> Preview Print Layout
+</button>
 <button type="button" class="btn-upload btn-secondary vca-print-btn" onclick="window.print()">
     <i class="bi bi-file-earmark-pdf"></i> Download / Print PDF
 </button>
@@ -72,52 +81,112 @@
     <p class="subtitle">{{ page_meta.description }}</p>
 </div>
 
-{% macro render_vca_row(row) -%}
+{% macro render_vca_cell(row, column) -%}
+{% set key = column.key %}
+{% set value = row.get(key) %}
+{% if key == "row_num" -%}
+{{ value if value is not none else "" }}
+{% elif key == "platform" -%}
+{{ value or "—" }}
+{% elif key in ["close_date", "final_exit_date"] -%}
+{{ fmt_date_mdy(value) }}
+{% elif key == "hold_period" -%}
+{{ fmt_years_1dp(value) }}
+{% elif key == "status" -%}
+{{ value or "—" }}
+{% elif key in [
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "vc_ebitda_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_ebitda",
+    "exit_ltm_ebitda",
+    "diff_ebitda"
+] -%}
+{{ fmt_currency(value) }}
+{% elif key in [
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "vc_ebitda_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "entry_net_debt_ev",
+    "exit_net_debt_ev",
+    "diff_net_debt_ev"
+] -%}
+{{ fmt_pct_1dp(value) }}
+{% elif key in [
+    "ebitda_cagr",
+    "ebitda_cumulative_growth",
+    "entry_ebitda_margin",
+    "exit_ebitda_margin",
+    "diff_ebitda_margin"
+] -%}
+{{ fmt_pp_1dp(value) }}
+{% elif key in [
+    "realized_moic",
+    "gross_moic",
+    "entry_ev_ebitda",
+    "entry_net_debt_ebitda",
+    "exit_ev_ebitda",
+    "exit_net_debt_ebitda",
+    "diff_ev_ebitda",
+    "diff_net_debt_ebitda"
+] -%}
+{{ fmt_multiple(value) }}
+{% else -%}
+{{ value if value is not none else "—" }}
+{% endif %}
+{%- endmacro %}
+
+{% macro render_vca_row(row, columns) -%}
 <tr class="vca-row vca-row-{{ row.row_kind }}">
-    <td class="num">{{ row.row_num if row.row_num is not none else "" }}</td>
-    <td>{{ row.platform or "—" }}</td>
-    <td>{{ fmt_date_mdy(row.close_date) }}</td>
-    <td>{{ fmt_date_mdy(row.final_exit_date) }}</td>
-    <td class="num">{{ fmt_years_1dp(row.hold_period) }}</td>
-    <td>{{ row.status or "—" }}</td>
-    <td class="num">{{ fmt_currency(row.fund_total_cost) }}</td>
-    <td class="num">{{ fmt_currency(row.realized_proceeds) }}</td>
-    <td class="num">{{ fmt_currency(row.unrealized_value) }}</td>
-    <td class="num">{{ fmt_currency(row.total_value) }}</td>
-    <td class="num">{{ fmt_currency(row.gross_profit) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.gross_profit_pct_of_total) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.gross_irr) }}</td>
-    <td class="num">{{ fmt_multiple(row.realized_moic) }}</td>
-    <td class="num">{{ fmt_multiple(row.gross_moic) }}</td>
-    <td class="num">{{ fmt_pp_1dp(row.ebitda_cagr) }}</td>
-    <td class="num">{{ fmt_pp_1dp(row.ebitda_cumulative_growth) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.vc_ebitda_growth_pct) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.vc_multiple_pct) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.vc_debt_pct) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.vc_total_pct) }}</td>
-    <td class="num">{{ fmt_currency(row.vc_ebitda_growth_dollar) }}</td>
-    <td class="num">{{ fmt_currency(row.vc_multiple_dollar) }}</td>
-    <td class="num">{{ fmt_currency(row.vc_debt_dollar) }}</td>
-    <td class="num">{{ fmt_currency(row.vc_total_dollar) }}</td>
-    <td class="num">{{ fmt_currency(row.entry_ltm_ebitda) }}</td>
-    <td class="num">{{ fmt_pp_1dp(row.entry_ebitda_margin) }}</td>
-    <td class="num">{{ fmt_multiple(row.entry_ev_ebitda) }}</td>
-    <td class="num">{{ fmt_multiple(row.entry_net_debt_ebitda) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.entry_net_debt_ev) }}</td>
-    <td class="num">{{ fmt_currency(row.exit_ltm_ebitda) }}</td>
-    <td class="num">{{ fmt_pp_1dp(row.exit_ebitda_margin) }}</td>
-    <td class="num">{{ fmt_multiple(row.exit_ev_ebitda) }}</td>
-    <td class="num">{{ fmt_multiple(row.exit_net_debt_ebitda) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.exit_net_debt_ev) }}</td>
-    <td class="num">{{ fmt_currency(row.diff_ebitda) }}</td>
-    <td class="num">{{ fmt_pp_1dp(row.diff_ebitda_margin) }}</td>
-    <td class="num">{{ fmt_multiple(row.diff_ev_ebitda) }}</td>
-    <td class="num">{{ fmt_multiple(row.diff_net_debt_ebitda) }}</td>
-    <td class="num">{{ fmt_pct_1dp(row.diff_net_debt_ev) }}</td>
+    {% for column in columns %}
+    <td class="{% if column.numeric %}num{% endif %}">{{ render_vca_cell(row, column) }}</td>
+    {% endfor %}
+</tr>
+{%- endmacro %}
+
+{% macro render_vca_print_row(row, columns, column_indexes) -%}
+<tr class="vca-row vca-row-{{ row.row_kind }}">
+    {% for column in columns %}
+    {% if loop.index0 in column_indexes %}
+    <td class="{% if column.numeric %}num{% endif %}">{{ render_vca_cell(row, column) }}</td>
+    {% endif %}
+    {% endfor %}
 </tr>
 {%- endmacro %}
 
 {% if analysis.fund_blocks %}
+{% set vca_print_sections = [
+    {
+        "id": "deal-performance-growth",
+        "title": "Deal Profile + Fund Performance + EBITDA Growth",
+        "indexes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    },
+    {
+        "id": "value-creation",
+        "title": "Value Creation (%) + Value Creation ($)",
+        "indexes": [0, 1, 2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23, 24]
+    },
+    {
+        "id": "entry-exit-operating",
+        "title": "Entry/Exit Operating Metrics",
+        "indexes": [0, 1, 2, 3, 4, 5, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
+    },
+    {
+        "id": "difference-vs-entry",
+        "title": "Exit vs Entry Differences",
+        "indexes": [0, 1, 2, 3, 4, 5, 35, 36, 37, 38, 39]
+    }
+] %}
+
 <div class="panel vca-ebitda-root">
     <div class="vca-ebitda-title-row">
         <div>
@@ -156,15 +225,15 @@
                 </tr>
 
                 {% for row in fund.deal_rows %}
-                {{ render_vca_row(row) }}
+                {{ render_vca_row(row, analysis.header.columns) }}
                 {% endfor %}
 
                 {% for row in fund.subtotal_rows %}
-                {{ render_vca_row(row) }}
+                {{ render_vca_row(row, analysis.header.columns) }}
                 {% endfor %}
 
                 {% for row in fund.summary_rows %}
-                {{ render_vca_row(row) }}
+                {{ render_vca_row(row, analysis.header.columns) }}
                 {% endfor %}
 
                 <tr class="vca-gap"><td colspan="{{ analysis.header.columns|length }}"></td></tr>
@@ -175,14 +244,78 @@
                 </tr>
 
                 {% for row in analysis.overall_block.subtotal_rows %}
-                {{ render_vca_row(row) }}
+                {{ render_vca_row(row, analysis.header.columns) }}
                 {% endfor %}
 
                 {% for row in analysis.overall_block.summary_rows %}
-                {{ render_vca_row(row) }}
+                {{ render_vca_row(row, analysis.header.columns) }}
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div class="vca-print-layout">
+        <div class="vca-print-header">
+            <h4>{{ analysis.meta.title }}</h4>
+            <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_label() }}</p>
+            <p class="vca-print-meta">Filters: Fund {{ current_fund or "All Funds" }} | Status {{ current_status or "All Statuses" }} | Sector {{ current_sector or "All Sectors" }} | Geography {{ current_geography or "All Geographies" }} | Vintage {{ current_vintage or "All Vintages" }} | Exit Type {{ current_exit_type or "All Exit Types" }}</p>
+        </div>
+
+        {% for section in vca_print_sections %}
+        <section class="vca-print-section" data-vca-print-section="{{ section.id }}">
+            <h5 class="vca-print-section-title">{{ section.title }}</h5>
+            <div class="vca-print-table-wrap">
+                <table class="vca-print-table">
+                    <thead>
+                        <tr>
+                            {% for column in analysis.header.columns %}
+                            {% if loop.index0 in section.indexes %}
+                            <th class="{% if column.numeric %}num{% endif %}">{{ column.label }}</th>
+                            {% endif %}
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for fund in analysis.fund_blocks %}
+                        <tr class="vca-fund-header">
+                            <td colspan="{{ section.indexes|length }}">
+                                {{ fund.fund_name }}
+                                {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
+                                {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
+                            </td>
+                        </tr>
+
+                        {% for row in fund.deal_rows %}
+                        {{ render_vca_print_row(row, analysis.header.columns, section.indexes) }}
+                        {% endfor %}
+
+                        {% for row in fund.subtotal_rows %}
+                        {{ render_vca_print_row(row, analysis.header.columns, section.indexes) }}
+                        {% endfor %}
+
+                        {% for row in fund.summary_rows %}
+                        {{ render_vca_print_row(row, analysis.header.columns, section.indexes) }}
+                        {% endfor %}
+
+                        <tr class="vca-gap"><td colspan="{{ section.indexes|length }}"></td></tr>
+                        {% endfor %}
+
+                        <tr class="vca-overall-header">
+                            <td colspan="{{ section.indexes|length }}">Overall Portfolio</td>
+                        </tr>
+
+                        {% for row in analysis.overall_block.subtotal_rows %}
+                        {{ render_vca_print_row(row, analysis.header.columns, section.indexes) }}
+                        {% endfor %}
+
+                        {% for row in analysis.overall_block.summary_rows %}
+                        {{ render_vca_print_row(row, analysis.header.columns, section.indexes) }}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endfor %}
     </div>
 
     <div class="vca-footnotes">
@@ -191,6 +324,75 @@
         {% endfor %}
     </div>
 </div>
+<script>
+(() => {
+    const BASE_FONT_SIZE = 9.6;
+    const MIN_FONT_SIZE = 7.8;
+    const STEP = 0.2;
+    const PREVIEW_CLASS = "vca-preview-print";
+    const previewToggleBtn = document.getElementById("vcaPreviewToggle");
+    const vcaRoot = document.querySelector(".vca-ebitda-root");
+
+    const roundToTenth = (value) => Math.round(value * 10) / 10;
+
+    const autosizePrintTables = () => {
+        const tables = document.querySelectorAll(".vca-print-table");
+        tables.forEach((table) => {
+            const wrap = table.closest(".vca-print-table-wrap");
+            if (!wrap) return;
+
+            let size = BASE_FONT_SIZE;
+            table.style.setProperty("--vca-print-font-size", `${size}px`);
+
+            while (table.scrollWidth > wrap.clientWidth + 1 && size > MIN_FONT_SIZE) {
+                size = roundToTenth(Math.max(MIN_FONT_SIZE, size - STEP));
+                table.style.setProperty("--vca-print-font-size", `${size}px`);
+            }
+
+            table.dataset.vcaPrintAutosized = "1";
+        });
+    };
+
+    const resetPrintTableSizing = () => {
+        const tables = document.querySelectorAll(".vca-print-table[data-vca-print-autosized='1']");
+        tables.forEach((table) => {
+            table.style.removeProperty("--vca-print-font-size");
+            delete table.dataset.vcaPrintAutosized;
+        });
+    };
+
+    const setPreviewMode = (enabled) => {
+        if (!vcaRoot || !previewToggleBtn) return;
+        vcaRoot.classList.toggle(PREVIEW_CLASS, enabled);
+        previewToggleBtn.setAttribute("aria-pressed", enabled ? "true" : "false");
+        previewToggleBtn.innerHTML = enabled
+            ? '<i class="bi bi-table"></i> Back to Wide Table'
+            : '<i class="bi bi-layout-text-window"></i> Preview Print Layout';
+        if (enabled) autosizePrintTables();
+        else resetPrintTableSizing();
+    };
+
+    if (previewToggleBtn && vcaRoot) {
+        previewToggleBtn.addEventListener("click", () => {
+            const isEnabled = vcaRoot.classList.contains(PREVIEW_CLASS);
+            setPreviewMode(!isEnabled);
+        });
+    }
+
+    window.addEventListener("beforeprint", autosizePrintTables);
+    window.addEventListener("afterprint", resetPrintTableSizing);
+
+    if (window.matchMedia) {
+        const media = window.matchMedia("print");
+        const onMediaChange = (event) => {
+            if (event.matches) autosizePrintTables();
+            else resetPrintTableSizing();
+        };
+        if (media.addEventListener) media.addEventListener("change", onMediaChange);
+        else if (media.addListener) media.addListener(onMediaChange);
+    }
+})();
+</script>
 {% else %}
 <div class="empty-state">
     <h3>No deals available for the current filter set.</h3>
