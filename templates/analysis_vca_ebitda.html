@@ -619,8 +619,10 @@ N/A
                 const rawScale = wrap.clientWidth / table.scrollWidth;
                 const scale = Math.max(settings.minScale, rawScale);
                 table.style.setProperty("--vca-print-scale", `${roundToHundredth(scale)}`);
-                const scaledHeight = Math.ceil(table.getBoundingClientRect().height);
-                wrap.style.height = `${(scaledHeight > 0 ? scaledHeight : Math.ceil(table.scrollHeight * scale)) + 1}px`;
+                const naturalHeight = table.scrollHeight;
+                wrap.style.height = `${Math.ceil(naturalHeight * scale) + 1}px`;
+            } else {
+                wrap.style.removeProperty("height");
             }
 
             table.dataset.vcaPrintAutosized = "1";

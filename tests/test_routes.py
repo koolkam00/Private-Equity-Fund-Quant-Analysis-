@@ -1473,6 +1473,7 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"Difference Exit/Current vs Entry" in response.data
     assert b"vca-print-layout" in response.data
     assert b"vca-print-book" in response.data
+    assert response.data.count(b"vca-print-fund-page") >= 1
     assert b"vca-print-fund-page" in response.data
     assert b"vca-print-overall-page" in response.data
     assert b'id="vcaPrintSort"' in response.data
