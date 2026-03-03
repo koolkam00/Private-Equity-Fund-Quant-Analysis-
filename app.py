@@ -536,6 +536,8 @@ def _scale_analysis_payload(page, payload, scale):
 
         for fund in payload.get("fund_blocks") or []:
             fund["fund_size"] = _scale_money(fund.get("fund_size"), scale)
+            sort_metrics = fund.get("print_sort_metrics") or {}
+            sort_metrics["gross_profit"] = _scale_money(sort_metrics.get("gross_profit"), scale)
             for key in ("deal_rows", "subtotal_rows", "summary_rows"):
                 for row in fund.get(key) or []:
                     for money_key in money_keys:
@@ -546,6 +548,8 @@ def _scale_analysis_payload(page, payload, scale):
             for row in overall.get(key) or []:
                 for money_key in money_keys:
                     row[money_key] = _scale_money(row.get(money_key), scale)
+        summary_metrics = overall.get("summary_metrics") or {}
+        summary_metrics["gross_profit"] = _scale_money(summary_metrics.get("gross_profit"), scale)
         return
 
 

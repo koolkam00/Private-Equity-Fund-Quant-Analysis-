@@ -145,10 +145,52 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro vca_cell_classes(row, column) -%}
+{% set key = column.key %}
+{% set value = row.get(key) %}
+{% set sign_keys = [
+    "vc_ebitda_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "vc_ebitda_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "diff_ebitda",
+    "diff_ebitda_margin",
+    "diff_ev_ebitda",
+    "diff_net_debt_ebitda",
+    "diff_net_debt_ev"
+] %}
+{% set classes = [] %}
+{% if column.numeric %}{% set _ = classes.append("num") %}{% endif %}
+{% if key in sign_keys and value is number %}
+    {% if value > 0 %}
+        {% set _ = classes.append("vca-cell-pos") %}
+    {% elif value < 0 %}
+        {% set _ = classes.append("vca-cell-neg") %}
+    {% else %}
+        {% set _ = classes.append("vca-cell-flat") %}
+    {% endif %}
+{% endif %}
+{{ classes|join(" ") }}
+{%- endmacro %}
+
+{% macro render_net_metric(value, conflict, metric) -%}
+{% if conflict or value is none -%}
+N/A
+{% elif metric == "irr" -%}
+{{ fmt_pct_1dp(value) }}
+{% else -%}
+{{ fmt_multiple(value) }}
+{% endif %}
+{%- endmacro %}
+
 {% macro render_vca_row(row, columns) -%}
 <tr class="vca-row vca-row-{{ row.row_kind }}">
     {% for column in columns %}
-    <td class="{% if column.numeric %}num{% endif %}">{{ render_vca_cell(row, column) }}</td>
+    <td class="{{ vca_cell_classes(row, column) }}">{{ render_vca_cell(row, column) }}</td>
     {% endfor %}
 </tr>
 {%- endmacro %}
@@ -156,7 +198,7 @@
 {% macro render_vca_print_row(row, columns) -%}
 <tr class="vca-row vca-row-{{ row.row_kind }}">
     {% for column in columns %}
-    <td class="{% if column.numeric %}num{% endif %}">{{ render_vca_cell(row, column) }}</td>
+    <td class="{{ vca_cell_classes(row, column) }}">{{ render_vca_cell(row, column) }}</td>
     {% endfor %}
 </tr>
 {%- endmacro %}
@@ -205,12 +247,33 @@
     "diff_net_debt_ev": "Diff ND/EV"
 } %}
 {% set vca_filter_summary = "Filters: Fund " ~ (current_fund or "All Funds") ~ " | Status " ~ (current_status or "All Statuses") ~ " | Sector " ~ (current_sector or "All Sectors") ~ " | Geography " ~ (current_geography or "All Geographies") ~ " | Vintage " ~ (current_vintage or "All Vintages") ~ " | Exit Type " ~ (current_exit_type or "All Exit Types") %}
+{% set vca_legend_summary = "Legend: Cost=Fund Total Cost | GP%Tot=Gross Profit % of Total | Ent=Entry | Exit=Exit/Current | Diff=Exit-Entry | ND=Net Debt" %}
 
-<div class="panel vca-ebitda-root">
+<div class="panel vca-ebitda-root vca-mode-detailed vca-density-readable">
     <div class="vca-ebitda-title-row">
         <div>
             <h3>{{ analysis.meta.title }}</h3>
             <p class="subtitle">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} • {{ fmt_currency_unit_symbol_label() }}</p>
+        </div>
+        <div class="vca-print-controls">
+            <label for="vcaPrintSort">Print Fund Order</label>
+            <select id="vcaPrintSort">
+                <option value="fund_name">Fund Name</option>
+                <option value="gross_profit">Gross Profit</option>
+                <option value="gross_moic">Gross MOIC</option>
+                <option value="gross_irr">Gross IRR</option>
+                <option value="status">Status</option>
+            </select>
+            <label for="vcaDensityToggle">Density</label>
+            <select id="vcaDensityToggle">
+                <option value="readable">Readable</option>
+                <option value="compact">Compact</option>
+            </select>
+            <label for="vcaModeToggle">Mode</label>
+            <select id="vcaModeToggle">
+                <option value="detailed">Detailed</option>
+                <option value="executive">Executive PDF</option>
+            </select>
         </div>
     </div>
 
@@ -279,9 +342,70 @@
             <p class="vca-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }}</p>
             <p class="vca-print-meta">{{ vca_filter_summary }}</p>
         </div>
+        <section class="vca-print-exec-main">
+            <h5>Executive Summary: Fund Net Performance</h5>
+            <table class="vca-print-exec-table">
+                <thead>
+                    <tr>
+                        <th>Fund</th>
+                        <th class="num">Net IRR</th>
+                        <th class="num">Net MOIC</th>
+                        <th class="num">Net DPI</th>
+                        <th class="num">Gross Profit</th>
+                        <th class="num">Gross MOIC</th>
+                        <th class="num">Gross IRR</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fund in analysis.fund_blocks %}
+                    <tr
+                        class="vca-exec-fund-row"
+                        data-sort-fund-name="{{ fund.print_sort_metrics.fund_name_norm }}"
+                        data-sort-gross-profit="{{ fund.print_sort_metrics.gross_profit if fund.print_sort_metrics.gross_profit is not none else '' }}"
+                        data-sort-gross-moic="{{ fund.print_sort_metrics.gross_moic if fund.print_sort_metrics.gross_moic is not none else '' }}"
+                        data-sort-gross-irr="{{ fund.print_sort_metrics.gross_irr if fund.print_sort_metrics.gross_irr is not none else '' }}"
+                        data-sort-status-rank="{{ fund.print_sort_metrics.status_rank if fund.print_sort_metrics.status_rank is not none else 99 }}"
+                    >
+                        <td>{{ fund.fund_name }}</td>
+                        <td class="num">{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</td>
+                        <td class="num">{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</td>
+                        <td class="num">{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</td>
+                        <td class="num">{{ fmt_currency_symbol(fund.print_sort_metrics.gross_profit) }}</td>
+                        <td class="num">{{ fmt_multiple(fund.print_sort_metrics.gross_moic) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(fund.print_sort_metrics.gross_irr) }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="vca-exec-overall-row">
+                        <td><strong>Overall Portfolio</strong></td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
+                        <td class="num">—</td>
+                        <td class="num"><strong>{{ fmt_currency_symbol(analysis.overall_block.summary_metrics.gross_profit) }}</strong></td>
+                        <td class="num"><strong>{{ fmt_multiple(analysis.overall_block.summary_metrics.gross_moic) }}</strong></td>
+                        <td class="num"><strong>{{ fmt_pct_1dp(analysis.overall_block.summary_metrics.gross_irr) }}</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <div class="vca-print-appendix-title">Appendix: Full Deal Detail</div>
         <div class="vca-print-book">
             {% for fund in analysis.fund_blocks %}
-            <section class="vca-print-fund-page" data-vca-fund-page="{{ loop.index }}">
+            <section
+                class="vca-print-fund-page"
+                data-vca-fund-page="{{ loop.index }}"
+                data-sort-fund-name="{{ fund.print_sort_metrics.fund_name_norm }}"
+                data-sort-gross-profit="{{ fund.print_sort_metrics.gross_profit if fund.print_sort_metrics.gross_profit is not none else '' }}"
+                data-sort-gross-moic="{{ fund.print_sort_metrics.gross_moic if fund.print_sort_metrics.gross_moic is not none else '' }}"
+                data-sort-gross-irr="{{ fund.print_sort_metrics.gross_irr if fund.print_sort_metrics.gross_irr is not none else '' }}"
+                data-sort-status-rank="{{ fund.print_sort_metrics.status_rank if fund.print_sort_metrics.status_rank is not none else 99 }}"
+            >
+                <div class="vca-net-summary">
+                    <span class="vca-net-label">{{ fund.fund_name }} Net Performance</span>
+                    <span>Net IRR: <strong>{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</strong></span>
+                    <span>Net MOIC: <strong>{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</strong></span>
+                    <span>Net DPI: <strong>{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</strong></span>
+                </div>
                 <div class="vca-print-table-wrap">
                     <table class="vca-print-table">
                         <thead>
@@ -294,6 +418,9 @@
                                 {% for column in analysis.header.columns %}
                                 <th class="{% if column.numeric %}num{% endif %}">{{ vca_print_label_map.get(column.key, column.label) }}</th>
                                 {% endfor %}
+                            </tr>
+                            <tr class="vca-head-legend">
+                                <th colspan="{{ analysis.header.columns|length }}">{{ vca_legend_summary }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -317,6 +444,11 @@
                             {{ render_vca_print_row(row, analysis.header.columns) }}
                             {% endfor %}
                         </tbody>
+                        <tfoot>
+                            <tr class="vca-print-footer">
+                                <td colspan="{{ analysis.header.columns|length }}">Fund {{ loop.index }} of {{ analysis.fund_blocks|length }} • {{ fund.fund_name }}</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </section>
@@ -336,6 +468,9 @@
                                 <th class="{% if column.numeric %}num{% endif %}">{{ vca_print_label_map.get(column.key, column.label) }}</th>
                                 {% endfor %}
                             </tr>
+                            <tr class="vca-head-legend">
+                                <th colspan="{{ analysis.header.columns|length }}">{{ vca_legend_summary }}</th>
+                            </tr>
                         </thead>
                         <tbody>
                             <tr class="vca-overall-header">
@@ -348,6 +483,11 @@
                             {{ render_vca_print_row(row, analysis.header.columns) }}
                             {% endfor %}
                         </tbody>
+                        <tfoot>
+                            <tr class="vca-print-footer">
+                                <td colspan="{{ analysis.header.columns|length }}">Overall Portfolio (Final Block)</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </section>
@@ -362,35 +502,118 @@
 </div>
 <script>
 (() => {
-    const BASE_FONT_SIZE = 8.0;
-    const MIN_FONT_SIZE = 5.8;
-    const STEP = 0.1;
-    const MIN_SCALE = 0.82;
+    const DENSITY_SETTINGS = {
+        readable: { base: 8.0, min: 5.8, step: 0.1, minScale: 0.82 },
+        compact: { base: 7.4, min: 5.4, step: 0.1, minScale: 0.80 },
+    };
+    const STORAGE_KEYS = {
+        sort: "vca_print_sort",
+        density: "vca_print_density",
+        mode: "vca_print_mode",
+    };
+    const DEFAULT_SORT = "fund_name";
+    const DEFAULT_DENSITY = "readable";
+    const DEFAULT_MODE = "detailed";
     const PREVIEW_CLASS = "vca-preview-print";
     const previewToggleBtn = document.getElementById("vcaPreviewToggle");
     const vcaRoot = document.querySelector(".vca-ebitda-root");
+    const sortSelect = document.getElementById("vcaPrintSort");
+    const densitySelect = document.getElementById("vcaDensityToggle");
+    const modeSelect = document.getElementById("vcaModeToggle");
+    const printBook = document.querySelector(".vca-print-book");
+    const execTableBody = document.querySelector(".vca-print-exec-table tbody");
 
     const roundToHundredth = (value) => Math.round(value * 100) / 100;
+    const readStored = (key, fallback) => {
+        try {
+            const value = window.localStorage.getItem(key);
+            return value || fallback;
+        } catch (error) {
+            return fallback;
+        }
+    };
+    const writeStored = (key, value) => {
+        try {
+            window.localStorage.setItem(key, value);
+        } catch (error) {
+            // No-op when storage is unavailable.
+        }
+    };
+    const currentDensity = () => (densitySelect && densitySelect.value === "compact" ? "compact" : "readable");
+    const densitySettings = () => DENSITY_SETTINGS[currentDensity()];
+    const compareBySortKey = (left, right, sortKey) => {
+        const leftName = left.dataset.sortFundName || "";
+        const rightName = right.dataset.sortFundName || "";
+
+        if (sortKey === "fund_name") {
+            return leftName.localeCompare(rightName);
+        }
+        if (sortKey === "status") {
+            const leftRank = Number(left.dataset.sortStatusRank || 99);
+            const rightRank = Number(right.dataset.sortStatusRank || 99);
+            if (leftRank !== rightRank) return leftRank - rightRank;
+            return leftName.localeCompare(rightName);
+        }
+
+        const keyMap = {
+            gross_profit: "sortGrossProfit",
+            gross_moic: "sortGrossMoic",
+            gross_irr: "sortGrossIrr",
+        };
+        const datasetKey = keyMap[sortKey];
+        const leftValue = Number(left.dataset[datasetKey] || Number.NEGATIVE_INFINITY);
+        const rightValue = Number(right.dataset[datasetKey] || Number.NEGATIVE_INFINITY);
+        if (leftValue !== rightValue) return rightValue - leftValue;
+        return leftName.localeCompare(rightName);
+    };
+    const sortFundPages = () => {
+        if (!printBook || !sortSelect) return;
+        const sortKey = sortSelect.value || DEFAULT_SORT;
+        const overall = printBook.querySelector(".vca-print-overall-page");
+        const fundPages = Array.from(printBook.querySelectorAll(".vca-print-fund-page"));
+        fundPages.sort((a, b) => compareBySortKey(a, b, sortKey));
+        fundPages.forEach((node) => printBook.appendChild(node));
+        if (overall) printBook.appendChild(overall);
+    };
+    const sortExecutiveRows = () => {
+        if (!execTableBody || !sortSelect) return;
+        const sortKey = sortSelect.value || DEFAULT_SORT;
+        const overall = execTableBody.querySelector(".vca-exec-overall-row");
+        const fundRows = Array.from(execTableBody.querySelectorAll(".vca-exec-fund-row"));
+        fundRows.sort((a, b) => compareBySortKey(a, b, sortKey));
+        fundRows.forEach((node) => execTableBody.appendChild(node));
+        if (overall) execTableBody.appendChild(overall);
+    };
+    const applyRootDisplayState = () => {
+        if (!vcaRoot) return;
+        const density = currentDensity();
+        const mode = modeSelect && modeSelect.value === "executive" ? "executive" : "detailed";
+        vcaRoot.classList.toggle("vca-density-readable", density === "readable");
+        vcaRoot.classList.toggle("vca-density-compact", density === "compact");
+        vcaRoot.classList.toggle("vca-mode-detailed", mode === "detailed");
+        vcaRoot.classList.toggle("vca-mode-executive", mode === "executive");
+    };
 
     const autosizePrintTables = () => {
+        const settings = densitySettings();
         const tables = document.querySelectorAll(".vca-print-table");
         tables.forEach((table) => {
             const wrap = table.closest(".vca-print-table-wrap");
             if (!wrap) return;
 
             wrap.style.removeProperty("height");
-            let size = BASE_FONT_SIZE;
+            let size = settings.base;
             table.style.setProperty("--vca-print-font-size", `${size}px`);
             table.style.setProperty("--vca-print-scale", "1");
 
-            while (table.scrollWidth > wrap.clientWidth + 1 && size > MIN_FONT_SIZE) {
-                size = roundToHundredth(Math.max(MIN_FONT_SIZE, size - STEP));
+            while (table.scrollWidth > wrap.clientWidth + 1 && size > settings.min) {
+                size = roundToHundredth(Math.max(settings.min, size - settings.step));
                 table.style.setProperty("--vca-print-font-size", `${size}px`);
             }
 
             if (table.scrollWidth > wrap.clientWidth + 1) {
                 const rawScale = wrap.clientWidth / table.scrollWidth;
-                const scale = Math.max(MIN_SCALE, rawScale);
+                const scale = Math.max(settings.minScale, rawScale);
                 table.style.setProperty("--vca-print-scale", `${roundToHundredth(scale)}`);
                 wrap.style.height = `${Math.ceil(table.scrollHeight * scale)}px`;
             }
@@ -410,6 +633,13 @@
         });
     };
 
+    const applyPrintOptions = () => {
+        applyRootDisplayState();
+        sortFundPages();
+        sortExecutiveRows();
+        if (vcaRoot && vcaRoot.classList.contains(PREVIEW_CLASS)) autosizePrintTables();
+    };
+
     const setPreviewMode = (enabled) => {
         if (!vcaRoot || !previewToggleBtn) return;
         vcaRoot.classList.toggle(PREVIEW_CLASS, enabled);
@@ -417,9 +647,18 @@
         previewToggleBtn.innerHTML = enabled
             ? '<i class="bi bi-table"></i> Back to Wide Table'
             : '<i class="bi bi-layout-text-window"></i> Preview Print Layout';
-        if (enabled) autosizePrintTables();
+        if (enabled) {
+            sortFundPages();
+            sortExecutiveRows();
+            autosizePrintTables();
+        }
         else resetPrintTableSizing();
     };
+
+    if (sortSelect) sortSelect.value = readStored(STORAGE_KEYS.sort, DEFAULT_SORT);
+    if (densitySelect) densitySelect.value = readStored(STORAGE_KEYS.density, DEFAULT_DENSITY);
+    if (modeSelect) modeSelect.value = readStored(STORAGE_KEYS.mode, DEFAULT_MODE);
+    applyPrintOptions();
 
     if (previewToggleBtn && vcaRoot) {
         previewToggleBtn.addEventListener("click", () => {
@@ -428,13 +667,38 @@
         });
     }
 
-    window.addEventListener("beforeprint", autosizePrintTables);
+    if (sortSelect) {
+        sortSelect.addEventListener("change", () => {
+            writeStored(STORAGE_KEYS.sort, sortSelect.value);
+            applyPrintOptions();
+        });
+    }
+    if (densitySelect) {
+        densitySelect.addEventListener("change", () => {
+            writeStored(STORAGE_KEYS.density, densitySelect.value);
+            applyPrintOptions();
+        });
+    }
+    if (modeSelect) {
+        modeSelect.addEventListener("change", () => {
+            writeStored(STORAGE_KEYS.mode, modeSelect.value);
+            applyPrintOptions();
+        });
+    }
+
+    window.addEventListener("beforeprint", () => {
+        applyPrintOptions();
+        autosizePrintTables();
+    });
     window.addEventListener("afterprint", resetPrintTableSizing);
 
     if (window.matchMedia) {
         const media = window.matchMedia("print");
         const onMediaChange = (event) => {
-            if (event.matches) autosizePrintTables();
+            if (event.matches) {
+                applyPrintOptions();
+                autosizePrintTables();
+            }
             else resetPrintTableSizing();
         };
         if (media.addEventListener) media.addEventListener("change", onMediaChange);

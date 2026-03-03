@@ -28,7 +28,7 @@ Primary fields used in analytics:
 Currency policy:
 - No FX conversion is applied in analytics.
 - All monetary values are interpreted and displayed in the active firm's base currency.
-- UI and PDF money rendering use `CODE + symbol` (for example, `USD $123.4M`).
+- Dashboard/deals/track-record/UI defaults use `CODE + symbol` (for example, `USD $123.4M`); `/analysis/*` pages use symbol-only display (for example, `$123.4M`).
 
 ## 4. Calculation Framework
 
@@ -403,6 +403,12 @@ Active firm precedence:
 - Print/PDF:
   - Browser-native print (`window.print()`), with Legal landscape print CSS and compact non-wrapping rows.
   - Print layout renders a single full-width 40-column table per fund block; multiple fund blocks can share a page when space allows, and each block is kept intact when possible.
+  - Print controls support fund-block ordering (`Fund Name`, `Gross Profit`, `Gross MOIC`, `Gross IRR`, `Status`), density (`Readable`/`Compact`), and mode (`Detailed`/`Executive PDF`).
+  - A compact legend strip is rendered in the print table header and repeats on each printed page via `thead` repetition.
+  - Footer labels use section indexing (`Fund X of N`) per fund block and an explicit final overall-block footer label.
+  - Executive mode prepends a net-performance summary section (per fund `Net IRR`, `Net MOIC`, `Net DPI` plus overall gross summary), then keeps full detail tables as an appendix.
+  - Fund-level net conflicts are rendered as `N/A` for the conflicting metric(s).
   - Overall portfolio block prints on a dedicated final page.
   - Formula legend row remains on-screen but is suppressed in print for density/readability.
+  - Subtotal/summary/overall rows use stronger contrast and accent borders than deal rows; signed delta/value-creation cells apply explicit positive/negative styling in screen and print.
   - Analysis pages render symbol-only money display (`$`, `€`, etc.) with currency code suppressed in table values and unit labels.

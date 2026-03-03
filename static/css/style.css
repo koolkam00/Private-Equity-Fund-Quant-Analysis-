@@ -633,11 +633,40 @@ body.pe-app {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
     padding: 12px 14px 0;
 }
 .vca-ebitda-title-row h3 {
     margin: 0;
     color: #163a5a;
+}
+.vca-print-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.vca-print-controls label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #27455f;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.vca-print-controls select {
+    border: 1px solid #9fb3c6;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #18344d;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 7px;
+}
+.vca-print-controls select:focus {
+    outline: none;
+    border-color: #416483;
+    box-shadow: 0 0 0 2px rgba(65, 100, 131, 0.2);
 }
 .vca-ebitda-wrap {
     overflow-x: auto;
@@ -777,20 +806,33 @@ body.pe-app {
     background: #edf1f5;
 }
 .vca-ebitda-table .vca-row-subtotal td {
-    background: #b8d0e6;
+    background: #b3cae0;
     font-weight: 800;
-    border-top: 1px solid #5d7f9b;
-    border-bottom: 1px solid #5d7f9b;
+    border-top: 1px solid #4f6f8d;
+    border-bottom: 1px solid #4f6f8d;
 }
 .vca-ebitda-table .vca-row-summary td {
-    background: #d0e0f0;
+    background: #dbe8f4;
     font-weight: 800;
+    border-top: 1px solid #8ea5bc;
+    border-bottom: 1px solid #8ea5bc;
 }
 .vca-ebitda-table .vca-row-subtotal td:first-child {
-    box-shadow: inset 4px 0 0 #2d5f89;
+    box-shadow: inset 5px 0 0 #245278;
 }
 .vca-ebitda-table .vca-row-summary td:first-child {
-    box-shadow: inset 4px 0 0 #5b7ea2;
+    box-shadow: inset 5px 0 0 #567998;
+}
+.vca-ebitda-table .vca-cell-pos {
+    color: #0f5f4b;
+    font-weight: 700;
+}
+.vca-ebitda-table .vca-cell-neg {
+    color: #8a2031;
+    font-weight: 700;
+}
+.vca-ebitda-table .vca-cell-flat {
+    color: #596c7e;
 }
 .vca-ebitda-table .vca-gap td {
     background: #cedcea;
@@ -825,12 +867,76 @@ body.pe-app {
     display: grid;
     gap: 10px;
 }
+.vca-print-exec-main {
+    display: none;
+    margin-bottom: 8px;
+    border: 1px solid #c2d0dd;
+    border-radius: 4px;
+    background: #ffffff;
+    padding: 6px;
+}
+.vca-print-exec-main h5 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #24405a;
+}
+.vca-print-exec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+    color: #123049;
+}
+.vca-print-exec-table th,
+.vca-print-exec-table td {
+    border: 1px solid #c8d5e0;
+    padding: 2px 4px;
+}
+.vca-print-exec-table thead th {
+    background: #e6edf4;
+    color: #1d3c58;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 8px;
+}
+.vca-print-exec-overall-row td {
+    background: #d9e4ef;
+    font-weight: 800;
+}
+.vca-print-appendix-title {
+    display: none;
+    margin: 6px 0 4px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #25435f;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
 .vca-print-fund-page,
 .vca-print-overall-page {
     border: 1px solid #c2d0dd;
     border-radius: 4px;
     background: #ffffff;
     padding: 6px;
+}
+.vca-net-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+    padding: 2px 4px;
+    border: 1px solid #ccd8e4;
+    background: #f2f6fa;
+    color: #183650;
+    font-size: 8.5px;
+    line-height: 1.15;
+}
+.vca-net-summary .vca-net-label {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 .vca-print-header {
     margin-bottom: 4px;
@@ -888,6 +994,15 @@ body.pe-app {
     font-size: 7px;
     font-weight: 700;
 }
+.vca-print-table .vca-head-legend th {
+    background: #f1f5f9;
+    color: #35516b;
+    font-family: var(--mono);
+    font-size: 6.7px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0.01em;
+}
 .vca-print-table .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -899,20 +1014,22 @@ body.pe-app {
     background: #edf1f4;
 }
 .vca-print-table .vca-row-subtotal td {
-    background: #d4e0eb;
+    background: #ccdbe8;
     font-weight: 800;
-    border-top: 1px solid #8598ac;
-    border-bottom: 1px solid #8598ac;
+    border-top: 1px solid #6f859b;
+    border-bottom: 1px solid #6f859b;
 }
 .vca-print-table .vca-row-summary td {
-    background: #dde7f0;
+    background: #e4ecf4;
     font-weight: 800;
+    border-top: 1px solid #a6b5c4;
+    border-bottom: 1px solid #a6b5c4;
 }
 .vca-print-table .vca-row-subtotal td:first-child {
-    box-shadow: inset 3px 0 0 #5b748d;
+    box-shadow: inset 4px 0 0 #4d677f;
 }
 .vca-print-table .vca-row-summary td:first-child {
-    box-shadow: inset 3px 0 0 #7d90a3;
+    box-shadow: inset 4px 0 0 #7d93a8;
 }
 .vca-print-table .vca-fund-header td {
     background: #d8e4ee;
@@ -933,6 +1050,38 @@ body.pe-app {
     border: none;
     height: 4px;
     padding: 0;
+}
+.vca-print-table .vca-print-footer td {
+    background: #f3f6fa;
+    color: #2c4a65;
+    font-size: 7px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: 700;
+    border-top: 1px solid #b7c7d6;
+}
+.vca-print-table .vca-cell-pos {
+    color: #0f5f4b;
+    font-weight: 700;
+}
+.vca-print-table .vca-cell-neg {
+    color: #842336;
+    font-weight: 700;
+    background-image: linear-gradient(90deg, rgba(132, 35, 54, 0.1) 0%, rgba(132, 35, 54, 0.02) 75%);
+}
+.vca-print-table .vca-cell-flat {
+    color: #5f7080;
+}
+.vca-ebitda-root.vca-mode-executive .vca-print-exec-main,
+.vca-ebitda-root.vca-mode-executive .vca-print-appendix-title {
+    display: block;
+}
+.vca-ebitda-root.vca-density-compact .vca-print-exec-table {
+    font-size: 8px;
+}
+.vca-ebitda-root.vca-density-compact .vca-net-summary {
+    font-size: 8px;
+    padding: 1px 3px;
 }
 .rollup-subsection-title {
     margin: 14px 0 8px;
@@ -1751,7 +1900,8 @@ body.pe-app {
     }
 
     .vca-print-btn,
-    .vca-preview-btn {
+    .vca-preview-btn,
+    .vca-print-controls {
         display: none !important;
     }
 
@@ -1811,10 +1961,25 @@ body.pe-app {
         break-inside: avoid-page;
         page-break-inside: avoid;
     }
+    .vca-print-fund-page:first-child {
+        break-before: auto !important;
+        page-break-before: auto !important;
+    }
 
     .vca-print-overall-page {
         break-before: page;
         page-break-before: always;
+    }
+
+    .vca-print-exec-main {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin: 0 0 8px !important;
+    }
+
+    .vca-print-appendix-title {
+        break-after: avoid;
+        page-break-after: avoid;
     }
 
     .vca-print-header h4 {
@@ -1840,6 +2005,9 @@ body.pe-app {
     .vca-print-table thead {
         display: table-header-group !important;
     }
+    .vca-print-table tfoot {
+        display: table-footer-group !important;
+    }
 
     .vca-print-table .vca-head-band th {
         font-size: 6.8px !important;
@@ -1848,6 +2016,10 @@ body.pe-app {
 
     .vca-print-table .vca-head-cols th {
         font-size: 6.6px !important;
+        padding: 1px 2px !important;
+    }
+    .vca-print-table .vca-head-legend th {
+        font-size: 6.1px !important;
         padding: 1px 2px !important;
     }
 
@@ -1867,6 +2039,20 @@ body.pe-app {
     .vca-print-table tr {
         page-break-inside: avoid;
         break-inside: avoid;
+    }
+
+    .vca-ebitda-root.vca-density-compact .vca-print-table th,
+    .vca-ebitda-root.vca-density-compact .vca-print-table td {
+        padding: 0 1px !important;
+    }
+    .vca-ebitda-root.vca-density-compact .vca-print-table .vca-head-band th {
+        font-size: 6.2px !important;
+    }
+    .vca-ebitda-root.vca-density-compact .vca-print-table .vca-head-cols th {
+        font-size: 6.0px !important;
+    }
+    .vca-ebitda-root.vca-density-compact .vca-print-table .vca-head-legend th {
+        font-size: 5.7px !important;
     }
 
     .vca-footnotes {

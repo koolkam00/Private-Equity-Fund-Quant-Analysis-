@@ -1437,6 +1437,9 @@ def test_analysis_vca_ebitda_api_payload_shape(client):
     assert "header" in payload
     assert "fund_blocks" in payload
     assert "overall_block" in payload
+    assert "net_performance" in payload["fund_blocks"][0]
+    assert "print_sort_metrics" in payload["fund_blocks"][0]
+    assert "summary_metrics" in payload["overall_block"]
 
 
 def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
@@ -1472,9 +1475,74 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"vca-print-book" in response.data
     assert b"vca-print-fund-page" in response.data
     assert b"vca-print-overall-page" in response.data
+    assert b'id="vcaPrintSort"' in response.data
+    assert b'id="vcaDensityToggle"' in response.data
+    assert b'id="vcaModeToggle"' in response.data
+    assert b"vca-print-exec-main" in response.data
+    assert b"vca-print-appendix-title" in response.data
+    assert b"vca-net-summary" in response.data
+    assert b"Net IRR" in response.data
+    assert b"Net MOIC" in response.data
+    assert b"Net DPI" in response.data
     assert b"$M" in response.data
     assert b"| $M" in response.data
     assert b"| USD $M" not in response.data
+
+
+def test_analysis_vca_ebitda_net_conflict_renders_na(client):
+    d1 = Deal(
+        company_name="Conflict One",
+        fund_number="Fund Conflict",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=150,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=78,
+        entry_ebitda=10,
+        exit_ebitda=15,
+        entry_enterprise_value=120,
+        exit_enterprise_value=200,
+        entry_net_debt=30,
+        exit_net_debt=20,
+        irr=0.19,
+        net_irr=0.12,
+        net_moic=1.8,
+        net_dpi=0.9,
+    )
+    d2 = Deal(
+        company_name="Conflict Two",
+        fund_number="Fund Conflict",
+        status="Partially Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 6, 1),
+        equity_invested=80,
+        realized_value=90,
+        unrealized_value=20,
+        entry_revenue=45,
+        exit_revenue=67,
+        entry_ebitda=9,
+        exit_ebitda=13,
+        entry_enterprise_value=108,
+        exit_enterprise_value=172,
+        entry_net_debt=26,
+        exit_net_debt=18,
+        irr=0.17,
+        net_irr=0.15,
+        net_moic=1.8,
+        net_dpi=0.9,
+    )
+    db.session.add_all([_with_active_scope(d1), _with_active_scope(d2)])
+    db.session.commit()
+
+    response = client.get("/analysis/vca-ebitda")
+    assert response.status_code == 200
+    assert b"Fund Conflict Net Performance" in response.data
+    assert re.search(rb"Net IRR:\s*<strong>\s*N/A\s*</strong>", response.data) is not None
+    assert b"Net MOIC" in response.data
+    assert b"Net DPI" in response.data
 
 
 def test_analysis_non_vca_page_uses_symbol_only_money(client):

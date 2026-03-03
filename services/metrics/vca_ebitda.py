@@ -208,6 +208,42 @@ def _weighted_average(pairs):
     return numer / denom
 
 
+def _resolve_scalar(values, tolerance=1e-9):
+    clean = [float(v) for v in values if v is not None]
+    if not clean:
+        return {"value": None, "conflict": False}
+    base = clean[0]
+    if any(abs(v - base) > tolerance for v in clean[1:]):
+        return {"value": None, "conflict": True}
+    return {"value": base, "conflict": False}
+
+
+def _fund_net_performance(deals):
+    irr = _resolve_scalar([deal.net_irr for deal in deals])
+    moic = _resolve_scalar([deal.net_moic for deal in deals])
+    dpi = _resolve_scalar([deal.net_dpi for deal in deals])
+    return {
+        "net_irr": irr["value"],
+        "net_moic": moic["value"],
+        "net_dpi": dpi["value"],
+        "conflicts": {
+            "net_irr": irr["conflict"],
+            "net_moic": moic["conflict"],
+            "net_dpi": dpi["conflict"],
+        },
+    }
+
+
+def _dominant_status_rank(deal_rows):
+    status_counts = defaultdict(int)
+    for row in deal_rows:
+        status_counts[_normalize_status(row.get("status"))] += 1
+    if not status_counts:
+        return 99
+    dominant = sorted(status_counts.items(), key=lambda item: (-item[1], STATUS_INDEX.get(item[0], 99)))[0][0]
+    return STATUS_INDEX.get(dominant, 99)
+
+
 def _pick_wavg(metric_block):
     if not isinstance(metric_block, dict):
         return None
@@ -595,12 +631,21 @@ def compute_vca_ebitda_analysis(deals, metrics_by_id=None):
                 subtotal_rows.append(subtotal)
 
         summary_rows = build_vca_summary_rows(deal_rows)
+        all_subtotal = subtotal_rows[-1] if subtotal_rows else None
 
         fund_blocks.append(
             {
                 "fund_name": fund_name,
                 "fund_size": fund_size,
                 "fund_size_conflict": fund_size_conflict,
+                "net_performance": _fund_net_performance(ordered_deals),
+                "print_sort_metrics": {
+                    "gross_profit": all_subtotal.get("gross_profit") if all_subtotal else None,
+                    "gross_moic": all_subtotal.get("gross_moic") if all_subtotal else None,
+                    "gross_irr": all_subtotal.get("gross_irr") if all_subtotal else None,
+                    "status_rank": _dominant_status_rank(deal_rows),
+                    "fund_name_norm": (fund_name or "").lower(),
+                },
                 "deal_rows": deal_rows,
                 "subtotal_rows": subtotal_rows,
                 "summary_rows": summary_rows,
@@ -626,6 +671,7 @@ def compute_vca_ebitda_analysis(deals, metrics_by_id=None):
             overall_subtotals.append(subtotal)
 
     overall_summary = build_vca_summary_rows(all_deal_rows)
+    grand_total_row = overall_subtotals[-1] if overall_subtotals else None
 
     formula_row = [FORMULA_LEGEND.get(column["key"], "") for column in VCA_COLUMNS]
 
@@ -650,5 +696,12 @@ def compute_vca_ebitda_analysis(deals, metrics_by_id=None):
         "overall_block": {
             "subtotal_rows": overall_subtotals,
             "summary_rows": overall_summary,
+            "summary_metrics": {
+                "gross_profit": grand_total_row.get("gross_profit") if grand_total_row else None,
+                "gross_moic": grand_total_row.get("gross_moic") if grand_total_row else None,
+                "gross_irr": grand_total_row.get("gross_irr") if grand_total_row else None,
+                "deal_count": len(ordered_all_deals),
+                "fund_count": len(fund_blocks),
+            },
         },
     }
