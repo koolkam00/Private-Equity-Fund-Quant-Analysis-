@@ -520,7 +520,10 @@ N/A
     const DEFAULT_MODE = "detailed";
     const PREVIEW_CLASS = "vca-preview-print";
     const FORCE_BREAK_CLASS = "vca-force-page-break";
-    const LEGAL_PAGE_HEIGHT_IN = 8.5 - (0.28 * 2);
+    const PAGE_MARGIN_IN = 0.28;
+    const LEGAL_PAGE_HEIGHT_IN = 8.5 - (PAGE_MARGIN_IN * 2);
+    const PAGE_HEIGHT_SAFETY_IN = 0.14;
+    const BLOCK_HEIGHT_SAFETY_PX = 3;
     const previewToggleBtn = document.getElementById("vcaPreviewToggle");
     const vcaRoot = document.querySelector(".vca-ebitda-root");
     const printLayout = document.querySelector(".vca-print-layout");
@@ -612,7 +615,7 @@ N/A
         const styles = window.getComputedStyle(element);
         const marginTop = Number.parseFloat(styles.marginTop) || 0;
         const marginBottom = Number.parseFloat(styles.marginBottom) || 0;
-        return rect.height + marginTop + marginBottom;
+        return Math.ceil(rect.height + marginTop + marginBottom + BLOCK_HEIGHT_SAFETY_PX);
     };
 
     const pixelsPerInch = () => {
@@ -633,35 +636,39 @@ N/A
 
         const ppi = pixelsPerInch();
         const pageHeightPx = LEGAL_PAGE_HEIGHT_IN * ppi;
-        if (pageHeightPx <= 0) return;
+        const pageSafetyPx = PAGE_HEIGHT_SAFETY_IN * ppi;
+        const effectivePageHeightPx = Math.max(0, pageHeightPx - pageSafetyPx);
+        if (effectivePageHeightPx <= 0) return;
 
-        let firstPageConsumed = 0;
-        const printChildren = Array.from(printLayout.children);
-        for (const child of printChildren) {
-            if (child === printBook) break;
-            const style = window.getComputedStyle(child);
-            if (style.display === "none" || style.visibility === "hidden") continue;
-            firstPageConsumed += outerHeightWithMargins(child);
-        }
-
-        let remaining = Math.max(0, pageHeightPx - firstPageConsumed);
+        const layoutRect = printLayout.getBoundingClientRect();
+        const bookRect = printBook.getBoundingClientRect();
+        const firstPageConsumed = Math.max(0, bookRect.top - layoutRect.top);
+        let remaining = Math.max(0, effectivePageHeightPx - firstPageConsumed);
         const fundPages = Array.from(printBook.querySelectorAll(".vca-print-fund-page"));
-        fundPages.forEach((fundPage) => {
+        fundPages.forEach((fundPage, index) => {
             const blockHeight = outerHeightWithMargins(fundPage);
             if (blockHeight <= 0) return;
 
-            if (blockHeight > pageHeightPx) {
-                // Too tall for one page; browser must split this block.
-                remaining = pageHeightPx;
+            if (blockHeight > effectivePageHeightPx) {
+                // Too tall for one page; force a clean new-page start when possible.
+                if (index > 0 && remaining < effectivePageHeightPx) {
+                    fundPage.classList.add(FORCE_BREAK_CLASS);
+                }
+                const consumedOnLastPage = blockHeight % effectivePageHeightPx;
+                remaining = consumedOnLastPage === 0 ? 0 : effectivePageHeightPx - consumedOnLastPage;
                 return;
             }
 
             if (blockHeight > remaining) {
-                fundPage.classList.add(FORCE_BREAK_CLASS);
-                remaining = pageHeightPx - blockHeight;
+                if (index > 0) {
+                    fundPage.classList.add(FORCE_BREAK_CLASS);
+                }
+                remaining = effectivePageHeightPx - blockHeight;
             } else {
                 remaining -= blockHeight;
             }
+
+            if (remaining < 1) remaining = 0;
         });
     };
 
@@ -778,6 +785,7 @@ N/A
             if (event.matches) {
                 applyPrintOptions();
                 autosizePrintTables();
+                applyFundPackingBreaks();
             }
             else resetPrintTableSizing();
         };

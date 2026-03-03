@@ -2010,6 +2010,8 @@ body.pe-app {
         line-height: 1.0 !important;
         transform: scale(var(--vca-print-scale, 1)) !important;
         transform-origin: top left !important;
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
     }
 
     .vca-print-exec-main {
@@ -2026,6 +2028,10 @@ body.pe-app {
     }
     .vca-print-table tfoot {
         display: table-footer-group !important;
+    }
+    .vca-print-table-wrap {
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
     }
 
     .vca-print-table .vca-head-band th {
