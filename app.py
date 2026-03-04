@@ -7,6 +7,7 @@ import json
 from io import BytesIO
 from pathlib import Path
 from datetime import date, datetime, timedelta
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import click
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
@@ -1143,7 +1144,582 @@ def _track_totals_to_pdf_row(label, totals, include_fund_size=True, currency_cod
     ]
 
 
-def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE):
+VCA_PRINT_LABEL_MAPS = {
+    "ebitda": {
+        "row_num": "#",
+        "platform": "Platform",
+        "close_date": "Close",
+        "final_exit_date": "Exit",
+        "hold_period": "Hold*",
+        "status": "Status",
+        "fund_total_cost": "Cost",
+        "realized_proceeds": "Realized",
+        "unrealized_value": "Unrealized",
+        "total_value": "Total Val",
+        "gross_profit": "Gross Pft",
+        "gross_profit_pct_of_total": "GP % Tot",
+        "gross_irr": "Gross IRR",
+        "realized_moic": "Real MOIC",
+        "gross_moic": "Gross MOIC",
+        "ebitda_cagr": "EBITDA CAGR*",
+        "ebitda_cumulative_growth": "EBITDA Cum*",
+        "vc_ebitda_growth_pct": "EBITDA %",
+        "vc_multiple_pct": "Multiple %",
+        "vc_debt_pct": "Debt %",
+        "vc_total_pct": "Total %",
+        "vc_ebitda_growth_dollar": "EBITDA $",
+        "vc_multiple_dollar": "Multiple $",
+        "vc_debt_dollar": "Debt $",
+        "vc_total_dollar": "Total $",
+        "entry_ltm_ebitda": "Ent EBITDA",
+        "entry_ebitda_margin": "Ent Margin",
+        "entry_ev_ebitda": "Ent EV/EBITDA*",
+        "entry_net_debt_ebitda": "Ent ND/EBITDA*",
+        "entry_net_debt_ev": "Ent ND/EV",
+        "exit_ltm_ebitda": "Exit EBITDA",
+        "exit_ebitda_margin": "Exit Margin",
+        "exit_ev_ebitda": "Exit EV/EBITDA*",
+        "exit_net_debt_ebitda": "Exit ND/EBITDA*",
+        "exit_net_debt_ev": "Exit ND/EV",
+        "diff_ebitda": "Diff EBITDA",
+        "diff_ebitda_margin": "Diff Margin",
+        "diff_ev_ebitda": "Diff EV/EBITDA*",
+        "diff_net_debt_ebitda": "Diff ND/EBITDA*",
+        "diff_net_debt_ev": "Diff ND/EV",
+    },
+    "revenue": {
+        "row_num": "#",
+        "platform": "Platform",
+        "close_date": "Close",
+        "final_exit_date": "Exit",
+        "hold_period": "Hold*",
+        "status": "Status",
+        "fund_total_cost": "Cost",
+        "realized_proceeds": "Realized",
+        "unrealized_value": "Unrealized",
+        "total_value": "Total Val",
+        "gross_profit": "Gross Pft",
+        "gross_profit_pct_of_total": "GP % Tot",
+        "gross_irr": "Gross IRR",
+        "realized_moic": "Real MOIC",
+        "gross_moic": "Gross MOIC",
+        "revenue_cagr": "Revenue CAGR*",
+        "revenue_cumulative_growth": "Revenue Cum*",
+        "vc_revenue_growth_pct": "Revenue %",
+        "vc_multiple_pct": "Multiple %",
+        "vc_debt_pct": "Debt %",
+        "vc_total_pct": "Total %",
+        "vc_revenue_growth_dollar": "Revenue $",
+        "vc_multiple_dollar": "Multiple $",
+        "vc_debt_dollar": "Debt $",
+        "vc_total_dollar": "Total $",
+        "entry_ltm_revenue": "Ent Revenue",
+        "entry_tev": "Ent TEV",
+        "entry_ev_revenue": "Ent EV/Revenue*",
+        "entry_net_debt_revenue": "Ent ND/Revenue*",
+        "entry_net_debt_ev": "Ent ND/EV",
+        "exit_ltm_revenue": "Exit Revenue",
+        "exit_tev": "Exit TEV",
+        "exit_ev_revenue": "Exit EV/Revenue*",
+        "exit_net_debt_revenue": "Exit ND/Revenue*",
+        "exit_net_debt_ev": "Exit ND/EV",
+        "diff_revenue": "Diff Revenue",
+        "diff_tev": "Diff TEV",
+        "diff_ev_revenue": "Diff EV/Revenue*",
+        "diff_net_debt_revenue": "Diff ND/Revenue*",
+        "diff_net_debt_ev": "Diff ND/EV",
+    },
+}
+
+VCA_EBITDA_MONEY_KEYS = {
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "vc_ebitda_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_ebitda",
+    "exit_ltm_ebitda",
+    "diff_ebitda",
+}
+VCA_EBITDA_PCT_KEYS = {
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "vc_ebitda_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "entry_net_debt_ev",
+    "exit_net_debt_ev",
+    "diff_net_debt_ev",
+}
+VCA_EBITDA_PP_KEYS = {
+    "ebitda_cagr",
+    "ebitda_cumulative_growth",
+    "entry_ebitda_margin",
+    "exit_ebitda_margin",
+    "diff_ebitda_margin",
+}
+VCA_EBITDA_MULTIPLE_KEYS = {
+    "realized_moic",
+    "gross_moic",
+    "entry_ev_ebitda",
+    "entry_net_debt_ebitda",
+    "exit_ev_ebitda",
+    "exit_net_debt_ebitda",
+    "diff_ev_ebitda",
+    "diff_net_debt_ebitda",
+}
+VCA_REVENUE_MONEY_KEYS = {
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "vc_revenue_growth_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_revenue",
+    "entry_tev",
+    "exit_ltm_revenue",
+    "exit_tev",
+    "diff_revenue",
+    "diff_tev",
+}
+VCA_REVENUE_PCT_KEYS = {
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "vc_revenue_growth_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "entry_net_debt_ev",
+    "exit_net_debt_ev",
+    "diff_net_debt_ev",
+}
+VCA_REVENUE_PP_KEYS = {
+    "revenue_cagr",
+    "revenue_cumulative_growth",
+}
+VCA_REVENUE_MULTIPLE_KEYS = {
+    "realized_moic",
+    "gross_moic",
+    "entry_ev_revenue",
+    "entry_net_debt_revenue",
+    "exit_ev_revenue",
+    "exit_net_debt_revenue",
+    "diff_ev_revenue",
+    "diff_net_debt_revenue",
+}
+
+
+def _sanitize_filename_component(text):
+    cleaned = re.sub(r'[\\/:*?"<>|]+', " ", str(text or "")).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned or "Unknown"
+
+
+def _as_of_ymd(value):
+    if isinstance(value, datetime):
+        return value.date().strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return date.today().strftime("%Y-%m-%d")
+
+
+def _report_title(firm_name, analysis_name, as_of_date):
+    return f"{firm_name} {analysis_name} As Of {_as_of_ymd(as_of_date)}"
+
+
+def _fmt_symbol_currency(value, currency_code=DEFAULT_CURRENCY_CODE):
+    return format_currency_millions(value, currency_code=currency_code, show_code=False)
+
+
+def _fmt_pp(value):
+    if value is None:
+        return "—"
+    return f"{value * 100:.1f}pp"
+
+
+def _format_vca_value(key, value, analysis_kind, currency_code):
+    if key == "row_num":
+        return str(value) if value is not None else ""
+    if key == "platform":
+        return value or "—"
+    if key in {"close_date", "final_exit_date"}:
+        return _fmt_track_date(value)
+    if key == "hold_period":
+        return _fmt_track_years(value)
+    if key == "status":
+        return value or "—"
+
+    money_keys = VCA_EBITDA_MONEY_KEYS if analysis_kind == "ebitda" else VCA_REVENUE_MONEY_KEYS
+    pct_keys = VCA_EBITDA_PCT_KEYS if analysis_kind == "ebitda" else VCA_REVENUE_PCT_KEYS
+    pp_keys = VCA_EBITDA_PP_KEYS if analysis_kind == "ebitda" else VCA_REVENUE_PP_KEYS
+    multiple_keys = VCA_EBITDA_MULTIPLE_KEYS if analysis_kind == "ebitda" else VCA_REVENUE_MULTIPLE_KEYS
+
+    if key in money_keys:
+        return _fmt_symbol_currency(value, currency_code=currency_code)
+    if key in pct_keys:
+        return _fmt_track_pct(value)
+    if key in pp_keys:
+        return _fmt_pp(value)
+    if key in multiple_keys:
+        return _fmt_track_multiple(value)
+    return "—" if value is None else str(value)
+
+
+def _build_vca_pdf(analysis_payload, report_title, currency_code=DEFAULT_CURRENCY_CODE, analysis_kind="ebitda"):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    columns = analysis_payload.get("header", {}).get("columns") or []
+    groups = analysis_payload.get("header", {}).get("groups") or []
+    label_map = VCA_PRINT_LABEL_MAPS.get(analysis_kind, {})
+
+    if not columns:
+        styles = getSampleStyleSheet()
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(legal), leftMargin=18, rightMargin=18, topMargin=16, bottomMargin=16)
+        doc.build([Paragraph(report_title, styles["Heading4"]), Spacer(1, 6), Paragraph("No rows available for export.", styles["Normal"])])
+        return buffer.getvalue()
+
+    group_row = []
+    for group in groups:
+        span = max(int(group.get("span") or 1), 1)
+        group_row.append(group.get("label") or "")
+        for _ in range(span - 1):
+            group_row.append("")
+    if len(group_row) < len(columns):
+        group_row.extend([""] * (len(columns) - len(group_row)))
+    group_row = group_row[: len(columns)]
+    col_row = [label_map.get(col.get("key"), col.get("label") or "") for col in columns]
+
+    rows = [group_row, col_row]
+    row_tags = ["group_header", "column_header"]
+
+    for fund in analysis_payload.get("fund_blocks") or []:
+        fund_label = fund.get("fund_name") or "Unknown Fund"
+        if fund.get("fund_size") is not None:
+            fund_label = f"{fund_label} ({_fmt_symbol_currency(fund.get('fund_size'), currency_code=currency_code)})"
+        if fund.get("fund_size_conflict"):
+            fund_label = f"{fund_label} [fund size conflict]"
+        rows.append([fund_label] + [""] * (len(columns) - 1))
+        row_tags.append("fund_header")
+
+        for bucket in ("deal_rows", "subtotal_rows", "summary_rows"):
+            for row in fund.get(bucket) or []:
+                rows.append(
+                    [
+                        _format_vca_value(col.get("key"), row.get(col.get("key")), analysis_kind, currency_code)
+                        for col in columns
+                    ]
+                )
+                row_tags.append(row.get("row_kind") or "deal")
+
+    overall = analysis_payload.get("overall_block") or {}
+    rows.append(["Overall Portfolio"] + [""] * (len(columns) - 1))
+    row_tags.append("overall_header")
+    for bucket in ("subtotal_rows", "summary_rows"):
+        for row in overall.get(bucket) or []:
+            rows.append(
+                [
+                    _format_vca_value(col.get("key"), row.get(col.get("key")), analysis_kind, currency_code)
+                    for col in columns
+                ]
+            )
+            row_tags.append(row.get("row_kind") or "summary")
+
+    page_width, _ = landscape(legal)
+    left_margin = right_margin = 12
+    available_width = page_width - left_margin - right_margin
+    weights = []
+    for col in columns:
+        key = col.get("key")
+        if key == "row_num":
+            weights.append(0.7)
+        elif key == "platform":
+            weights.append(3.0)
+        elif key in {"close_date", "final_exit_date", "status"}:
+            weights.append(1.6)
+        else:
+            weights.append(1.05)
+    weight_total = sum(weights) or 1.0
+    col_widths = [available_width * (w / weight_total) for w in weights]
+
+    table = Table(rows, colWidths=col_widths, repeatRows=2)
+    style_cmds = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 4.8),
+        ("FONT", (0, 0), (-1, 1), "Helvetica-Bold", 4.9),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4d78")),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#2f648f")),
+        ("TEXTCOLOR", (0, 1), (-1, 1), colors.whitesmoke),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.28, colors.HexColor("#9eb3c5")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 1.4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 1.4),
+        ("TOPPADDING", (0, 0), (-1, -1), 0.8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0.8),
+    ]
+
+    for idx, col in enumerate(columns):
+        if col.get("numeric"):
+            style_cmds.append(("ALIGN", (idx, 2), (idx, -1), "RIGHT"))
+
+    separators = [5, 14, 16, 20, 24, 29, 34]
+    for sep in separators:
+        if sep < len(columns):
+            style_cmds.append(("LINEBEFORE", (sep, 0), (sep, -1), 0.45, colors.black))
+
+    detail_alt = False
+    for idx, tag in enumerate(row_tags):
+        if idx < 2:
+            continue
+        if tag == "fund_header":
+            style_cmds.extend(
+                [
+                    ("SPAN", (0, idx), (-1, idx)),
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#9bb9d5")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 5.0),
+                    ("LINEABOVE", (0, idx), (-1, idx), 0.45, colors.HexColor("#4f6e89")),
+                    ("LINEBELOW", (0, idx), (-1, idx), 0.45, colors.HexColor("#4f6e89")),
+                ]
+            )
+            detail_alt = False
+        elif tag == "overall_header":
+            style_cmds.extend(
+                [
+                    ("SPAN", (0, idx), (-1, idx)),
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#729bc0")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 5.0),
+                ]
+            )
+        elif tag == "subtotal":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#d8e5f0")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 4.9),
+                ]
+            )
+        elif tag == "summary":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#c7d9ea")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 4.9),
+                ]
+            )
+        else:
+            style_cmds.append(
+                ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#f8fbff") if detail_alt else colors.HexColor("#f1f6fb"))
+            )
+            detail_alt = not detail_alt
+
+    table.setStyle(TableStyle(style_cmds))
+
+    styles = getSampleStyleSheet()
+    as_of = analysis_payload.get("meta", {}).get("as_of_date")
+    as_of_label = _as_of_ymd(as_of)
+    meta = Paragraph(
+        f"As of {as_of_label} | Unit {_fmt_symbol_currency(1, currency_code=currency_code).replace('1.0', '').strip()}",
+        styles["Normal"],
+    )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=left_margin,
+        rightMargin=right_margin,
+        topMargin=16,
+        bottomMargin=12,
+        title=report_title,
+    )
+    doc.build([Paragraph(report_title, styles["Heading4"]), meta, Spacer(1, 6), table])
+    return buffer.getvalue()
+
+
+def _build_benchmarking_pdf(
+    analysis_payload,
+    report_title,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    benchmark_asset_class="",
+):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    styles = getSampleStyleSheet()
+    as_of_label = _as_of_ymd((analysis_payload.get("meta") or {}).get("as_of_date"))
+    bench_label = benchmark_asset_class or "Not Selected"
+    metadata = Paragraph(f"As of {as_of_label} | Benchmark Asset Class: {bench_label}", styles["Normal"])
+
+    fund_rows = analysis_payload.get("fund_rows") or []
+    fund_table_data = [[
+        "Fund",
+        "Vintage Year",
+        "Fund Size",
+        "Net IRR",
+        "Net MOIC",
+        "Net DPI",
+        "Net IRR Benchmark",
+        "Net MOIC Benchmark",
+        "Net DPI Benchmark",
+    ]]
+    for row in fund_rows:
+        fund_table_data.append(
+            [
+                row.get("fund_name") or "Unknown Fund",
+                str(row.get("vintage_year")) if row.get("vintage_year") is not None else "—",
+                "N/A" if row.get("fund_size_conflict") else _fmt_symbol_currency(row.get("fund_size"), currency_code=currency_code),
+                "N/A" if row.get("net_irr_conflict") or row.get("net_irr") is None else _fmt_track_pct(row.get("net_irr")),
+                "N/A" if row.get("net_moic_conflict") or row.get("net_moic") is None else _fmt_track_multiple(row.get("net_moic")),
+                "N/A" if row.get("net_dpi_conflict") or row.get("net_dpi") is None else _fmt_track_multiple(row.get("net_dpi")),
+                ((row.get("benchmark_net_irr") or {}).get("label") or "N/A"),
+                ((row.get("benchmark_net_moic") or {}).get("label") or "N/A"),
+                ((row.get("benchmark_net_dpi") or {}).get("label") or "N/A"),
+            ]
+        )
+
+    fund_table = Table(
+        fund_table_data,
+        colWidths=[165, 62, 78, 58, 58, 58, 88, 88, 88],
+        repeatRows=1,
+    )
+    fund_style = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 7.0),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 7.2),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4d78")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#b5c6d6")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]
+    for idx in (1, 2, 3, 4, 5):
+        fund_style.append(("ALIGN", (idx, 1), (idx, -1), "RIGHT"))
+    for row_idx in range(1, len(fund_table_data)):
+        fund_style.append(
+            ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#f5f9ff") if row_idx % 2 else colors.HexColor("#ebf2fa"))
+        )
+    fund_table.setStyle(TableStyle(fund_style))
+
+    kpis = analysis_payload.get("kpis") or {}
+    summary_table = Table(
+        [
+            ["Funds in Scope", kpis.get("fund_count"), "Any Benchmark Coverage", _fmt_track_pct(kpis.get("any_coverage_pct"))],
+            ["Full Benchmark Coverage", _fmt_track_pct(kpis.get("full_coverage_pct")), "Average Composite Score", f"{(kpis.get('avg_composite_score') or 0):.2f} / 5.00" if kpis.get("avg_composite_score") is not None else "—"],
+        ],
+        colWidths=[180, 120, 180, 120],
+    )
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("FONT", (0, 0), (-1, -1), "Helvetica", 8.5),
+                ("FONT", (0, 0), (-1, -1), "Helvetica-Bold", 8.5),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#b5c6d6")),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f7fb")),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("ALIGN", (3, 0), (3, -1), "RIGHT"),
+            ]
+        )
+    )
+
+    threshold_rows = analysis_payload.get("threshold_rows") or []
+    threshold_data = [[
+        "Vintage",
+        "IRR LQ",
+        "IRR Median",
+        "IRR UQ",
+        "IRR Top 5%",
+        "MOIC LQ",
+        "MOIC Median",
+        "MOIC UQ",
+        "MOIC Top 5%",
+        "DPI LQ",
+        "DPI Median",
+        "DPI UQ",
+        "DPI Top 5%",
+    ]]
+    for row in threshold_rows:
+        threshold_data.append(
+            [
+                row.get("vintage_year"),
+                _fmt_track_pct(row.get("net_irr_lower_quartile")),
+                _fmt_track_pct(row.get("net_irr_median")),
+                _fmt_track_pct(row.get("net_irr_upper_quartile")),
+                _fmt_track_pct(row.get("net_irr_top_5")),
+                _fmt_track_multiple(row.get("net_moic_lower_quartile")),
+                _fmt_track_multiple(row.get("net_moic_median")),
+                _fmt_track_multiple(row.get("net_moic_upper_quartile")),
+                _fmt_track_multiple(row.get("net_moic_top_5")),
+                _fmt_track_multiple(row.get("net_dpi_lower_quartile")),
+                _fmt_track_multiple(row.get("net_dpi_median")),
+                _fmt_track_multiple(row.get("net_dpi_upper_quartile")),
+                _fmt_track_multiple(row.get("net_dpi_top_5")),
+            ]
+        )
+
+    threshold_table = Table(
+        threshold_data,
+        colWidths=[64, 60, 60, 60, 64, 60, 60, 60, 64, 60, 60, 60, 64],
+        repeatRows=1,
+    )
+    threshold_style = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 7.0),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 7.2),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4d78")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#b5c6d6")),
+        ("ALIGN", (0, 1), (-1, -1), "RIGHT"),
+    ]
+    for row_idx in range(1, len(threshold_data)):
+        threshold_style.append(
+            ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#f9fbfe") if row_idx % 2 else colors.HexColor("#edf4fc"))
+        )
+    threshold_table.setStyle(TableStyle(threshold_style))
+
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        metadata,
+        Spacer(1, 8),
+        Paragraph("Fund Benchmarking Table", styles["Heading5"]),
+        fund_table,
+        PageBreak(),
+        Paragraph("Executive Summary", styles["Heading5"]),
+        summary_table,
+        Spacer(1, 6),
+        Paragraph((analysis_payload.get("meta") or {}).get("coverage_note") or "", styles["Normal"]),
+        PageBreak(),
+        Paragraph("Appendix: Benchmark Threshold Matrix", styles["Heading5"]),
+        threshold_table,
+    ]
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE, report_title=None):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A3, landscape
     from reportlab.lib.styles import getSampleStyleSheet
@@ -1371,7 +1947,8 @@ def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE):
     table.setStyle(TableStyle(style_cmds))
 
     styles = getSampleStyleSheet()
-    title = Paragraph("Deal Level Track Record (Print-Ready PDF)", styles["Heading4"])
+    final_title = report_title or "Deal Level Track Record (Print-Ready PDF)"
+    title = Paragraph(final_title, styles["Heading4"])
     generated = Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["Normal"])
 
     buffer = BytesIO()
@@ -1382,7 +1959,7 @@ def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE):
         rightMargin=right_margin,
         topMargin=16,
         bottomMargin=16,
-        title="Track Record Print PDF",
+        title=final_title,
     )
     doc.build([title, generated, Spacer(1, 8), table])
     return buffer.getvalue()
@@ -3242,6 +3819,123 @@ def download_track_record_pdf():
         as_attachment=True,
         download_name="track_record_print_ready.pdf",
         mimetype="application/pdf",
+    )
+
+
+@app.route("/reports/ic-pdf-pack")
+@login_required
+def download_ic_pdf_pack():
+    membership = _require_team_scope()
+    team_id = membership.team_id
+    active_firm = _resolve_active_firm_for_team()
+    if active_firm is None:
+        flash("No active firm found for export.", "warning")
+        return redirect(url_for("dashboard"))
+
+    benchmark_asset_classes = _benchmark_asset_classes_for_team(team_id)
+    benchmark_session_key = "selected_benchmark_asset_class"
+    requested_benchmark = request.args.get("benchmark_asset_class")
+    if requested_benchmark is not None:
+        current_benchmark_asset_class = (requested_benchmark or "").strip()
+        if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+            current_benchmark_asset_class = ""
+        session[benchmark_session_key] = current_benchmark_asset_class
+    else:
+        current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+        if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+            current_benchmark_asset_class = ""
+            session[benchmark_session_key] = ""
+
+    try:
+        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+
+    metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in all_deals}
+    as_of_date = resolve_analysis_as_of_date(all_deals)
+
+    track_record_payload = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    vca_ebitda_payload = compute_vca_ebitda_analysis(all_deals, metrics_by_id=metrics_by_id)
+    vca_revenue_payload = compute_vca_revenue_analysis(all_deals, metrics_by_id=metrics_by_id)
+    benchmark_thresholds = _load_team_benchmark_thresholds(team_id, current_benchmark_asset_class)
+    benchmarking_payload = compute_benchmarking_analysis(
+        all_deals,
+        benchmark_thresholds=benchmark_thresholds,
+        benchmark_asset_class=current_benchmark_asset_class,
+        metrics_by_id=metrics_by_id,
+    )
+
+    reporting = _reporting_currency_context(active_firm)
+    currency_code = reporting["reporting_currency_code"]
+    scale = reporting["money_scale"]
+    _scale_track_record_payload(track_record_payload, scale)
+    _scale_analysis_payload("vca-ebitda", vca_ebitda_payload, scale)
+    _scale_analysis_payload("vca-revenue", vca_revenue_payload, scale)
+    _scale_analysis_payload("benchmarking", benchmarking_payload, scale)
+
+    firm_name_raw = active_firm.name or "Unknown Firm"
+    firm_name_file = _sanitize_filename_component(firm_name_raw)
+    track_title = _report_title(firm_name_raw, "Deal Level Track Record", as_of_date)
+    ebitda_title = _report_title(
+        firm_name_raw,
+        "Value Creation Analysis by EBITDA",
+        (vca_ebitda_payload.get("meta") or {}).get("as_of_date"),
+    )
+    revenue_title = _report_title(
+        firm_name_raw,
+        "Value Creation Analysis by Revenue",
+        (vca_revenue_payload.get("meta") or {}).get("as_of_date"),
+    )
+    benchmarking_title = _report_title(
+        firm_name_raw,
+        "Benchmarking Analysis",
+        (benchmarking_payload.get("meta") or {}).get("as_of_date"),
+    )
+
+    try:
+        track_pdf = _build_track_record_pdf(
+            track_record_payload,
+            currency_code=currency_code,
+            report_title=track_title,
+        )
+        vca_ebitda_pdf = _build_vca_pdf(
+            vca_ebitda_payload,
+            report_title=ebitda_title,
+            currency_code=currency_code,
+            analysis_kind="ebitda",
+        )
+        vca_revenue_pdf = _build_vca_pdf(
+            vca_revenue_payload,
+            report_title=revenue_title,
+            currency_code=currency_code,
+            analysis_kind="revenue",
+        )
+        benchmarking_pdf = _build_benchmarking_pdf(
+            benchmarking_payload,
+            report_title=benchmarking_title,
+            currency_code=currency_code,
+            benchmark_asset_class=current_benchmark_asset_class,
+        )
+    except ImportError:
+        flash("PDF export dependency missing. Install requirements and retry.", "danger")
+        return redirect(url_for("dashboard"))
+
+    zip_buffer = BytesIO()
+    with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(f"{_sanitize_filename_component(track_title)}.pdf", track_pdf)
+        archive.writestr(f"{_sanitize_filename_component(ebitda_title)}.pdf", vca_ebitda_pdf)
+        archive.writestr(f"{_sanitize_filename_component(revenue_title)}.pdf", vca_revenue_pdf)
+        archive.writestr(f"{_sanitize_filename_component(benchmarking_title)}.pdf", benchmarking_pdf)
+    zip_buffer.seek(0)
+
+    bundle_name = f"{firm_name_file} Analysis PDF Pack As Of {_as_of_ymd(as_of_date)}.zip"
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=bundle_name,
+        mimetype="application/zip",
     )
 
 

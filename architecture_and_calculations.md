@@ -166,6 +166,25 @@ If required thresholds are missing, or if fund vintage/metric is unavailable, da
   - Includes print metadata (as-of date, unit label, filters, benchmark asset class).
   - Fund benchmarking table format matches the dashboard `Fund Summary` benchmark columns.
 
+### 5.3 IC Analysis PDF Pack Export
+- Route:
+  - `GET /reports/ic-pdf-pack`
+- Output:
+  - Returns a ZIP archive containing 4 separate PDFs:
+    - Deal Level Track Record
+    - Value Creation Analysis by EBITDA
+    - Value Creation Analysis by Revenue
+    - Benchmarking Analysis
+- Filename/title convention:
+  - `{Firm Name} {Analysis Name} As Of {YYYY-MM-DD}.pdf`
+  - ZIP filename: `{Firm Name} Analysis PDF Pack As Of {YYYY-MM-DD}.zip`
+- Scope behavior:
+  - Export always uses all visible data for the active firm (full-portfolio scope).
+  - Route intentionally ignores page-level filter parameters for fund/status/sector/geography/vintage/exit type.
+  - Benchmarking PDF uses the current selected benchmark asset class from session/query context.
+- Rendering engine:
+  - Server-side ReportLab generation (not browser print CSS) for deterministic one-click multi-file download.
+
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`
 - Legacy templates supported with fallbacks:

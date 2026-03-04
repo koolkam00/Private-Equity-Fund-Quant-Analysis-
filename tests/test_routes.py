@@ -1,6 +1,7 @@
 from datetime import date
 from io import BytesIO
 import re
+from zipfile import ZipFile
 
 from openpyxl import Workbook, load_workbook
 
@@ -60,6 +61,7 @@ def test_dashboard_page(client):
     assert b"Portfolio Dashboard" in response.data
     assert b'id="bridge-lever-table-body"' in response.data
     assert b"Capital Value Loss Ratio" in response.data
+    assert b"Download 4 Analysis PDFs" in response.data
 
 
 def test_upload_page(client):
@@ -508,6 +510,35 @@ def test_track_record_pdf_download(client):
     assert response.mimetype == "application/pdf"
     assert "attachment;" in response.headers.get("Content-Disposition", "")
     assert "track_record_print_ready.pdf" in response.headers.get("Content-Disposition", "")
+
+
+def test_ic_pdf_pack_download(client):
+    response = client.get("/reports/ic-pdf-pack")
+    assert response.status_code == 200
+    assert response.mimetype == "application/zip"
+    disposition = response.headers.get("Content-Disposition", "")
+    assert "attachment;" in disposition
+    assert ".zip" in disposition
+    assert "Analysis PDF Pack As Of" in disposition
+
+    archive = ZipFile(BytesIO(response.data))
+    names = sorted(archive.namelist())
+    assert len(names) == 4
+    assert all(name.endswith(".pdf") for name in names)
+
+    expected_analysis_names = (
+        "Deal Level Track Record",
+        "Value Creation Analysis by EBITDA",
+        "Value Creation Analysis by Revenue",
+        "Benchmarking Analysis",
+    )
+    for analysis_name in expected_analysis_names:
+        assert any(analysis_name in name for name in names)
+
+    for name in names:
+        assert re.search(r"As Of \d{4}-\d{2}-\d{2}\.pdf$", name), name
+        payload = archive.read(name)
+        assert payload.startswith(b"%PDF"), name
 
 
 def test_track_record_page_renders_template_columns_and_net_performance(client):
