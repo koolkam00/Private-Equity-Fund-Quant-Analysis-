@@ -69,6 +69,7 @@ from services.metrics import (
     rank_benchmark_metric,
     run_chart_query,
 )
+from services.metrics.common import resolve_analysis_as_of_date
 from services.utils import (
     DEFAULT_CURRENCY_CODE,
     currency_symbol,
@@ -1431,6 +1432,10 @@ def _handle_upload(parse_func, redirect_route):
                 flash(f"Upload firm scope: {firm_name}.", "info")
             firm_currency = normalize_currency_code(result.get("firm_currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
             flash(f"Firm currency: {firm_currency}.", "info")
+            upload_as_of_date = result.get("as_of_date")
+            if upload_as_of_date is not None:
+                as_of_text = upload_as_of_date.isoformat() if hasattr(upload_as_of_date, "isoformat") else str(upload_as_of_date)
+                flash(f"Upload As Of Date: {as_of_text}.", "info")
             fx_status = (result.get("fx_status") or "").lower()
             fx_rate = result.get("fx_rate_to_usd")
             fx_date = result.get("fx_rate_date")
@@ -1590,6 +1595,7 @@ def _empty_dashboard_context():
         "current_security_type": "",
         "current_deal_type": "",
         "current_entry_channel": "",
+        "display_as_of_date": date.today(),
         "benchmark_asset_classes": [],
         "current_benchmark_asset_class": "",
     }
@@ -1680,6 +1686,7 @@ def _build_filtered_deals_context(fund_override=None):
         filtered = [d for d in filtered if (d.deal_type or "Platform") == current_deal_type]
     if current_entry_channel:
         filtered = [d for d in filtered if (d.entry_channel or "Unknown") == current_entry_channel]
+    display_as_of_date = resolve_analysis_as_of_date(filtered)
 
     return {
         "firm_id": firm_id,
@@ -1704,6 +1711,7 @@ def _build_filtered_deals_context(fund_override=None):
         "current_security_type": current_security_type,
         "current_deal_type": current_deal_type,
         "current_entry_channel": current_entry_channel,
+        "display_as_of_date": display_as_of_date,
         "benchmark_asset_classes": benchmark_asset_classes,
         "current_benchmark_asset_class": current_benchmark_asset_class,
         "active_firm": active_firm,
@@ -2446,6 +2454,7 @@ def dashboard():
             current_security_type=filter_ctx["current_security_type"],
             current_deal_type=filter_ctx["current_deal_type"],
             current_entry_channel=filter_ctx["current_entry_channel"],
+            display_as_of_date=filter_ctx["display_as_of_date"],
             benchmark_asset_classes=filter_ctx["benchmark_asset_classes"],
             current_benchmark_asset_class=filter_ctx["current_benchmark_asset_class"],
         )
@@ -2496,6 +2505,7 @@ def dashboard():
             current_security_type=filter_ctx["current_security_type"],
             current_deal_type=filter_ctx["current_deal_type"],
             current_entry_channel=filter_ctx["current_entry_channel"],
+            display_as_of_date=filter_ctx["display_as_of_date"],
             benchmark_asset_classes=filter_ctx["benchmark_asset_classes"],
             current_benchmark_asset_class=filter_ctx["current_benchmark_asset_class"],
         )

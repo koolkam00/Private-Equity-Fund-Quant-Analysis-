@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
-
-from services.metrics.common import safe_divide
+from services.metrics.common import resolve_analysis_as_of_date, safe_divide
 from services.metrics.deal import compute_deal_metrics
 from services.metrics.portfolio import compute_deal_track_record
 
@@ -105,7 +103,7 @@ def compute_benchmarking_analysis(
     metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in deals}
     thresholds = benchmark_thresholds or {}
     selected_asset = (benchmark_asset_class or "").strip()
-    as_of = as_of_date or date.today()
+    as_of = as_of_date or resolve_analysis_as_of_date(deals)
 
     track_record = compute_deal_track_record(deals, metrics_by_id=metrics_by_id)
 

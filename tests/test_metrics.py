@@ -34,6 +34,7 @@ from services.metrics import (
     safe_log,
     safe_power,
 )
+from services.metrics.common import resolve_analysis_as_of_date
 
 
 def _make_deal(**kwargs):
@@ -50,6 +51,7 @@ def _make_deal(**kwargs):
         "investment_date": date(2020, 1, 1),
         "year_invested": 2020,
         "exit_date": date(2023, 1, 1),
+        "as_of_date": None,
         "equity_invested": 100,
         "realized_value": 200,
         "unrealized_value": 0,
@@ -79,6 +81,18 @@ def test_safe_helpers():
     assert safe_power(-1, 0.5) is None
     assert safe_log(1) == 0
     assert safe_log(-1) is None
+
+
+def test_resolve_analysis_as_of_date_prefers_uploaded_as_of_date():
+    d1 = _make_deal(id=1, as_of_date=date(2025, 12, 31), exit_date=date(2024, 12, 31))
+    d2 = _make_deal(id=2, as_of_date=date(2026, 1, 31), exit_date=date(2025, 12, 31))
+    assert resolve_analysis_as_of_date([d1, d2]) == date(2026, 1, 31)
+
+
+def test_resolve_analysis_as_of_date_fallback_chain():
+    d1 = _make_deal(id=1, as_of_date=None, exit_date=date(2025, 7, 1), investment_date=date(2020, 1, 1))
+    d2 = _make_deal(id=2, as_of_date=None, exit_date=None, investment_date=date(2024, 6, 1))
+    assert resolve_analysis_as_of_date([d1, d2]) == date(2025, 7, 1)
 
 
 def test_benchmark_threshold_boundaries_are_inclusive():

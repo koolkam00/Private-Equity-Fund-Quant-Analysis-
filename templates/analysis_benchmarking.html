@@ -113,6 +113,7 @@ N/A
     <div class="bench-screen-layout">
         <div class="panel bench-intro-panel">
             <p class="subtitle">{{ page_meta.description }}</p>
+            <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }} • {{ fmt_currency_unit_symbol_label() }}</p>
             <p class="tiny bench-filter-summary">{{ bench_filter_summary }}</p>
             <p class="tiny">{{ analysis.meta.coverage_note }}</p>
         </div>

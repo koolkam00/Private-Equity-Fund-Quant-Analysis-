@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy  with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy, fmt_date_mdy with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 
@@ -65,6 +65,7 @@
 
 <div class="panel">
     <p class="subtitle">{{ page_meta.description }}</p>
+    <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
 </div>
 
 {% if page_key == 'fund-liquidity' %}

@@ -203,6 +203,7 @@ def test_download_deal_template(client):
     ws = wb["Deals"]
     headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
     assert "Firm Currency" in headers
+    assert "As Of Date" in headers
 
 
 def test_download_benchmark_template(client):
@@ -779,6 +780,52 @@ def test_dashboard_filter_context(client):
     assert response.status_code == 200
     assert b"Fund I" in response.data
     assert b"All Exit Types" in response.data
+
+
+def test_dashboard_shows_latest_visible_as_of_date(client):
+    d1 = Deal(
+        company_name="As Of One",
+        fund_number="Fund I",
+        year_invested=2021,
+        as_of_date=date(2025, 12, 31),
+        equity_invested=100,
+        realized_value=120,
+        unrealized_value=0,
+    )
+    d2 = Deal(
+        company_name="As Of Two",
+        fund_number="Fund II",
+        year_invested=2022,
+        as_of_date=date(2026, 1, 31),
+        equity_invested=120,
+        realized_value=130,
+        unrealized_value=0,
+    )
+    db.session.add_all([_with_active_scope(d1), _with_active_scope(d2)])
+    db.session.commit()
+
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert b"As of 01/31/26" in response.data
+
+
+def test_analysis_non_vca_page_shows_as_of_metadata(client):
+    deal = Deal(
+        company_name="Analysis As Of Co",
+        fund_number="Fund AO",
+        status="Unrealized",
+        year_invested=2023,
+        as_of_date=date(2025, 11, 30),
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=110,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/analysis/underwrite-outcome")
+    assert response.status_code == 200
+    assert b"As of 11/30/25" in response.data
 
 
 def test_dashboard_fund_summary_table(client):

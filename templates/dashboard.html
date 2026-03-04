@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct with context %}
+{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct, fmt_date_mdy with context %}
 {% block title %}Dashboard — PE Portfolio Lab{% endblock %}
 {% block page_title %}Portfolio Dashboard{% endblock %}
 
@@ -102,6 +102,10 @@
     {{ app_conversion_warning }}
 </div>
 {% endif %}
+
+<div class="panel panel-tight">
+    <p class="subtitle">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
+</div>
 
 {% if fund_summary_rows %}
 <div class="panel panel-tight">

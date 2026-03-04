@@ -65,3 +65,19 @@ def deal_hold_years(deal, as_of_date=None):
     if delta_days <= 0:
         return None
     return delta_days / 365.25
+
+
+def resolve_analysis_as_of_date(deals):
+    explicit_as_of_dates = [getattr(deal, "as_of_date", None) for deal in deals if getattr(deal, "as_of_date", None) is not None]
+    if explicit_as_of_dates:
+        return max(explicit_as_of_dates)
+
+    exit_dates = [deal.exit_date for deal in deals if getattr(deal, "exit_date", None) is not None]
+    if exit_dates:
+        return max(exit_dates)
+
+    investment_dates = [deal.investment_date for deal in deals if getattr(deal, "investment_date", None) is not None]
+    if investment_dates:
+        return max(investment_dates)
+
+    return date.today()

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
 from statistics import median
 
-from services.metrics.common import safe_divide
+from services.metrics.common import resolve_analysis_as_of_date, safe_divide
 from services.metrics.deal import compute_deal_metrics
 from services.metrics.portfolio import compute_bridge_aggregate, compute_portfolio_analytics
 
@@ -585,15 +584,7 @@ def _overall_subtotal_deal_sets(ordered_deals):
 
 
 def _as_of_date(deals):
-    exit_dates = [deal.exit_date for deal in deals if deal.exit_date is not None]
-    if exit_dates:
-        return max(exit_dates)
-
-    close_dates = [deal.investment_date for deal in deals if deal.investment_date is not None]
-    if close_dates:
-        return max(close_dates)
-
-    return date.today()
+    return resolve_analysis_as_of_date(deals)
 
 
 def compute_vca_revenue_analysis(deals, metrics_by_id=None):

@@ -95,6 +95,8 @@ def create_firm(name_prefix="Parser Firm"):
 def _with_firm_name(data, firm_name):
     cols = list(data.keys())
     row_count = len(data[cols[0]]) if cols else 0
+    if "As Of Date" not in data:
+        data = {"As Of Date": [date(2025, 12, 31)] * row_count, **data}
     if "Firm Name" not in data:
         data = {"Firm Name": [firm_name] * row_count, **data}
     return data
@@ -146,11 +148,13 @@ def test_parse_deals_valid(app_context):
         assert abs(deal.net_irr - 0.22) < 1e-9
         assert abs(deal.net_moic - 2.1) < 1e-9
         assert abs(deal.net_dpi - 1.9) < 1e-9
+        assert deal.as_of_date == date(2025, 12, 31)
         assert result["firm_name"] == firm_name
         assert result["firm_currency"] == "USD"
         assert result["fx_status"] == "ok"
         assert result["fx_rate_to_usd"] == 1.0
         assert result["fx_warning"] is None
+        assert result["as_of_date"] == date(2025, 12, 31)
         firm = Firm.query.filter_by(id=result["firm_id"]).first()
         assert firm is not None
         assert firm.base_currency == "USD"
@@ -177,10 +181,64 @@ def test_parse_deals_requires_firm_name_column(app_context):
         os.remove(file_path)
 
 
+def test_parse_deals_requires_as_of_date_column(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Missing As Of Firm"],
+        "Company Name": ["Missing As Of Co"],
+        "Fund": ["Fund I"],
+        "Equity Invested": [100],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 0
+        assert any("As Of Date" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_rejects_missing_as_of_date_values(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Firm As Of", "Firm As Of"],
+        "As Of Date": [date(2025, 12, 31), None],
+        "Company Name": ["Co A", "Co B"],
+        "Fund": ["Fund I", "Fund I"],
+        "Equity Invested": [100, 120],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 0
+        assert any("As Of Date is required" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_rejects_mixed_as_of_dates(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Firm As Of", "Firm As Of"],
+        "As Of Date": [date(2025, 12, 31), date(2026, 1, 31)],
+        "Company Name": ["Co A", "Co B"],
+        "Fund": ["Fund I", "Fund I"],
+        "Equity Invested": [100, 120],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 0
+        assert any("exactly one As Of Date" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
 def test_parse_deals_single_firm_per_workbook(app_context):
     team = create_team()
     data = {
         "Firm Name": ["Firm A", "Firm B"],
+        "As Of Date": [date(2025, 12, 31), date(2025, 12, 31)],
         "Company Name": ["Co A", "Co B"],
         "Fund": ["Fund I", "Fund I"],
         "Equity Invested": [100, 120],
@@ -252,6 +310,7 @@ def test_parse_deals_normalizes_lowercase_firm_currency(app_context):
     firm_name = f"Currency Firm {uuid.uuid4().hex[:6]}"
     data = {
         "Firm Name": [firm_name],
+        "As Of Date": [date(2025, 12, 31)],
         "Firm Currency": ["eur"],
         "Company Name": ["FX Co"],
         "Fund": ["Fund FX"],
@@ -280,6 +339,7 @@ def test_parse_deals_rejects_mixed_firm_currencies(app_context):
     team = create_team()
     data = {
         "Firm Name": ["Firm Multi CCY", "Firm Multi CCY"],
+        "As Of Date": [date(2025, 12, 31), date(2025, 12, 31)],
         "Firm Currency": ["USD", "EUR"],
         "Company Name": ["Co A", "Co B"],
         "Fund": ["Fund I", "Fund I"],
@@ -298,6 +358,7 @@ def test_parse_deals_rejects_invalid_firm_currency(app_context):
     team = create_team()
     data = {
         "Firm Name": ["Firm Invalid CCY"],
+        "As Of Date": [date(2025, 12, 31)],
         "Firm Currency": ["USDX"],
         "Company Name": ["Co A"],
         "Fund": ["Fund I"],
@@ -320,6 +381,7 @@ def test_parse_deals_updates_existing_firm_currency_from_upload(app_context):
 
     data = {
         "Firm Name": [firm.name],
+        "As Of Date": [date(2025, 12, 31)],
         "Firm Currency": ["GBP"],
         "Company Name": ["Co New"],
         "Fund": ["Fund U"],
@@ -361,6 +423,7 @@ def test_parse_deals_allows_upload_when_fx_lookup_fails(app_context, monkeypatch
 
     data = {
         "Firm Name": [firm_name],
+        "As Of Date": [date(2025, 12, 31)],
         "Firm Currency": ["EUR"],
         "Company Name": ["NoFX Co"],
         "Fund": ["Fund FX"],
@@ -491,6 +554,7 @@ def test_parse_deals_multisheet_optional_sections(app_context):
     sheets = {
         "Deals": {
             "Firm Name": [firm_name],
+            "As Of Date": [date(2025, 12, 31)],
             "Company Name": ["Multi Co"],
             "Fund": ["Fund IX"],
             "Investment Date": ["2021-01-01"],
@@ -565,6 +629,7 @@ def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app
     sheets = {
         "Deals": {
             "Firm Name": [firm_name],
+            "As Of Date": [date(2025, 12, 31)],
             "Company Name": ["Only Deals Co"],
             "Fund": ["Fund II"],
             "Equity Invested": [75],

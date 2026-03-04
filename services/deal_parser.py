@@ -70,6 +70,10 @@ COLUMN_MAP = {
     "vintage": "year_invested",
     "vintage year": "year_invested",
     "exit date": "exit_date",
+    "as of date": "as_of_date",
+    "as-of date": "as_of_date",
+    "as of": "as_of_date",
+    "report date": "as_of_date",
     # Investment values
     "equity invested": "equity_invested",
     "equity": "equity_invested",
@@ -132,6 +136,7 @@ VALID_FIELDS = {
     "investment_date",
     "year_invested",
     "exit_date",
+    "as_of_date",
     "equity_invested",
     "fund_size",
     "realized_value",
@@ -151,7 +156,7 @@ VALID_FIELDS = {
     "net_dpi",
 }
 
-DATE_COLS = {"investment_date", "exit_date"}
+DATE_COLS = {"investment_date", "exit_date", "as_of_date"}
 FLOAT_COLS = {
     "equity_invested",
     "fund_size",
@@ -821,6 +826,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     - Deals (required)
       - Firm Name required (single distinct value)
       - Firm Currency optional ISO-3 (defaults to USD)
+      - As Of Date required and consistent across all non-empty rows
     - Cashflows (optional)
     - Deal Quarterly (optional)
     - Fund Quarterly (optional)
@@ -881,6 +887,18 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
         }
 
+    if "as_of_date" not in df.columns:
+        return {
+            "success": 0,
+            "errors": ["Could not find a required 'As Of Date' column in the Deals sheet."],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+        }
+
     df = df[[c for c in df.columns if c in VALID_FIELDS]]
 
     for col in DATE_COLS & set(df.columns):
@@ -917,6 +935,45 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
             "replaced_funds": {},
         }
+
+    missing_as_of_rows = []
+    distinct_as_of_dates = set()
+    for idx, row in df[non_empty_mask].iterrows():
+        as_of_val = clean_val(row.get("as_of_date"))
+        if as_of_val is None:
+            missing_as_of_rows.append(idx + 2)
+        else:
+            distinct_as_of_dates.add(as_of_val)
+
+    if missing_as_of_rows:
+        return {
+            "success": 0,
+            "errors": [f"As Of Date is required on Deals rows: {', '.join(str(r) for r in missing_as_of_rows[:20])}"],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": len(missing_as_of_rows),
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "replaced_funds": {},
+        }
+
+    if len(distinct_as_of_dates) != 1:
+        return {
+            "success": 0,
+            "errors": [
+                "Deals sheet must contain exactly one As Of Date per upload. "
+                f"Found {len(distinct_as_of_dates)} distinct values."
+            ],
+            "batch_id": batch_id,
+            "bridge_complete": 0,
+            "duplicates_skipped": 0,
+            "quarantined_count": 0,
+            "issue_report_id": issue_report_id,
+            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "replaced_funds": {},
+        }
+    upload_as_of_date = next(iter(distinct_as_of_dates))
 
     distinct_firms = sorted(set(firm_values))
     if len(distinct_firms) != 1:
@@ -1067,6 +1124,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 investment_date=investment_date,
                 year_invested=year_invested_val,
                 exit_date=clean_val(row.get("exit_date")),
+                as_of_date=clean_val(row.get("as_of_date")),
                 equity_invested=clean_val(row.get("equity_invested")),
                 fund_size=clean_val(row.get("fund_size")),
                 realized_value=clean_val(row.get("realized_value")),
@@ -1160,4 +1218,5 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         "fx_rate_date": fx_meta.get("fx_rate_date"),
         "fx_status": fx_meta.get("fx_status"),
         "fx_warning": fx_meta.get("fx_warning"),
+        "as_of_date": upload_as_of_date,
     }

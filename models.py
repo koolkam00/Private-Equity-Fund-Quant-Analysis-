@@ -27,6 +27,7 @@ class Deal(db.Model):
     investment_date = db.Column(db.Date, nullable=True)
     year_invested = db.Column(db.Integer, nullable=True)
     exit_date = db.Column(db.Date, nullable=True)
+    as_of_date = db.Column(db.Date, nullable=True)
 
     # Equity / ownership
     equity_invested = db.Column(db.Float, nullable=True)
@@ -353,6 +354,7 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deals", "security_type", "VARCHAR(128)")
     _ensure_column(engine, inspector, "deals", "deal_type", "VARCHAR(128)")
     _ensure_column(engine, inspector, "deals", "entry_channel", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "deals", "as_of_date", "DATE")
 
     # Legacy compatibility fields (if historically present they remain optional)
     _ensure_column(engine, inspector, "deals", "irr", "FLOAT")
