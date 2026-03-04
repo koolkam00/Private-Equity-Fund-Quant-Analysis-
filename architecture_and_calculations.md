@@ -169,6 +169,7 @@ If required thresholds are missing, or if fund vintage/metric is unavailable, da
 ### 5.3 IC Analysis PDF Pack Export
 - Route:
   - `GET /reports/ic-pdf-pack`
+  - `GET /reports/ic-pdf-pack/live`
 - Output:
   - Returns a ZIP archive containing 4 separate PDFs:
     - Deal Level Track Record
@@ -184,6 +185,13 @@ If required thresholds are missing, or if fund vintage/metric is unavailable, da
   - Benchmarking PDF uses the current selected benchmark asset class from session/query context.
 - Rendering engine:
   - Server-side ReportLab generation (not browser print CSS) for deterministic one-click multi-file download.
+- Live-layout export helper:
+  - `/reports/ic-pdf-pack/live` opens the same existing page-level print/download flows used by:
+    - `/track-record/pdf`
+    - `/analysis/vca-ebitda` print layout
+    - `/analysis/vca-revenue` print layout
+    - `/analysis/benchmarking` print layout
+  - This preserves the exact browser print CSS layout for those analysis tabs.
 
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`

@@ -798,4 +798,22 @@ N/A
     <p>Upload data or adjust filters to populate this analysis.</p>
 </div>
 {% endif %}
+<script>
+(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoprint") !== "1") return;
+    const title = params.get("pdf_title");
+    if (title) document.title = title;
+
+    const runPrint = () => window.setTimeout(() => window.print(), 300);
+    if (document.readyState === "complete") runPrint();
+    else window.addEventListener("load", runPrint, { once: true });
+
+    if (params.get("autoclose") === "1") {
+        window.addEventListener("afterprint", () => {
+            window.setTimeout(() => window.close(), 200);
+        });
+    }
+})();
+</script>
 {% endblock %}

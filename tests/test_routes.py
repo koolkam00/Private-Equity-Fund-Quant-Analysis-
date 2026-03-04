@@ -541,6 +541,17 @@ def test_ic_pdf_pack_download(client):
         assert payload.startswith(b"%PDF"), name
 
 
+def test_ic_pdf_pack_live_page_renders_export_links(client):
+    response = client.get("/reports/ic-pdf-pack/live")
+    assert response.status_code == 200
+    assert b"Start 4-PDF Export" in response.data
+    assert b"/track-record/pdf" in response.data
+    assert b"/analysis/vca-ebitda" in response.data
+    assert b"/analysis/vca-revenue" in response.data
+    assert b"/analysis/benchmarking" in response.data
+    assert b"autoprint=1" in response.data
+
+
 def test_track_record_page_renders_template_columns_and_net_performance(client):
     deal = Deal(
         company_name="Track Co",

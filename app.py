@@ -1335,6 +1335,12 @@ def _report_title(firm_name, analysis_name, as_of_date):
     return f"{firm_name} {analysis_name} As Of {_as_of_ymd(as_of_date)}"
 
 
+def _safe_pdf_download_name(value, fallback):
+    candidate = (value or "").strip() or fallback
+    stem = candidate[:-4] if candidate.lower().endswith(".pdf") else candidate
+    return f"{_sanitize_filename_component(stem)}.pdf"
+
+
 def _fmt_symbol_currency(value, currency_code=DEFAULT_CURRENCY_CODE):
     return format_currency_millions(value, currency_code=currency_code, show_code=False)
 
@@ -1894,6 +1900,7 @@ def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE, r
                     ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#8eb0cf") if tag == "fund_header" else colors.HexColor("#6f97bd")),
                     ("TEXTCOLOR", (0, idx), (-1, idx), colors.HexColor("#0d2740")),
                     ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 7.0),
+                    ("ALIGN", (0, idx), (-1, idx), "LEFT"),
                     ("LINEABOVE", (0, idx), (-1, idx), 0.6, colors.HexColor("#4f6e89")),
                     ("LINEBELOW", (0, idx), (-1, idx), 0.6, colors.HexColor("#4f6e89")),
                 ]
@@ -3807,9 +3814,18 @@ def download_track_record_pdf():
     _scale_track_record_payload(record, reporting["money_scale"])
 
     currency_code = reporting["reporting_currency_code"]
+    report_title = (request.args.get("report_title", "") or "").strip() or None
+    download_name = _safe_pdf_download_name(
+        request.args.get("download_name", ""),
+        "track_record_print_ready.pdf",
+    )
 
     try:
-        pdf_bytes = _build_track_record_pdf(record, currency_code=currency_code)
+        pdf_bytes = _build_track_record_pdf(
+            record,
+            currency_code=currency_code,
+            report_title=report_title,
+        )
     except ImportError:
         flash("PDF export dependency missing. Install requirements and retry.", "danger")
         return redirect(url_for("track_record"))
@@ -3817,8 +3833,92 @@ def download_track_record_pdf():
     return send_file(
         BytesIO(pdf_bytes),
         as_attachment=True,
-        download_name="track_record_print_ready.pdf",
+        download_name=download_name,
         mimetype="application/pdf",
+    )
+
+
+@app.route("/reports/ic-pdf-pack/live")
+@login_required
+def live_ic_pdf_pack():
+    membership = _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    if active_firm is None:
+        flash("No active firm found for export.", "warning")
+        return redirect(url_for("dashboard"))
+
+    try:
+        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+    except OperationalError as exc:
+        if not _recover_missing_tables(exc):
+            raise
+        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+
+    benchmark_asset_classes = _benchmark_asset_classes_for_team(membership.team_id)
+    benchmark_session_key = "selected_benchmark_asset_class"
+    current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+    if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+        current_benchmark_asset_class = ""
+        session[benchmark_session_key] = ""
+
+    as_of_date = resolve_analysis_as_of_date(all_deals)
+    firm_name = active_firm.name or "Unknown Firm"
+
+    track_title = _report_title(firm_name, "Deal Level Track Record", as_of_date)
+    ebitda_title = _report_title(firm_name, "Value Creation Analysis by EBITDA", as_of_date)
+    revenue_title = _report_title(firm_name, "Value Creation Analysis by Revenue", as_of_date)
+    benchmarking_title = _report_title(firm_name, "Benchmarking Analysis", as_of_date)
+
+    links = [
+        {
+            "label": "Track Record PDF",
+            "title": track_title,
+            "url": url_for(
+                "download_track_record_pdf",
+                report_title=track_title,
+                download_name=f"{track_title}.pdf",
+            ),
+        },
+        {
+            "label": "VCA by EBITDA (Print Dialog)",
+            "title": ebitda_title,
+            "url": url_for(
+                "analysis_page",
+                page="vca-ebitda",
+                autoprint="1",
+                autoclose="1",
+                pdf_title=ebitda_title,
+            ),
+        },
+        {
+            "label": "VCA by Revenue (Print Dialog)",
+            "title": revenue_title,
+            "url": url_for(
+                "analysis_page",
+                page="vca-revenue",
+                autoprint="1",
+                autoclose="1",
+                pdf_title=revenue_title,
+            ),
+        },
+        {
+            "label": "Benchmarking Analysis (Print Dialog)",
+            "title": benchmarking_title,
+            "url": url_for(
+                "analysis_page",
+                page="benchmarking",
+                benchmark_asset_class=current_benchmark_asset_class,
+                autoprint="1",
+                autoclose="1",
+                pdf_title=benchmarking_title,
+            ),
+        },
+    ]
+
+    return render_template(
+        "reports_ic_pdf_pack_live.html",
+        links=links,
+        benchmark_asset_class=current_benchmark_asset_class,
     )
 
 

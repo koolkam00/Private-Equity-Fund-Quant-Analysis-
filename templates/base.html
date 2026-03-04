@@ -39,7 +39,7 @@
                     class="bi bi-buildings"></i> Deals</a>
             <a href="{{ url_for('track_record') }}" class="nav-item {% if request.endpoint == 'track_record' %}active{% endif %}"><i
                     class="bi bi-table"></i> Track Record</a>
-            <a href="{{ url_for('download_ic_pdf_pack') }}" class="nav-item"><i
+            <a href="{{ url_for('live_ic_pdf_pack') }}" class="nav-item"><i
                     class="bi bi-file-earmark-zip"></i> Download 4 Analysis PDFs</a>
             {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
             <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item nav-sub {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
