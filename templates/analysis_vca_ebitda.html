@@ -345,14 +345,11 @@ N/A
             <p class="vca-print-meta">{{ vca_filter_summary }}</p>
         </div>
         <section class="vca-print-exec-main">
-            <h5>Executive Summary: Fund Net Performance</h5>
+            <h5>Executive Summary: Fund Gross Performance</h5>
             <table class="vca-print-exec-table">
                 <thead>
                     <tr>
                         <th>Fund</th>
-                        <th class="num">Net IRR</th>
-                        <th class="num">Net MOIC</th>
-                        <th class="num">Net DPI</th>
                         <th class="num">Gross Profit</th>
                         <th class="num">Gross MOIC</th>
                         <th class="num">Gross IRR</th>
@@ -369,9 +366,6 @@ N/A
                         data-sort-status-rank="{{ fund.print_sort_metrics.status_rank if fund.print_sort_metrics.status_rank is not none else 99 }}"
                     >
                         <td>{{ fund.fund_name }}</td>
-                        <td class="num">{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</td>
-                        <td class="num">{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</td>
-                        <td class="num">{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</td>
                         <td class="num">{{ fmt_currency_symbol(fund.print_sort_metrics.gross_profit) }}</td>
                         <td class="num">{{ fmt_multiple(fund.print_sort_metrics.gross_moic) }}</td>
                         <td class="num">{{ fmt_pct_1dp(fund.print_sort_metrics.gross_irr) }}</td>
@@ -379,9 +373,6 @@ N/A
                     {% endfor %}
                     <tr class="vca-exec-overall-row">
                         <td><strong>Overall Portfolio</strong></td>
-                        <td class="num">—</td>
-                        <td class="num">—</td>
-                        <td class="num">—</td>
                         <td class="num"><strong>{{ fmt_currency_symbol(analysis.overall_block.summary_metrics.gross_profit) }}</strong></td>
                         <td class="num"><strong>{{ fmt_multiple(analysis.overall_block.summary_metrics.gross_moic) }}</strong></td>
                         <td class="num"><strong>{{ fmt_pct_1dp(analysis.overall_block.summary_metrics.gross_irr) }}</strong></td>
@@ -441,14 +432,6 @@ N/A
                             {% endfor %}
                         </tbody>
                         <tfoot>
-                            <tr class="vca-print-net-row vca-net-summary">
-                                <td colspan="{{ analysis.header.columns|length }}">
-                                    <span class="vca-net-label">{{ fund.fund_name }} Net Performance</span>
-                                    <span>Net IRR: <strong>{{ render_net_metric(fund.net_performance.net_irr, fund.net_performance.conflicts.net_irr, "irr") }}</strong></span>
-                                    <span>Net MOIC: <strong>{{ render_net_metric(fund.net_performance.net_moic, fund.net_performance.conflicts.net_moic, "multiple") }}</strong></span>
-                                    <span>Net DPI: <strong>{{ render_net_metric(fund.net_performance.net_dpi, fund.net_performance.conflicts.net_dpi, "multiple") }}</strong></span>
-                                </td>
-                            </tr>
                             <tr class="vca-print-footer">
                                 <td colspan="{{ analysis.header.columns|length }}">Fund {{ loop.index }} of {{ analysis.fund_blocks|length }} • {{ fund.fund_name }}</td>
                             </tr>

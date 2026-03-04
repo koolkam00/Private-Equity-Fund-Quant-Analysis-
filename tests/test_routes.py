@@ -1530,18 +1530,18 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"FUND_BLOCK_BUFFER_PX" in response.data
     assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
-    assert b"vca-net-summary" in response.data
+    assert b"vca-net-summary" not in response.data
     assert (
         re.search(
-            rb'<tbody>.*?</tbody>\s*<tfoot>\s*<tr class="vca-print-net-row vca-net-summary">.*?</tr>\s*<tr class="vca-print-footer">',
+            rb'<tbody>.*?</tbody>\s*<tfoot>\s*<tr class="vca-print-footer">',
             response.data,
             re.S,
         )
         is not None
     )
-    assert b"Net IRR" in response.data
-    assert b"Net MOIC" in response.data
-    assert b"Net DPI" in response.data
+    assert b"Net IRR" not in response.data
+    assert b"Net MOIC" not in response.data
+    assert b"Net DPI" not in response.data
     assert b"$M" in response.data
     assert b"| $M" in response.data
     assert b"| USD $M" not in response.data
@@ -1590,15 +1590,15 @@ def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
     assert b"FUND_BLOCK_BUFFER_PX" in response.data
     assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
-    assert b"vca-net-summary" in response.data
-    assert b"Net IRR" in response.data
-    assert b"Net MOIC" in response.data
-    assert b"Net DPI" in response.data
+    assert b"vca-net-summary" not in response.data
+    assert b"Net IRR" not in response.data
+    assert b"Net MOIC" not in response.data
+    assert b"Net DPI" not in response.data
     assert b"| $M" in response.data
     assert b"| USD $M" not in response.data
 
 
-def test_analysis_vca_ebitda_net_conflict_renders_na(client):
+def test_analysis_vca_ebitda_net_conflict_omits_net_print_rows(client):
     d1 = Deal(
         company_name="Conflict One",
         fund_number="Fund Conflict",
@@ -1648,10 +1648,11 @@ def test_analysis_vca_ebitda_net_conflict_renders_na(client):
 
     response = client.get("/analysis/vca-ebitda")
     assert response.status_code == 200
-    assert b"Fund Conflict Net Performance" in response.data
-    assert re.search(rb"Net IRR:\s*<strong>\s*N/A\s*</strong>", response.data) is not None
-    assert b"Net MOIC" in response.data
-    assert b"Net DPI" in response.data
+    assert b"Fund Conflict Net Performance" not in response.data
+    assert b"vca-net-summary" not in response.data
+    assert b"Net IRR" not in response.data
+    assert b"Net MOIC" not in response.data
+    assert b"Net DPI" not in response.data
 
 
 def test_analysis_non_vca_page_uses_symbol_only_money(client):

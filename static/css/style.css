@@ -950,24 +950,6 @@ body.pe-app {
     background: #ffffff;
     padding: 6px;
 }
-.vca-print-table .vca-net-summary td {
-    background: var(--vca-head-legend-bg);
-    border-top: var(--vca-border-width) solid var(--vca-border-cell-h);
-    border-bottom: var(--vca-border-width) solid var(--vca-border-cell-h);
-    color: var(--vca-head-legend-fg);
-    font-size: 8px;
-    line-height: 1.15;
-    padding: 2px 4px;
-}
-.vca-print-table .vca-net-summary td > span {
-    display: inline-block;
-    margin-right: 10px;
-}
-.vca-print-table .vca-net-summary .vca-net-label {
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
 .vca-print-header {
     margin-bottom: 4px;
 }
@@ -1132,10 +1114,6 @@ body.pe-app {
 }
 .vca-ebitda-root.vca-density-compact .vca-print-exec-table {
     font-size: 8px;
-}
-.vca-ebitda-root.vca-density-compact .vca-print-table .vca-net-summary td {
-    font-size: 7.4px;
-    padding: 1px 3px;
 }
 .rollup-subsection-title {
     margin: 14px 0 8px;
@@ -2148,18 +2126,11 @@ body.pe-app {
         break-after: avoid-page !important;
         page-break-after: avoid !important;
     }
-    .vca-print-table .vca-print-net-row,
     .vca-print-table .vca-print-footer {
         break-inside: avoid-page !important;
         page-break-inside: avoid !important;
         break-before: avoid-page !important;
         page-break-before: avoid !important;
-    }
-
-    .vca-print-table .vca-net-summary td {
-        border-top-width: var(--vca-border-width) !important;
-        border-bottom-width: var(--vca-border-width) !important;
-        padding: 0 2px !important;
     }
 
     .vca-print-table .vca-row-subtotal td,
