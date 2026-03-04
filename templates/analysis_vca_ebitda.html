@@ -507,8 +507,8 @@ N/A
 <script>
 (() => {
     const DENSITY_SETTINGS = {
-        readable: { base: 8.0, min: 5.8, step: 0.1, minScale: 0.82 },
-        compact: { base: 7.4, min: 5.4, step: 0.1, minScale: 0.80 },
+        readable: { base: 8.0, min: 5.8, step: 0.1 },
+        compact: { base: 7.4, min: 5.4, step: 0.1 },
     };
     const STORAGE_KEYS = {
         sort: "vca_print_sort",
@@ -520,10 +520,12 @@ N/A
     const DEFAULT_MODE = "detailed";
     const PREVIEW_CLASS = "vca-preview-print";
     const FORCE_BREAK_CLASS = "vca-force-page-break";
-    const PAGE_MARGIN_IN = 0.28;
+    const PAGE_MARGIN_IN = 0.22;
     const LEGAL_PAGE_HEIGHT_IN = 8.5 - (PAGE_MARGIN_IN * 2);
     const PAGE_HEIGHT_SAFETY_IN = 0.14;
     const BLOCK_HEIGHT_SAFETY_PX = 3;
+    const WIDTH_SAFETY_PX = 2;
+    const HEIGHT_SAFETY_PX = 1;
     const previewToggleBtn = document.getElementById("vcaPreviewToggle");
     const vcaRoot = document.querySelector(".vca-ebitda-root");
     const printLayout = document.querySelector(".vca-print-layout");
@@ -534,6 +536,7 @@ N/A
     const execTableBody = document.querySelector(".vca-print-exec-table tbody");
 
     const roundToHundredth = (value) => Math.round(value * 100) / 100;
+    const roundToTenThousandth = (value) => Math.round(value * 10000) / 10000;
     const readStored = (key, fallback) => {
         try {
             const value = window.localStorage.getItem(key);
@@ -680,21 +683,36 @@ N/A
             if (!wrap) return;
 
             wrap.style.removeProperty("height");
+            const availableWidth = Math.max(1, wrap.clientWidth - WIDTH_SAFETY_PX);
             let size = settings.base;
             table.style.setProperty("--vca-print-font-size", `${size}px`);
             table.style.setProperty("--vca-print-scale", "1");
 
-            while (table.scrollWidth > wrap.clientWidth + 1 && size > settings.min) {
+            while (table.scrollWidth > availableWidth + 1 && size > settings.min) {
                 size = roundToHundredth(Math.max(settings.min, size - settings.step));
                 table.style.setProperty("--vca-print-font-size", `${size}px`);
             }
 
-            if (table.scrollWidth > wrap.clientWidth + 1) {
-                const rawScale = wrap.clientWidth / table.scrollWidth;
-                const scale = Math.max(settings.minScale, rawScale);
-                table.style.setProperty("--vca-print-scale", `${roundToHundredth(scale)}`);
+            if (table.scrollWidth > availableWidth + 1) {
+                const naturalWidth = table.scrollWidth;
                 const naturalHeight = table.scrollHeight;
-                wrap.style.height = `${Math.ceil(naturalHeight * scale) + 1}px`;
+                let scale = naturalWidth > 0 ? Math.min(1, availableWidth / naturalWidth) : 1;
+                if (!Number.isFinite(scale) || scale <= 0) scale = 1;
+                scale = roundToTenThousandth(scale);
+
+                if (scale < 1) {
+                    table.style.setProperty("--vca-print-scale", `${scale}`);
+                    const renderedWidth = table.getBoundingClientRect().width;
+                    if (renderedWidth > availableWidth + 1 && renderedWidth > 0) {
+                        const correctedScale = Math.max(0.01, (scale * availableWidth) / renderedWidth);
+                        scale = roundToTenThousandth(correctedScale);
+                        table.style.setProperty("--vca-print-scale", `${scale}`);
+                    }
+                    wrap.style.height = `${Math.ceil((naturalHeight * scale) + HEIGHT_SAFETY_PX)}px`;
+                } else {
+                    table.style.setProperty("--vca-print-scale", "1");
+                    wrap.style.removeProperty("height");
+                }
             } else {
                 wrap.style.removeProperty("height");
             }

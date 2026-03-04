@@ -1832,7 +1832,7 @@ body.pe-app {
 
 @page vcaebitda {
     size: Legal landscape;
-    margin: 0.28in;
+    margin: 0.22in;
 }
 
 @page methodology {
@@ -2086,6 +2086,7 @@ body.pe-app {
     .vca-print-table-wrap {
         break-inside: avoid-page !important;
         page-break-inside: avoid !important;
+        overflow: visible !important;
     }
 
     .vca-print-table .vca-head-band th {

@@ -1525,6 +1525,9 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b'id="vcaModeToggle"' in response.data
     assert b"vca-print-exec-main" in response.data
     assert b"vca-print-appendix-title" in response.data
+    assert b"WIDTH_SAFETY_PX" in response.data
+    assert b"HEIGHT_SAFETY_PX" in response.data
+    assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" in response.data
     assert (
         re.search(
@@ -1580,6 +1583,9 @@ def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
     assert b'id="vcaDensityToggle"' in response.data
     assert b'id="vcaModeToggle"' in response.data
     assert b"vca-print-exec-main" in response.data
+    assert b"WIDTH_SAFETY_PX" in response.data
+    assert b"HEIGHT_SAFETY_PX" in response.data
+    assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" in response.data
     assert b"Net IRR" in response.data
     assert b"Net MOIC" in response.data
