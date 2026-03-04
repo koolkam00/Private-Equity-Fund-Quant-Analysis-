@@ -526,6 +526,8 @@ N/A
     const BLOCK_HEIGHT_SAFETY_PX = 3;
     const WIDTH_SAFETY_PX = 2;
     const HEIGHT_SAFETY_PX = 1;
+    const FUND_BLOCK_BUFFER_PX = 10;
+    const FOOTER_GUARD_BAND_PX = 14;
     const previewToggleBtn = document.getElementById("vcaPreviewToggle");
     const vcaRoot = document.querySelector(".vca-ebitda-root");
     const printLayout = document.querySelector(".vca-print-layout");
@@ -662,11 +664,16 @@ N/A
                 return;
             }
 
-            if (blockHeight > remaining) {
+            const needsFreshPage =
+                (blockHeight + FUND_BLOCK_BUFFER_PX) > remaining ||
+                (remaining - blockHeight) < FOOTER_GUARD_BAND_PX;
+            if (needsFreshPage) {
                 if (index > 0) {
                     fundPage.classList.add(FORCE_BREAK_CLASS);
+                    remaining = Math.max(0, effectivePageHeightPx - blockHeight);
+                } else {
+                    remaining = Math.max(0, remaining - blockHeight);
                 }
-                remaining = effectivePageHeightPx - blockHeight;
             } else {
                 remaining -= blockHeight;
             }
@@ -695,7 +702,6 @@ N/A
 
             if (table.scrollWidth > availableWidth + 1) {
                 const naturalWidth = table.scrollWidth;
-                const naturalHeight = table.scrollHeight;
                 let scale = naturalWidth > 0 ? Math.min(1, availableWidth / naturalWidth) : 1;
                 if (!Number.isFinite(scale) || scale <= 0) scale = 1;
                 scale = roundToTenThousandth(scale);
@@ -708,7 +714,8 @@ N/A
                         scale = roundToTenThousandth(correctedScale);
                         table.style.setProperty("--vca-print-scale", `${scale}`);
                     }
-                    wrap.style.height = `${Math.ceil((naturalHeight * scale) + HEIGHT_SAFETY_PX)}px`;
+                    const renderedHeight = table.getBoundingClientRect().height;
+                    wrap.style.height = `${Math.ceil(renderedHeight + HEIGHT_SAFETY_PX)}px`;
                 } else {
                     table.style.setProperty("--vca-print-scale", "1");
                     wrap.style.removeProperty("height");

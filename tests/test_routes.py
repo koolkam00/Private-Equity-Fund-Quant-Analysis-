@@ -1527,6 +1527,8 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"vca-print-appendix-title" in response.data
     assert b"WIDTH_SAFETY_PX" in response.data
     assert b"HEIGHT_SAFETY_PX" in response.data
+    assert b"FUND_BLOCK_BUFFER_PX" in response.data
+    assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" in response.data
     assert (
@@ -1585,6 +1587,8 @@ def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
     assert b"vca-print-exec-main" in response.data
     assert b"WIDTH_SAFETY_PX" in response.data
     assert b"HEIGHT_SAFETY_PX" in response.data
+    assert b"FUND_BLOCK_BUFFER_PX" in response.data
+    assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" in response.data
     assert b"Net IRR" in response.data

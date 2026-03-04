@@ -2082,6 +2082,8 @@ body.pe-app {
     }
     .vca-print-table tfoot {
         display: table-footer-group !important;
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
     }
     .vca-print-table-wrap {
         break-inside: avoid-page !important;
@@ -2141,6 +2143,17 @@ body.pe-app {
     .vca-print-table tr {
         page-break-inside: avoid;
         break-inside: avoid;
+    }
+    .vca-print-table tbody tr:last-child {
+        break-after: avoid-page !important;
+        page-break-after: avoid !important;
+    }
+    .vca-print-table .vca-print-net-row,
+    .vca-print-table .vca-print-footer {
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
+        break-before: avoid-page !important;
+        page-break-before: avoid !important;
     }
 
     .vca-print-table .vca-net-summary td {
