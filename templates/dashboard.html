@@ -167,7 +167,7 @@
     <div class="kpi-card"><span>Gross MOIC {{ audit_link('metric-gross-moic', 'info') }}</span><strong class="{% if kpis.gross_moic is not none and kpis.gross_moic >= 1 %}value-positive{% elif kpis.gross_moic is not none %}value-negative{% endif %}">{{ "%.2fx"|format(kpis.gross_moic) if kpis.gross_moic is not none else "—" }}</strong></div>
     <div class="kpi-card"><span>Value Created</span><strong class="{% if kpis.total_value_created >= 0 %}value-positive{% else %}value-negative{% endif %}">{{ fmt_currency(kpis.total_value_created) }}</strong></div>
     <div class="kpi-card"><span>Loss Ratio (Count)</span><strong class="{% if loss.count_pct is not none and loss.count_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.count_pct) if loss.count_pct is not none else "—" }}</strong></div>
-    <div class="kpi-card"><span>Loss Ratio (Capital)</span><strong class="{% if loss.capital_pct is not none and loss.capital_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.capital_pct) if loss.capital_pct is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Capital Value Loss Ratio</span><strong class="{% if loss.capital_pct is not none and loss.capital_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.capital_pct) if loss.capital_pct is not none else "—" }}</strong></div>
     <div class="kpi-card"><span>Gross IRR (Wtd) {{ audit_link('metric-track-record-gross-irr-precedence', 'info') }}</span><strong class="{% if kpis.gross_irr is not none and kpis.gross_irr >= 0 %}value-positive{% elif kpis.gross_irr is not none %}value-negative{% endif %}">{{ "%.1f%%"|format((kpis.gross_irr or 0)*100) if kpis.gross_irr is not none else "—" }}</strong></div>
 </div>
 

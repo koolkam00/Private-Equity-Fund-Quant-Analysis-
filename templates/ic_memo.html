@@ -218,16 +218,18 @@
                 <h3>Loss Ratios</h3>
                 {% set loss_count = memo.risk.loss_ratio_count_pct if memo.risk.loss_ratio_count_pct is not none else 0 %}
                 {% set loss_cap = memo.risk.loss_ratio_capital_pct if memo.risk.loss_ratio_capital_pct is not none else 0 %}
+                {% set loss_count_width = 0 if loss_count < 0 else 100 if loss_count > 100 else loss_count %}
+                {% set loss_cap_width = 0 if loss_cap < 0 else 100 if loss_cap > 100 else loss_cap %}
                 <div class="ic-progress-row">
                     <span>Count-Based Loss Ratio</span>
                     <strong>{{ "%.1f%%"|format(loss_count) if memo.risk.loss_ratio_count_pct is not none else "—" }}</strong>
                 </div>
-                <div class="ic-progress"><div class="ic-progress-fill" style="width: {{ loss_count }}%;"></div></div>
+                <div class="ic-progress"><div class="ic-progress-fill" style="width: {{ loss_count_width }}%;"></div></div>
                 <div class="ic-progress-row">
-                    <span>Capital-Based Loss Ratio</span>
+                    <span>Capital Value Loss Ratio</span>
                     <strong>{{ "%.1f%%"|format(loss_cap) if memo.risk.loss_ratio_capital_pct is not none else "—" }}</strong>
                 </div>
-                <div class="ic-progress"><div class="ic-progress-fill ic-progress-fill-risk" style="width: {{ loss_cap }}%;"></div></div>
+                <div class="ic-progress"><div class="ic-progress-fill ic-progress-fill-risk" style="width: {{ loss_cap_width }}%;"></div></div>
                 <p class="tiny">Losing deals: {{ memo.risk.loss_count }} / {{ memo.risk.loss_total }}</p>
             </div>
             <div class="panel">

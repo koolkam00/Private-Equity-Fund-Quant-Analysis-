@@ -59,6 +59,7 @@ def test_dashboard_page(client):
     assert response.status_code == 200
     assert b"Portfolio Dashboard" in response.data
     assert b'id="bridge-lever-table-body"' in response.data
+    assert b"Capital Value Loss Ratio" in response.data
 
 
 def test_upload_page(client):
@@ -540,6 +541,7 @@ def test_ic_memo_page_renders_and_has_print_action(client):
     assert b"IC Memo Presentation" in response.data
     assert b"Download as PDF" in response.data
     assert b"Page 1. Executive Summary" in response.data
+    assert b"Capital Value Loss Ratio" in response.data
 
 
 def test_ic_memo_path_fund_scope_overrides_query_fund_and_keeps_filters(client):

@@ -235,7 +235,23 @@ def test_loss_ratios_dynamic():
     metrics = {1: compute_deal_metrics(d1), 2: compute_deal_metrics(d2)}
     risk = compute_loss_and_distribution([d1, d2], metrics_by_id=metrics)
     assert abs(risk["loss_ratios"]["count_pct"] - 50.0) < 1e-9
-    assert abs(risk["loss_ratios"]["capital_pct"] - 50.0) < 1e-9
+    assert abs(risk["loss_ratios"]["capital_pct"] - 10.0) < 1e-9
+
+
+def test_loss_ratio_capital_uses_all_positive_equity_deals_in_denominator():
+    d1 = _make_deal(id=1, equity_invested=100, realized_value=80, unrealized_value=0)  # impaired
+    d2 = _make_deal(id=2, equity_invested=100, realized_value=150, unrealized_value=0)  # not impaired
+    d3 = _make_deal(id=3, equity_invested=100, realized_value=95, unrealized_value=0)  # invalid MOIC supplied
+    metrics = {
+        1: {"moic": 0.8},
+        2: {"moic": 1.5},
+        3: {"moic": None},
+    }
+    risk = compute_loss_and_distribution([d1, d2, d3], metrics_by_id=metrics)
+    assert abs(risk["loss_ratios"]["count_pct"] - 50.0) < 1e-9
+    assert abs(risk["loss_ratios"]["capital_pct"] - ((20 / 300) * 100)) < 1e-9
+    assert risk["loss_ratios"]["loss_count"] == 1
+    assert risk["loss_ratios"]["total_count"] == 2
 
 
 def test_portfolio_analytics_entry_exit_weighted():
@@ -760,7 +776,7 @@ def test_methodology_payload_contains_canonical_formula_strings():
     assert by_id["metric-gross-moic"]["formula"] == "(Realized Value + Unrealized Value) / Equity Invested"
     assert by_id["metric-implied-irr"]["formula"] == "(Gross MOIC ^ (1 / Hold Years)) - 1"
     assert by_id["metric-loss-ratio-count"]["formula"] == "(Deals with MOIC < 1.0x / Deals with valid MOIC) * 100"
-    assert by_id["metric-loss-ratio-capital"]["formula"] == "(Equity invested in deals with MOIC < 1.0x / Total evaluated equity) * 100"
+    assert by_id["metric-loss-ratio-capital"]["formula"] == "(Sum(max(Equity Invested - (Realized Value + Unrealized Value), 0) for deals with MOIC < 1.0x) / Total invested equity across all positive-equity deals) * 100"
     assert by_id["metric-bridge-revenue"]["formula"] == "(Exit Revenue - Entry Revenue) * m0 * x0"
     assert "Entry EBITDA <= 0 or Exit EBITDA <= 0" in by_id["metric-bridge-fallback-negative-ebitda"]["formula"]
     assert "Entry Revenue and Exit Revenue are missing/near-zero" in by_id["metric-bridge-fallback-missing-revenue"]["formula"]

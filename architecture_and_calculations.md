@@ -39,7 +39,7 @@ Currency policy:
 
 ### 4.2 Loss Ratios
 - Count-based loss ratio: `% deals with MOIC < 1.0x`
-- Capital-based loss ratio: `% invested equity in deals with MOIC < 1.0x`
+- Capital value loss ratio: `% of total invested equity lost on impaired deals (MOIC < 1.0x), where loss per impaired deal = max(equity invested - total value, 0)`
 
 ### 4.3 Entry/Exit Metrics
 For both entry and exit:
