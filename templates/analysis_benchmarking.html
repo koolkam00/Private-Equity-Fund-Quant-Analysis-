@@ -125,57 +125,20 @@ N/A
         </div>
 
         <div class="panel">
-            <h3>Quartile Rank Distribution</h3>
-            <table class="data-table compact bench-dist-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th class="num">Top 5%</th>
-                        <th class="num">Q1</th>
-                        <th class="num">Q2</th>
-                        <th class="num">Q3</th>
-                        <th class="num">Q4</th>
-                        <th class="num">N/A</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for metric_key in ["net_irr", "net_moic", "net_dpi"] %}
-                    {% set dist = analysis.rank_distribution.get(metric_key, {}) %}
-                    {% set counts = dist.get("counts", {}) %}
-                    <tr>
-                        <td>{{ dist.get("label", metric_key) }}</td>
-                        <td class="num">{{ counts.get("top5", 0) }}</td>
-                        <td class="num">{{ counts.get("q1", 0) }}</td>
-                        <td class="num">{{ counts.get("q2", 0) }}</td>
-                        <td class="num">{{ counts.get("q3", 0) }}</td>
-                        <td class="num">{{ counts.get("q4", 0) }}</td>
-                        <td class="num">{{ counts.get("na", 0) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="panel">
             <h3>Fund Benchmarking Table</h3>
             <div class="track-record-scroll">
                 <table class="data-table compact bench-fund-table">
                     <thead>
                         <tr>
                             <th>Fund</th>
-                            <th class="num">Vintage</th>
+                            <th class="num">Vintage Year</th>
                             <th class="num">Fund Size</th>
                             <th class="num">Net IRR</th>
-                            <th>IRR Rank</th>
-                            <th class="num">IRR Δ vs Median</th>
                             <th class="num">Net MOIC</th>
-                            <th>MOIC Rank</th>
-                            <th class="num">MOIC Δ vs Median</th>
                             <th class="num">Net DPI</th>
-                            <th>DPI Rank</th>
-                            <th class="num">DPI Δ vs Median</th>
-                            <th>Composite</th>
-                            <th class="num">Score</th>
+                            <th>Net IRR Benchmark</th>
+                            <th>Net MOIC Benchmark</th>
+                            <th>Net DPI Benchmark</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -185,19 +148,14 @@ N/A
                             <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
                             <td class="num">{% if row.fund_size_conflict %}N/A{% else %}{{ fmt_currency_symbol(row.fund_size) }}{% endif %}</td>
                             <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
-                            <td>{{ rank_chip(row.benchmark_net_irr) }}</td>
-                            <td class="num">{{ fmt_pct_1dp(row.net_irr_delta_to_median) }}</td>
                             <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
-                            <td>{{ rank_chip(row.benchmark_net_moic) }}</td>
-                            <td class="num">{{ fmt_multiple(row.net_moic_delta_to_median) }}</td>
                             <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                            <td>{{ rank_chip(row.benchmark_net_irr) }}</td>
+                            <td>{{ rank_chip(row.benchmark_net_moic) }}</td>
                             <td>{{ rank_chip(row.benchmark_net_dpi) }}</td>
-                            <td class="num">{{ fmt_multiple(row.net_dpi_delta_to_median) }}</td>
-                            <td>{{ rank_chip(row.composite_rank) }}</td>
-                            <td class="num">{{ "%.2f"|format(row.composite_score) if row.composite_score is not none else "—" }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="14" class="num">No fund rows available in this filter scope.</td></tr>
+                        <tr><td colspan="9" class="num">No fund rows available in this filter scope.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -255,13 +213,50 @@ N/A
     </div>
 
     <div class="bench-print-layout">
-        <section class="bench-print-page bench-print-page-summary">
+        <section class="bench-print-page bench-print-page-funds">
             <div class="bench-print-header">
                 <h4>{{ page_meta.title }}</h4>
                 <p class="bench-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }} | Benchmark Asset Class: {{ current_benchmark_asset_class or "Not Selected" }}</p>
                 <p class="bench-print-meta">{{ bench_filter_summary }}</p>
             </div>
 
+            <h5>Fund Benchmarking Table</h5>
+            <table class="bench-print-table bench-print-fund-table">
+                <thead>
+                    <tr>
+                        <th>Fund</th>
+                        <th class="num">Vintage Year</th>
+                        <th class="num">Fund Size</th>
+                        <th class="num">Net IRR</th>
+                        <th class="num">Net MOIC</th>
+                        <th class="num">Net DPI</th>
+                        <th>Net IRR Benchmark</th>
+                        <th>Net MOIC Benchmark</th>
+                        <th>Net DPI Benchmark</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in analysis.fund_rows %}
+                    <tr>
+                        <td>{{ row.fund_name }}</td>
+                        <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                        <td class="num">{% if row.fund_size_conflict %}N/A{% else %}{{ fmt_currency_symbol(row.fund_size) }}{% endif %}</td>
+                        <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                        <td>{{ rank_chip(row.benchmark_net_irr) }}</td>
+                        <td>{{ rank_chip(row.benchmark_net_moic) }}</td>
+                        <td>{{ rank_chip(row.benchmark_net_dpi) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="num">No fund rows available in this filter scope.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="bench-print-page bench-print-page-summary">
+            <h5>Executive Summary</h5>
             <table class="bench-print-kpi-table">
                 <tbody>
                     <tr>
@@ -278,83 +273,7 @@ N/A
                     </tr>
                 </tbody>
             </table>
-
-            <h5>Quartile Rank Distribution</h5>
-            <table class="bench-print-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th class="num">Top 5%</th>
-                        <th class="num">Q1</th>
-                        <th class="num">Q2</th>
-                        <th class="num">Q3</th>
-                        <th class="num">Q4</th>
-                        <th class="num">N/A</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for metric_key in ["net_irr", "net_moic", "net_dpi"] %}
-                    {% set dist = analysis.rank_distribution.get(metric_key, {}) %}
-                    {% set counts = dist.get("counts", {}) %}
-                    <tr>
-                        <td>{{ dist.get("label", metric_key) }}</td>
-                        <td class="num">{{ counts.get("top5", 0) }}</td>
-                        <td class="num">{{ counts.get("q1", 0) }}</td>
-                        <td class="num">{{ counts.get("q2", 0) }}</td>
-                        <td class="num">{{ counts.get("q3", 0) }}</td>
-                        <td class="num">{{ counts.get("q4", 0) }}</td>
-                        <td class="num">{{ counts.get("na", 0) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
             <p class="bench-print-note">{{ analysis.meta.coverage_note }}</p>
-        </section>
-
-        <section class="bench-print-page bench-print-page-funds">
-            <h5>Fund Benchmarking Table</h5>
-            <table class="bench-print-table bench-print-fund-table">
-                <thead>
-                    <tr>
-                        <th>Fund</th>
-                        <th class="num">Vintage</th>
-                        <th class="num">Fund Size</th>
-                        <th class="num">Net IRR</th>
-                        <th>IRR Rank</th>
-                        <th class="num">IRR Δ</th>
-                        <th class="num">Net MOIC</th>
-                        <th>MOIC Rank</th>
-                        <th class="num">MOIC Δ</th>
-                        <th class="num">Net DPI</th>
-                        <th>DPI Rank</th>
-                        <th class="num">DPI Δ</th>
-                        <th>Composite</th>
-                        <th class="num">Score</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in analysis.fund_rows %}
-                    <tr>
-                        <td>{{ row.fund_name }}</td>
-                        <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
-                        <td class="num">{% if row.fund_size_conflict %}N/A{% else %}{{ fmt_currency_symbol(row.fund_size) }}{% endif %}</td>
-                        <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
-                        <td>{{ row.benchmark_net_irr.label }}</td>
-                        <td class="num">{{ fmt_pct_1dp(row.net_irr_delta_to_median) }}</td>
-                        <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
-                        <td>{{ row.benchmark_net_moic.label }}</td>
-                        <td class="num">{{ fmt_multiple(row.net_moic_delta_to_median) }}</td>
-                        <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
-                        <td>{{ row.benchmark_net_dpi.label }}</td>
-                        <td class="num">{{ fmt_multiple(row.net_dpi_delta_to_median) }}</td>
-                        <td>{{ row.composite_rank.label }}</td>
-                        <td class="num">{{ "%.2f"|format(row.composite_score) if row.composite_score is not none else "—" }}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="14" class="num">No fund rows available in this filter scope.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
         </section>
 
         <section class="bench-print-page bench-print-page-appendix">

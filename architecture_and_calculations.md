@@ -162,8 +162,9 @@ If required thresholds are missing, or if fund vintage/metric is unavailable, da
 - Print/PDF behavior:
   - Browser-native print (`window.print()`), not server-side PDF generation.
   - Print profile: `Letter landscape`.
-  - Report structure: IC executive summary + fund benchmarking table + threshold appendix.
+  - Report structure: fund benchmarking table (page 1) + executive summary + threshold appendix.
   - Includes print metadata (as-of date, unit label, filters, benchmark asset class).
+  - Fund benchmarking table format matches the dashboard `Fund Summary` benchmark columns.
 
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`

@@ -1262,6 +1262,10 @@ body.pe-app {
 .benchmark-ic-root .bench-threshold-table th {
     background: var(--bench-subhead-bg);
 }
+.benchmark-ic-root .bench-fund-table th,
+.benchmark-ic-root .bench-fund-table td {
+    white-space: nowrap;
+}
 .benchmark-ic-root .bench-fund-table tbody tr:nth-child(even),
 .benchmark-ic-root .bench-threshold-table tbody tr:nth-child(even) {
     background: var(--bench-row-alt);
@@ -1331,6 +1335,10 @@ body.pe-app {
 .benchmark-ic-root .bench-print-table .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+.benchmark-ic-root .bench-print-fund-table th,
+.benchmark-ic-root .bench-print-fund-table td {
+    white-space: nowrap;
 }
 .benchmark-ic-root h5 {
     margin: 12px 0 6px;

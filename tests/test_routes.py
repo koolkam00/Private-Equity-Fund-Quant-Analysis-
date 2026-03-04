@@ -1574,12 +1574,24 @@ def test_analysis_benchmarking_page_renders_ic_print_markers(client):
     assert response.status_code == 200
     assert b"Benchmarking Analysis (IC PDF)" in response.data
     assert b"Benchmark Asset Class" in response.data
-    assert b"Quartile Rank Distribution" in response.data
+    assert b"Quartile Rank Distribution" not in response.data
     assert b"Fund Benchmarking Table" in response.data
     assert b"Benchmark Threshold Appendix" in response.data
+    assert b"Vintage Year" in response.data
+    assert b"Net IRR Benchmark" in response.data
+    assert b"Net MOIC Benchmark" in response.data
+    assert b"Net DPI Benchmark" in response.data
+    assert b"vs Median" not in response.data
+    assert b"<th>Composite</th>" not in response.data
+    assert b'<th class="num">Score</th>' not in response.data
     assert b'id="benchPreviewToggle"' in response.data
     assert b"bench-print-layout" in response.data
     assert b"bench-print-page" in response.data
+    funds_idx = response.data.find(b"bench-print-page bench-print-page-funds")
+    summary_idx = response.data.find(b"bench-print-page bench-print-page-summary")
+    assert funds_idx != -1
+    assert summary_idx != -1
+    assert funds_idx < summary_idx
 
 
 def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
