@@ -177,8 +177,8 @@ If required thresholds are missing, or if fund vintage/metric is unavailable, da
     - Value Creation Analysis by Revenue
     - Benchmarking Analysis
 - Filename/title convention:
-  - `{Firm Name} {Analysis Name} As Of {YYYY-MM-DD}.pdf`
-  - ZIP filename: `{Firm Name} Analysis PDF Pack As Of {YYYY-MM-DD}.zip`
+  - `{Firm Name} {Analysis Name} {M.D.YY}.pdf`
+  - ZIP filename: `{Firm Name} Analysis PDF Pack {M.D.YY}.zip`
 - Scope behavior:
   - Export always uses all visible data for the active firm (full-portfolio scope).
   - Route intentionally ignores page-level filter parameters for fund/status/sector/geography/vintage/exit type.

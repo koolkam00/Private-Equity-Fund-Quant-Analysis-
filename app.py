@@ -1324,15 +1324,18 @@ def _sanitize_filename_component(text):
 
 
 def _as_of_ymd(value):
+    resolved = None
     if isinstance(value, datetime):
-        return value.date().strftime("%Y-%m-%d")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%d")
-    return date.today().strftime("%Y-%m-%d")
+        resolved = value.date()
+    elif isinstance(value, date):
+        resolved = value
+    else:
+        resolved = date.today()
+    return f"{resolved.month}.{resolved.day}.{resolved.strftime('%y')}"
 
 
 def _report_title(firm_name, analysis_name, as_of_date):
-    return f"{firm_name} {analysis_name} As Of {_as_of_ymd(as_of_date)}"
+    return f"{firm_name} {analysis_name} {_as_of_ymd(as_of_date)}"
 
 
 def _safe_pdf_download_name(value, fallback):
@@ -4030,7 +4033,7 @@ def download_ic_pdf_pack():
         archive.writestr(f"{_sanitize_filename_component(benchmarking_title)}.pdf", benchmarking_pdf)
     zip_buffer.seek(0)
 
-    bundle_name = f"{firm_name_file} Analysis PDF Pack As Of {_as_of_ymd(as_of_date)}.zip"
+    bundle_name = f"{firm_name_file} Analysis PDF Pack {_as_of_ymd(as_of_date)}.zip"
     return send_file(
         zip_buffer,
         as_attachment=True,

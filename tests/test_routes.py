@@ -64,6 +64,18 @@ def test_dashboard_page(client):
     assert b"Download 4 Analysis PDFs" in response.data
 
 
+def test_sidebar_pdf_download_link_is_above_team_and_upload(client):
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    pdf_idx = html.find("Download 4 Analysis PDFs")
+    team_idx = html.find("> Team</a>")
+    upload_idx = html.find("> Upload</a>")
+    assert pdf_idx != -1 and team_idx != -1 and upload_idx != -1
+    assert pdf_idx < team_idx
+    assert pdf_idx < upload_idx
+
+
 def test_upload_page(client):
     response = client.get("/upload")
     assert response.status_code == 200
@@ -519,7 +531,9 @@ def test_ic_pdf_pack_download(client):
     disposition = response.headers.get("Content-Disposition", "")
     assert "attachment;" in disposition
     assert ".zip" in disposition
-    assert "Analysis PDF Pack As Of" in disposition
+    assert "Analysis PDF Pack" in disposition
+    assert "As%20Of" not in disposition and "As Of" not in disposition
+    assert re.search(r"Analysis PDF Pack \d{1,2}\.\d{1,2}\.\d{2}\.zip", disposition), disposition
 
     archive = ZipFile(BytesIO(response.data))
     names = sorted(archive.namelist())
@@ -536,7 +550,8 @@ def test_ic_pdf_pack_download(client):
         assert any(analysis_name in name for name in names)
 
     for name in names:
-        assert re.search(r"As Of \d{4}-\d{2}-\d{2}\.pdf$", name), name
+        assert "As Of " not in name
+        assert re.search(r"\d{1,2}\.\d{1,2}\.\d{2}\.pdf$", name), name
         payload = archive.read(name)
         assert payload.startswith(b"%PDF"), name
 
