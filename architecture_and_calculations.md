@@ -138,6 +138,33 @@ Benchmark ranking algorithm (higher-is-better):
 
 If required thresholds are missing, or if fund vintage/metric is unavailable, dashboard shows `N/A`.
 
+### 5.2 Benchmarking Analysis (IC PDF)
+- Routes:
+  - `GET /analysis/benchmarking`
+  - `GET /api/analysis/benchmarking/series`
+- Scope:
+  - Uses the selected `benchmark_asset_class` only.
+  - Applies exact vintage-year matching to benchmark thresholds.
+  - Produces fund-level benchmarking rows for `net_irr`, `net_moic`, and `net_dpi`.
+- Ranking:
+  - `Top 5%` when value `>= top_5` (when present)
+  - else quartiles via `upper_quartile`, `median`, `lower_quartile`
+  - else `N/A` when metric/vintage/thresholds are missing
+- Composite score:
+  - Rank-score mapping: `Top5=5`, `Q1=4`, `Q2=3`, `Q3=2`, `Q4=1`, `N/A=0`
+  - Composite score = average of available (non-`N/A`) metric scores
+  - Composite rank bands:
+    - `>=4.75` -> `Top 5%`
+    - `>=3.75` -> `1st Quartile`
+    - `>=2.75` -> `2nd Quartile`
+    - `>=1.75` -> `3rd Quartile`
+    - otherwise `4th Quartile`
+- Print/PDF behavior:
+  - Browser-native print (`window.print()`), not server-side PDF generation.
+  - Print profile: `Letter landscape`.
+  - Report structure: IC executive summary + fund benchmarking table + threshold appendix.
+  - Includes print metadata (as-of date, unit label, filters, benchmark asset class).
+
 ## 6. Migration and Compatibility
 - Additive schema updates for `geography`, `year_invested`, `ownership_pct`
 - Legacy templates supported with fallbacks:

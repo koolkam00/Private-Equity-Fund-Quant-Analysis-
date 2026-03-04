@@ -41,6 +41,7 @@ from services.fx_rates import resolve_rate_to_usd
 from services.metrics import (
     build_chart_field_catalog,
     build_methodology_payload,
+    compute_benchmarking_analysis,
     compute_bridge_aggregate,
     compute_bridge_view,
     compute_data_quality,
@@ -65,6 +66,7 @@ from services.metrics import (
     compute_vca_ebitda_analysis,
     compute_vca_revenue_analysis,
     compute_vintage_series,
+    rank_benchmark_metric,
     run_chart_query,
 )
 from services.utils import (
@@ -124,6 +126,10 @@ ANALYSIS_PAGES = {
     "vca-revenue": {
         "title": "Value Creation Analysis - by Revenue",
         "description": "PDF-style value creation table with fund blocks, subtotal rollups, and operating deltas.",
+    },
+    "benchmarking": {
+        "title": "Benchmarking Analysis (IC PDF)",
+        "description": "IC-focused benchmark quartile analysis by fund with print-ready executive summaries.",
     },
     "chart-builder": {
         "title": "Chart Builder",
@@ -592,6 +598,11 @@ def _scale_analysis_payload(page, payload, scale):
                     row[money_key] = _scale_money(row.get(money_key), scale)
         summary_metrics = overall.get("summary_metrics") or {}
         summary_metrics["gross_profit"] = _scale_money(summary_metrics.get("gross_profit"), scale)
+        return
+
+    if page == "benchmarking":
+        for row in payload.get("fund_rows") or []:
+            row["fund_size"] = _scale_money(row.get("fund_size"), scale)
         return
 
 
@@ -1078,33 +1089,7 @@ def _load_team_benchmark_thresholds(team_id, asset_class):
 
 
 def _rank_benchmark_metric(metric_value, vintage_year, metric_name, thresholds, asset_class_selected):
-    asset = (asset_class_selected or "").strip()
-    if not asset:
-        return {"label": "N/A", "rank_code": "na", "reason": "no_asset_class_selected"}
-    if metric_value is None:
-        return {"label": "N/A", "rank_code": "na", "reason": "missing_metric"}
-    if vintage_year is None:
-        return {"label": "N/A", "rank_code": "na", "reason": "missing_vintage"}
-
-    metric_thresholds = ((thresholds.get(int(vintage_year)) or {}).get(metric_name)) or {}
-    lower = metric_thresholds.get("lower_quartile")
-    median = metric_thresholds.get("median")
-    upper = metric_thresholds.get("upper_quartile")
-    top_5 = metric_thresholds.get("top_5")
-
-    if lower is None or median is None or upper is None:
-        return {"label": "N/A", "rank_code": "na", "reason": "missing_thresholds"}
-
-    value = float(metric_value)
-    if top_5 is not None and value >= float(top_5):
-        return {"label": "Top 5%", "rank_code": "top5", "reason": None}
-    if value >= float(upper):
-        return {"label": "1st Quartile", "rank_code": "q1", "reason": None}
-    if value >= float(median):
-        return {"label": "2nd Quartile", "rank_code": "q2", "reason": None}
-    if value >= float(lower):
-        return {"label": "3rd Quartile", "rank_code": "q3", "reason": None}
-    return {"label": "4th Quartile", "rank_code": "q4", "reason": None}
+    return rank_benchmark_metric(metric_value, vintage_year, metric_name, thresholds, asset_class_selected)
 
 
 def _fmt_track_date(value):
@@ -1881,7 +1866,7 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
     }
 
 
-def _analysis_route_payload(page, filtered_deals, firm_id=None):
+def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, benchmark_asset_class=""):
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in filtered_deals}
 
     if page == "chart-builder":
@@ -1942,6 +1927,14 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None):
         return compute_vca_ebitda_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "vca-revenue":
         return compute_vca_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
+    if page == "benchmarking":
+        thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
+        return compute_benchmarking_analysis(
+            filtered_deals,
+            benchmark_thresholds=thresholds,
+            benchmark_asset_class=benchmark_asset_class,
+            metrics_by_id=metrics_by_id,
+        )
     abort(404)
 
 
@@ -2580,14 +2573,28 @@ def analysis_page(page):
 
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        membership = filter_ctx.get("active_membership")
+        payload = _analysis_route_payload(
+            page,
+            filter_ctx["deals"],
+            firm_id=filter_ctx["firm_id"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        membership = filter_ctx.get("active_membership")
+        payload = _analysis_route_payload(
+            page,
+            filter_ctx["deals"],
+            firm_id=filter_ctx["firm_id"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
 
@@ -2596,6 +2603,8 @@ def analysis_page(page):
         template_name = "analysis_vca_ebitda.html"
     elif page == "vca-revenue":
         template_name = "analysis_vca_revenue.html"
+    elif page == "benchmarking":
+        template_name = "analysis_benchmarking.html"
 
     return render_template(
         template_name,
@@ -2617,14 +2626,28 @@ def analysis_series_api(page):
 
     try:
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        membership = filter_ctx.get("active_membership")
+        payload = _analysis_route_payload(
+            page,
+            filter_ctx["deals"],
+            firm_id=filter_ctx["firm_id"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
     except OperationalError as exc:
         if not _recover_missing_tables(exc):
             raise
         filter_ctx = _build_filtered_deals_context()
-        payload = _analysis_route_payload(page, filter_ctx["deals"], firm_id=filter_ctx["firm_id"])
+        membership = filter_ctx.get("active_membership")
+        payload = _analysis_route_payload(
+            page,
+            filter_ctx["deals"],
+            firm_id=filter_ctx["firm_id"],
+            team_id=membership.team_id if membership is not None else None,
+            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
+        )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
 

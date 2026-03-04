@@ -1354,6 +1354,7 @@ def test_analysis_pages_render(client):
         "deal-trajectory": b"Deal Trajectory",
         "vca-ebitda": b"Value Creation Analysis - by EBITDA",
         "vca-revenue": b"Value Creation Analysis - by Revenue",
+        "benchmarking": b"Benchmarking Analysis (IC PDF)",
     }
     for page, marker in pages.items():
         response = client.get(f"/analysis/{page}")
@@ -1366,7 +1367,7 @@ def test_analysis_pages_render(client):
             assert b"Expected Hold (Yrs)" in response.data
             assert b"Delay (Years)" not in response.data
             assert b"Print / Save PDF" in response.data
-        if page in {"vca-ebitda", "vca-revenue"}:
+        if page in {"vca-ebitda", "vca-revenue", "benchmarking"}:
             assert b"Download / Print PDF" in response.data
             assert b"Preview Print Layout" in response.data
 
@@ -1401,6 +1402,7 @@ def test_analysis_api_series_schema(client):
         "deal-trajectory",
         "vca-ebitda",
         "vca-revenue",
+        "benchmarking",
     ):
         response = client.get(f"/api/analysis/{page}/series")
         assert response.status_code == 200
@@ -1484,6 +1486,100 @@ def test_analysis_vca_revenue_api_payload_shape(client):
     assert any(col.get("key") == "revenue_cagr" for col in payload["header"]["columns"])
     assert any(col.get("key") == "entry_ev_revenue" for col in payload["header"]["columns"])
     assert not any(col.get("key") == "entry_ev_ebitda" for col in payload["header"]["columns"])
+
+
+def test_analysis_benchmarking_api_payload_shape(client):
+    deal = Deal(
+        company_name="Benchmark API Co",
+        fund_number="Fund Bench API",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+        net_irr=0.22,
+        net_moic=2.1,
+        net_dpi=1.4,
+        fund_size=450,
+    )
+    db.session.add(_with_active_scope(deal))
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    db.session.add_all(
+        [
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.17),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.21),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="top_5", value=0.3),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="lower_quartile", value=1.5),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="median", value=1.9),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="upper_quartile", value=2.2),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="top_5", value=2.8),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="lower_quartile", value=0.6),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="median", value=1.3),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="upper_quartile", value=1.5),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="top_5", value=1.8),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/api/analysis/benchmarking/series?benchmark_asset_class=Buyout")
+    assert response.status_code == 200
+    body = response.get_json()
+    payload = body["payload"]
+    assert body["page"] == "benchmarking"
+    assert "meta" in payload
+    assert "kpis" in payload
+    assert "rank_distribution" in payload
+    assert "fund_rows" in payload
+    assert "threshold_rows" in payload
+    assert payload["meta"]["benchmark_asset_class"] == "Buyout"
+    assert payload["fund_rows"][0]["benchmark_net_irr"]["rank_code"] in {"top5", "q1", "q2", "q3", "q4", "na"}
+
+
+def test_analysis_benchmarking_page_renders_ic_print_markers(client):
+    deal = Deal(
+        company_name="Benchmark Page Co",
+        fund_number="Fund Bench Page",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=160,
+        unrealized_value=0,
+        net_irr=0.2,
+        net_moic=1.9,
+        net_dpi=1.2,
+    )
+    db.session.add(_with_active_scope(deal))
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    db.session.add_all(
+        [
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.16),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.2),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="lower_quartile", value=1.4),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="median", value=1.7),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="upper_quartile", value=2.0),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="lower_quartile", value=0.7),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="median", value=1.0),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="upper_quartile", value=1.3),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/analysis/benchmarking?benchmark_asset_class=Buyout")
+    assert response.status_code == 200
+    assert b"Benchmarking Analysis (IC PDF)" in response.data
+    assert b"Benchmark Asset Class" in response.data
+    assert b"Quartile Rank Distribution" in response.data
+    assert b"Fund Benchmarking Table" in response.data
+    assert b"Benchmark Threshold Appendix" in response.data
+    assert b'id="benchPreviewToggle"' in response.data
+    assert b"bench-print-layout" in response.data
+    assert b"bench-print-page" in response.data
 
 
 def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
