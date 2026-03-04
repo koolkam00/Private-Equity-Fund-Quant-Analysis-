@@ -1087,15 +1087,6 @@ body.pe-app {
     height: 4px;
     padding: 0;
 }
-.vca-print-table .vca-print-footer td {
-    background: var(--vca-row-summary-bg);
-    color: var(--vca-header-text);
-    font-size: 7px;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    font-weight: 700;
-    border-top: var(--vca-border-width) solid var(--vca-row-summary-border);
-}
 .vca-print-table .vca-cell-pos {
     color: inherit;
     font-weight: inherit;
@@ -2126,23 +2117,10 @@ body.pe-app {
         break-after: avoid-page !important;
         page-break-after: avoid !important;
     }
-    .vca-print-table .vca-print-footer {
-        break-inside: avoid-page !important;
-        page-break-inside: avoid !important;
-        break-before: avoid-page !important;
-        page-break-before: avoid !important;
-    }
-
     .vca-print-table .vca-row-subtotal td,
-    .vca-print-table .vca-row-summary td,
-    .vca-print-table .vca-print-footer td {
+    .vca-print-table .vca-row-summary td {
         border-top-width: var(--vca-border-width) !important;
         border-bottom-width: var(--vca-border-width) !important;
-    }
-
-    .vca-print-table .vca-print-footer td {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
     }
 
     .vca-ebitda-root.vca-density-compact .vca-print-table th,

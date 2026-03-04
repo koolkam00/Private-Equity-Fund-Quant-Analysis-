@@ -431,11 +431,6 @@ N/A
                             {{ render_vca_print_row(row, analysis.header.columns) }}
                             {% endfor %}
                         </tbody>
-                        <tfoot>
-                            <tr class="vca-print-footer">
-                                <td colspan="{{ analysis.header.columns|length }}">Fund {{ loop.index }} of {{ analysis.fund_blocks|length }} • {{ fund.fund_name }}</td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
             </section>
@@ -470,11 +465,6 @@ N/A
                             {{ render_vca_print_row(row, analysis.header.columns) }}
                             {% endfor %}
                         </tbody>
-                        <tfoot>
-                            <tr class="vca-print-footer">
-                                <td colspan="{{ analysis.header.columns|length }}">Overall Portfolio (Final Block)</td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
             </section>

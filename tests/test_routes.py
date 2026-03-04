@@ -1531,14 +1531,8 @@ def test_analysis_vca_ebitda_page_renders_group_headers_with_data(client):
     assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" not in response.data
-    assert (
-        re.search(
-            rb'<tbody>.*?</tbody>\s*<tfoot>\s*<tr class="vca-print-footer">',
-            response.data,
-            re.S,
-        )
-        is not None
-    )
+    assert re.search(rb"Fund\s+\d+\s+of\s+\d+", response.data) is None
+    assert b"Overall Portfolio (Final Block)" not in response.data
     assert b"Net IRR" not in response.data
     assert b"Net MOIC" not in response.data
     assert b"Net DPI" not in response.data
@@ -1591,6 +1585,8 @@ def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
     assert b"FOOTER_GUARD_BAND_PX" in response.data
     assert b"PAGE_MARGIN_IN = 0.22" in response.data
     assert b"vca-net-summary" not in response.data
+    assert re.search(rb"Fund\s+\d+\s+of\s+\d+", response.data) is None
+    assert b"Overall Portfolio (Final Block)" not in response.data
     assert b"Net IRR" not in response.data
     assert b"Net MOIC" not in response.data
     assert b"Net DPI" not in response.data
