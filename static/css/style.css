@@ -1226,11 +1226,21 @@ body.pe-app {
 }
 
 .benchmark-ic-root {
-    --bench-border: 0.6px solid #c7d4df;
-    --bench-header-bg: #244d73;
-    --bench-header-text: #f7fbff;
+    --bench-border-width: 0.6px;
+    --bench-border: #c7d4df;
+    --bench-shell-border: #5e7894;
+    --bench-shell-bg: #c8d9e8;
+    --bench-grid-v: #9eb3c5;
+    --bench-grid-h: #c3d1dd;
+    --bench-header-bg: #1f4d78;
+    --bench-header-text: #e8f0f8;
     --bench-subhead-bg: #e7eff6;
-    --bench-row-alt: #f7fafc;
+    --bench-subhead-text: #1a3b59;
+    --bench-row-odd: #f1f1f1;
+    --bench-row-even: #e5e5e5;
+    --bench-row-hover: #dce8f4;
+    --bench-row-empty: #edf3f8;
+    --bench-fund-name: #0f2d48;
 }
 .bench-screen-layout {
     display: block;
@@ -1245,33 +1255,147 @@ body.pe-app {
     display: block;
 }
 .benchmark-ic-root .bench-intro-panel {
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     background: linear-gradient(180deg, #f8fbff 0%, #f3f8fd 100%);
 }
 .benchmark-ic-root .bench-filter-summary {
     margin-bottom: 6px;
 }
 .bench-kpi-grid .kpi-card {
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     background: #f7fbff;
 }
-.benchmark-ic-root .bench-dist-table th {
-    background: var(--bench-subhead-bg);
+.benchmark-ic-root .bench-fund-panel {
+    padding: 12px;
 }
-.benchmark-ic-root .bench-fund-table th,
-.benchmark-ic-root .bench-threshold-table th {
-    background: var(--bench-subhead-bg);
+.benchmark-ic-root .bench-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 2px 2px 8px;
+    margin-bottom: 8px;
+    border-bottom: var(--bench-border-width) solid #d5e2ec;
+}
+.benchmark-ic-root .bench-section-head h3 {
+    margin: 0;
+    color: #17354f;
+    letter-spacing: 0.01em;
+}
+.benchmark-ic-root .bench-section-head .tiny {
+    margin: 0;
+    font-size: 11px;
+    color: #3a5b78;
+    font-weight: 600;
+}
+.benchmark-ic-root .bench-fund-table-scroll {
+    border: var(--bench-border-width) solid var(--bench-shell-border);
+    border-radius: 8px;
+    background: var(--bench-shell-bg);
+    padding: 8px;
+}
+.benchmark-ic-root .bench-fund-table {
+    width: 100%;
+    min-width: 1160px;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: var(--bench-border-width) solid var(--bench-shell-border);
+    background: #ffffff;
+    color: #10263c;
+    font-size: 12px;
 }
 .benchmark-ic-root .bench-fund-table th,
 .benchmark-ic-root .bench-fund-table td {
+    border-right: var(--bench-border-width) solid var(--bench-grid-v);
+    border-bottom: var(--bench-border-width) solid var(--bench-grid-h);
+    padding: 5px 7px;
     white-space: nowrap;
+    line-height: 1.2;
 }
-.benchmark-ic-root .bench-fund-table tbody tr:nth-child(even),
+.benchmark-ic-root .bench-fund-table th:last-child,
+.benchmark-ic-root .bench-fund-table td:last-child {
+    border-right: none;
+}
+.benchmark-ic-root .bench-fund-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bench-header-bg);
+    color: var(--bench-header-text);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    border-bottom: var(--bench-border-width) solid #173857;
+}
+.benchmark-ic-root .bench-fund-table tbody tr:nth-child(odd) {
+    background: var(--bench-row-odd);
+}
+.benchmark-ic-root .bench-fund-table tbody tr:nth-child(even) {
+    background: var(--bench-row-even);
+}
+.benchmark-ic-root .bench-fund-table tbody tr:hover {
+    background: var(--bench-row-hover);
+}
+.benchmark-ic-root .bench-fund-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.benchmark-ic-root .bench-fund-table .bench-fund-name {
+    font-weight: 700;
+    color: var(--bench-fund-name);
+    letter-spacing: 0.01em;
+}
+.benchmark-ic-root .bench-fund-table .bench-vintage {
+    color: #2d4a65;
+    font-weight: 600;
+}
+.benchmark-ic-root .bench-fund-table .bench-benchmark-cell {
+    text-align: center;
+}
+.benchmark-ic-root .bench-fund-table .benchmark-rank,
+.benchmark-ic-root .bench-print-fund-table .benchmark-rank {
+    min-width: 70px;
+    justify-content: center;
+    padding: 2px 9px;
+    font-size: 10px;
+    line-height: 1.1;
+}
+.benchmark-ic-root .bench-empty-row td {
+    background: var(--bench-row-empty) !important;
+    color: #4a6278;
+    font-style: italic;
+    text-align: center !important;
+}
+.benchmark-ic-root .bench-threshold-table th {
+    background: var(--bench-subhead-bg);
+    color: var(--bench-subhead-text);
+}
 .benchmark-ic-root .bench-threshold-table tbody tr:nth-child(even) {
-    background: var(--bench-row-alt);
+    background: #f7fafc;
+}
+.benchmark-ic-root .bench-col-fund {
+    width: 20%;
+}
+.benchmark-ic-root .bench-col-vintage {
+    width: 7%;
+}
+.benchmark-ic-root .bench-col-fund-size {
+    width: 10%;
+}
+.benchmark-ic-root .bench-col-net-irr,
+.benchmark-ic-root .bench-col-net-moic,
+.benchmark-ic-root .bench-col-net-dpi {
+    width: 8%;
+}
+.benchmark-ic-root .bench-col-bench-irr,
+.benchmark-ic-root .bench-col-bench-moic,
+.benchmark-ic-root .bench-col-bench-dpi {
+    width: 13%;
 }
 .benchmark-ic-root .bench-print-page {
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     border-radius: 8px;
     background: #ffffff;
     padding: 10px;
@@ -1296,12 +1420,12 @@ body.pe-app {
     width: 100%;
     border-collapse: collapse;
     margin-top: 8px;
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     table-layout: fixed;
 }
 .benchmark-ic-root .bench-print-kpi-table th,
 .benchmark-ic-root .bench-print-kpi-table td {
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     padding: 4px 6px;
 }
 .benchmark-ic-root .bench-print-kpi-table th {
@@ -1318,7 +1442,7 @@ body.pe-app {
 }
 .benchmark-ic-root .bench-print-table th,
 .benchmark-ic-root .bench-print-table td {
-    border: var(--bench-border);
+    border: var(--bench-border-width) solid var(--bench-border);
     padding: 3px 4px;
     font-size: 11px;
 }
@@ -1330,7 +1454,7 @@ body.pe-app {
     letter-spacing: 0.02em;
 }
 .benchmark-ic-root .bench-print-table tbody tr:nth-child(even) {
-    background: var(--bench-row-alt);
+    background: #f7fafc;
 }
 .benchmark-ic-root .bench-print-table .num {
     text-align: right;
@@ -1339,6 +1463,17 @@ body.pe-app {
 .benchmark-ic-root .bench-print-fund-table th,
 .benchmark-ic-root .bench-print-fund-table td {
     white-space: nowrap;
+}
+.benchmark-ic-root .bench-print-fund-table th {
+    text-transform: none;
+    letter-spacing: 0.01em;
+}
+.benchmark-ic-root .bench-print-fund-table .bench-fund-name {
+    font-weight: 700;
+    color: var(--bench-fund-name);
+}
+.benchmark-ic-root .bench-print-fund-table .bench-benchmark-cell {
+    text-align: center;
 }
 .benchmark-ic-root h5 {
     margin: 12px 0 6px;
@@ -1965,7 +2100,7 @@ body.pe-app {
     }
 
     .benchmark-ic-root .bench-print-page {
-        border: 0.75px solid #c8d4dc !important;
+        border: var(--bench-border-width) solid var(--bench-border) !important;
         border-radius: 0 !important;
         box-shadow: none !important;
         margin: 0 0 8px 0 !important;
@@ -1996,8 +2131,27 @@ body.pe-app {
     .benchmark-ic-root .bench-print-table td,
     .benchmark-ic-root .bench-print-kpi-table th,
     .benchmark-ic-root .bench-print-kpi-table td {
-        border-width: 0.6px !important;
+        border-width: var(--bench-border-width) !important;
+        border-color: var(--bench-border) !important;
         padding: 2px 3px !important;
+    }
+
+    .benchmark-ic-root .bench-print-fund-table tbody tr:nth-child(odd) {
+        background: var(--bench-row-odd) !important;
+    }
+
+    .benchmark-ic-root .bench-print-fund-table tbody tr:nth-child(even) {
+        background: var(--bench-row-even) !important;
+    }
+
+    .benchmark-ic-root .bench-print-fund-table .bench-fund-name {
+        font-weight: 700;
+    }
+
+    .benchmark-ic-root .bench-print-fund-table .benchmark-rank {
+        min-width: 52px;
+        padding: 1px 5px;
+        font-size: 8.4px;
     }
 
     .benchmark-ic-root .bench-print-table thead {
