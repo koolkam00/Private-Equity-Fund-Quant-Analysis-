@@ -16,7 +16,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from flask_migrate import stamp as migrate_stamp
 from flask_migrate import upgrade as migrate_upgrade
 from sqlalchemy import inspect as sa_inspect, or_, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -104,6 +104,23 @@ app = AppBinder()
 DEAL_TEMPLATE_FILENAME = "PE_Fund_Data_Template.xlsx"
 BENCHMARK_TEMPLATE_FILENAME = "PE_Benchmark_Template.xlsx"
 ALEMBIC_BASELINE_REVISION = "4a62775748c8"
+SCHEMA_UPGRADE_COMMAND = "python -m flask --app app db-upgrade"
+REQUIRED_SCHEMA_TABLES = (
+    "alembic_version",
+    "users",
+    "teams",
+    "team_memberships",
+    "team_firm_access",
+    "team_invites",
+    "firms",
+    "deals",
+    "upload_issues",
+    "benchmark_points",
+    "chart_builder_templates",
+    "fund_metadata",
+    "fund_cashflows",
+    "public_market_index_levels",
+)
 
 ANALYSIS_PAGES = {
     "fund-liquidity": {
@@ -171,6 +188,7 @@ TEAM_ALLOWED_ROLES = {TEAM_ROLE_OWNER, TEAM_ROLE_ADMIN, TEAM_ROLE_MEMBER}
 
 ROUTE_BLUEPRINTS = {
     "healthz": "dashboard",
+    "readyz": "dashboard",
     "index": "dashboard",
     "dashboard": "dashboard",
     "dashboard_series_api": "dashboard",
@@ -217,6 +235,70 @@ def _utc_now():
 
 def _utc_now_naive():
     return _utc_now().replace(tzinfo=None)
+
+
+def _schema_upgrade_message():
+    return f"Database schema is not ready. Run `{SCHEMA_UPGRADE_COMMAND}` on the deployed service and retry."
+
+
+def _root_db_error(exc):
+    return getattr(exc, "orig", exc)
+
+
+def _rollback_db_session():
+    try:
+        db.session.rollback()
+    except Exception:
+        logger.exception("Database session rollback failed")
+
+
+def _handle_db_exception(exc, log_message):
+    _rollback_db_session()
+    logger.exception("%s [%s]: %s", log_message, type(exc).__name__, _root_db_error(exc))
+
+
+def _json_schema_failure(exc, log_message, status_code=503):
+    _handle_db_exception(exc, log_message)
+    return (
+        jsonify(
+            {
+                "error": "database_schema_not_ready",
+                "message": _schema_upgrade_message(),
+            }
+        ),
+        status_code,
+    )
+
+
+def _redirect_schema_failure(exc, log_message, endpoint="dashboard"):
+    _handle_db_exception(exc, log_message)
+    flash(_schema_upgrade_message(), "danger")
+    return redirect(url_for(endpoint))
+
+
+def _default_scope_context():
+    code = DEFAULT_CURRENCY_CODE
+    return {
+        "app_firms": [],
+        "app_active_firm": None,
+        "app_active_firm_id": None,
+        "app_currency_code": code,
+        "app_currency_symbol": currency_symbol(code) or "",
+        "app_currency_unit_label": currency_unit_label(code),
+        "fmt_currency_millions": format_currency_millions,
+        "app_native_currency": code,
+        "app_conversion_active": False,
+        "app_conversion_note": None,
+        "app_conversion_warning": None,
+        "app_conversion_rate": 1.0,
+        "app_conversion_date": None,
+        "app_conversion_source": "Identity",
+        "app_fx_status": "ok",
+        "app_money_scale": 1.0,
+        "app_active_team": None,
+        "app_active_membership": None,
+        "app_team_is_admin": False,
+    }
 
 
 def _firm_currency_code(firm):
@@ -975,8 +1057,16 @@ def _bootstrap_identity():
 
 
 def _is_missing_table_error(exc):
-    message = str(exc).lower()
-    return "no such table:" in message and any(
+    message = str(_root_db_error(exc)).lower()
+    missing_object_markers = (
+        "no such table:",
+        "no such column:",
+        "undefinedtable",
+        "undefinedcolumn",
+        "relation ",
+        "column ",
+    )
+    return any(marker in message for marker in missing_object_markers) and any(
         marker in message
         for marker in (
             "deals",
@@ -989,15 +1079,28 @@ def _is_missing_table_error(exc):
             "team_invites",
             "benchmark_points",
             "chart_builder_templates",
+            "fund_metadata",
+            "fund_cashflows",
+            "public_market_index_levels",
         )
     )
 
 
 def _recover_missing_tables(exc):
-    if not _is_missing_table_error(exc):
-        return False
-    logger.error("Detected missing table at runtime. Run 'flask db-upgrade'. Error: %s", exc)
-    db.session.rollback()
+    _rollback_db_session()
+    if _is_missing_table_error(exc):
+        logger.exception(
+            "Detected missing schema objects at runtime. Run '%s'. Root cause [%s]: %s",
+            SCHEMA_UPGRADE_COMMAND,
+            type(exc).__name__,
+            _root_db_error(exc),
+        )
+    else:
+        logger.exception(
+            "Database request failed at runtime [%s]: %s",
+            type(exc).__name__,
+            _root_db_error(exc),
+        )
     return False
 
 
@@ -1114,57 +1217,40 @@ def _allowed_file(filename):
 @app.context_processor
 def inject_global_scope_context():
     if not current_user.is_authenticated:
-        code = DEFAULT_CURRENCY_CODE
-        return {
-            "app_firms": [],
-            "app_active_firm": None,
-            "app_active_firm_id": None,
-            "app_currency_code": code,
-            "app_currency_symbol": currency_symbol(code) or "",
-            "app_currency_unit_label": currency_unit_label(code),
-            "fmt_currency_millions": format_currency_millions,
-            "app_native_currency": code,
-            "app_conversion_active": False,
-            "app_conversion_note": None,
-            "app_conversion_warning": None,
-            "app_conversion_rate": 1.0,
-            "app_conversion_date": None,
-            "app_conversion_source": "Identity",
-            "app_fx_status": "ok",
-            "app_money_scale": 1.0,
-            "app_active_team": None,
-            "app_active_membership": None,
-            "app_team_is_admin": False,
-        }
+        return _default_scope_context()
 
-    membership = _current_membership()
-    team = db.session.get(Team, membership.team_id) if membership is not None else None
-    active_firm = _resolve_active_firm_for_team()
-    active_firm_id = active_firm.id if active_firm is not None else None
-    reporting = _reporting_currency_context(active_firm)
-    currency_code = reporting["reporting_currency_code"]
-    firms = _accessible_firms_for_current_team()
-    return {
-        "app_firms": firms,
-        "app_active_firm": active_firm,
-        "app_active_firm_id": active_firm_id,
-        "app_currency_code": currency_code,
-        "app_currency_symbol": currency_symbol(currency_code) or "",
-        "app_currency_unit_label": currency_unit_label(currency_code),
-        "fmt_currency_millions": format_currency_millions,
-        "app_native_currency": reporting["native_currency_code"],
-        "app_conversion_active": reporting["conversion_active"],
-        "app_conversion_note": reporting["conversion_note"],
-        "app_conversion_warning": reporting["conversion_warning"],
-        "app_conversion_rate": reporting["fx_rate"],
-        "app_conversion_date": reporting["fx_date"],
-        "app_conversion_source": reporting["fx_source"],
-        "app_fx_status": reporting["fx_status"],
-        "app_money_scale": reporting["money_scale"],
-        "app_active_team": team,
-        "app_active_membership": membership,
-        "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
-    }
+    try:
+        membership = _current_membership()
+        team = db.session.get(Team, membership.team_id) if membership is not None else None
+        active_firm = _resolve_active_firm_for_team()
+        active_firm_id = active_firm.id if active_firm is not None else None
+        reporting = _reporting_currency_context(active_firm)
+        currency_code = reporting["reporting_currency_code"]
+        firms = _accessible_firms_for_current_team()
+        return {
+            "app_firms": firms,
+            "app_active_firm": active_firm,
+            "app_active_firm_id": active_firm_id,
+            "app_currency_code": currency_code,
+            "app_currency_symbol": currency_symbol(currency_code) or "",
+            "app_currency_unit_label": currency_unit_label(currency_code),
+            "fmt_currency_millions": format_currency_millions,
+            "app_native_currency": reporting["native_currency_code"],
+            "app_conversion_active": reporting["conversion_active"],
+            "app_conversion_note": reporting["conversion_note"],
+            "app_conversion_warning": reporting["conversion_warning"],
+            "app_conversion_rate": reporting["fx_rate"],
+            "app_conversion_date": reporting["fx_date"],
+            "app_conversion_source": reporting["fx_source"],
+            "app_fx_status": reporting["fx_status"],
+            "app_money_scale": reporting["money_scale"],
+            "app_active_team": team,
+            "app_active_membership": membership,
+            "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
+        }
+    except SQLAlchemyError as exc:
+        _handle_db_exception(exc, "Global scope context load failed")
+        return _default_scope_context()
 
 
 def _deal_vintage_year(deal):
@@ -2092,7 +2178,7 @@ def _handle_upload(parse_func, redirect_route):
                 uploader_user_id=current_user.id,
                 replace_mode="replace_fund",
             )
-        except OperationalError as exc:
+        except SQLAlchemyError as exc:
             if not _recover_missing_tables(exc):
                 raise
             result = parse_func(
@@ -2700,11 +2786,15 @@ def _benchmark_dataset_for_team(team_id):
     if team_id is None:
         return None
 
-    rows = (
-        BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id)
-        .order_by(BenchmarkPoint.created_at.desc(), BenchmarkPoint.id.desc())
-        .all()
-    )
+    try:
+        rows = (
+            BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id)
+            .order_by(BenchmarkPoint.created_at.desc(), BenchmarkPoint.id.desc())
+            .all()
+        )
+    except SQLAlchemyError as exc:
+        _handle_db_exception(exc, "Benchmark dataset lookup failed")
+        return None
     if not rows:
         return None
 
@@ -2802,6 +2892,31 @@ def _delete_upload_batch_for_firm(firm_id, batch_id):
     return deleted_counts
 
 
+def _schema_readiness_status():
+    errors = []
+    revision = None
+
+    db.session.execute(text("SELECT 1"))
+    inspector = sa_inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    missing_tables = [name for name in REQUIRED_SCHEMA_TABLES if name not in table_names]
+    if missing_tables:
+        errors.append(f"missing tables: {', '.join(missing_tables)}")
+
+    if "alembic_version" in table_names:
+        revision = db.session.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+        if not revision:
+            errors.append("alembic_version is present but has no version row")
+
+    status = "ok" if not errors else "error"
+    payload = {"status": status}
+    if not app.config.get("IS_PRODUCTION"):
+        payload["revision"] = revision
+        payload["missing_tables"] = missing_tables
+        payload["errors"] = errors
+    return payload, (200 if status == "ok" else 500)
+
+
 @app.route("/healthz")
 def healthz():
     try:
@@ -2812,6 +2927,19 @@ def healthz():
             return jsonify({"status": "error"}), 500
         return jsonify({"status": "error", "detail": str(exc)}), 500
     return jsonify({"status": "ok"}), 200
+
+
+@app.route("/readyz")
+def readyz():
+    try:
+        payload, status_code = _schema_readiness_status()
+    except SQLAlchemyError as exc:
+        _handle_db_exception(exc, "Schema readiness check failed")
+        payload = {"status": "error"}
+        if not app.config.get("IS_PRODUCTION"):
+            payload["detail"] = str(_root_db_error(exc))
+        return jsonify(payload), 500
+    return jsonify(payload), status_code
 
 
 @app.route("/auth/login", methods=["GET", "POST"])
@@ -3123,11 +3251,10 @@ def dashboard():
             benchmark_asset_classes=filter_ctx["benchmark_asset_classes"],
             current_benchmark_asset_class=filter_ctx["current_benchmark_asset_class"],
         )
-    except OperationalError as exc:
+    except SQLAlchemyError as exc:
         if not _recover_missing_tables(exc):
-            logger.exception("Dashboard computation failed")
-            flash(f"Error computing dashboard metrics: {str(exc)}", "danger")
-            return render_template("dashboard.html", **_empty_dashboard_context())
+            flash(_schema_upgrade_message(), "danger")
+            return render_template("dashboard.html", **_empty_dashboard_context()), 503
 
         filter_ctx = _build_filtered_deals_context()
         membership = filter_ctx.get("active_membership")
@@ -3195,19 +3322,8 @@ def dashboard_series_api():
         )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_dashboard_payload(payload, reporting["money_scale"])
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        membership = filter_ctx.get("active_membership")
-        payload = _build_dashboard_payload(
-            filter_ctx["deals"],
-            team_id=membership.team_id if membership is not None else None,
-            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
-            metrics_by_id=filter_ctx.get("metrics_by_id"),
-        )
-        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
-        _scale_dashboard_payload(payload, reporting["money_scale"])
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Dashboard series computation failed")
     return jsonify(
         {
             "kpis": payload["kpis"],
@@ -3233,21 +3349,24 @@ def analysis_page(page):
         abort(404)
 
     if page == "chart-builder":
-        filter_ctx = _build_filtered_deals_context()
-        membership = filter_ctx.get("active_membership")
-        team_id = membership.team_id if membership is not None else None
-        catalog = build_chart_field_catalog(
-            team_id=team_id,
-            firm_id=filter_ctx.get("firm_id"),
-            global_filters=_extract_chart_builder_global_filters_from_request(),
-        )
-        return render_template(
-            "chart_builder.html",
-            page_key=page,
-            page_meta=ANALYSIS_PAGES[page],
-            chart_builder_catalog=catalog,
-            **filter_ctx,
-        )
+        try:
+            filter_ctx = _build_filtered_deals_context()
+            membership = filter_ctx.get("active_membership")
+            team_id = membership.team_id if membership is not None else None
+            catalog = build_chart_field_catalog(
+                team_id=team_id,
+                firm_id=filter_ctx.get("firm_id"),
+                global_filters=_extract_chart_builder_global_filters_from_request(),
+            )
+            return render_template(
+                "chart_builder.html",
+                page_key=page,
+                page_meta=ANALYSIS_PAGES[page],
+                chart_builder_catalog=catalog,
+                **filter_ctx,
+            )
+        except SQLAlchemyError as exc:
+            return _redirect_schema_failure(exc, "Chart Builder page failed")
 
     try:
         filter_ctx = _build_filtered_deals_context()
@@ -3262,21 +3381,8 @@ def analysis_page(page):
         )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        membership = filter_ctx.get("active_membership")
-        payload = _analysis_route_payload(
-            page,
-            filter_ctx["deals"],
-            firm_id=filter_ctx["firm_id"],
-            team_id=membership.team_id if membership is not None else None,
-            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
-            metrics_by_id=filter_ctx.get("metrics_by_id"),
-        )
-        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
-        _scale_analysis_payload(page, payload, reporting["money_scale"])
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, f"Analysis page '{page}' failed")
 
     template_name = "analysis_page.html"
     if page == "vca-ebitda":
@@ -3325,21 +3431,8 @@ def analysis_series_api(page):
         )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_analysis_payload(page, payload, reporting["money_scale"])
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        membership = filter_ctx.get("active_membership")
-        payload = _analysis_route_payload(
-            page,
-            filter_ctx["deals"],
-            firm_id=filter_ctx["firm_id"],
-            team_id=membership.team_id if membership is not None else None,
-            benchmark_asset_class=filter_ctx.get("current_benchmark_asset_class", ""),
-            metrics_by_id=filter_ctx.get("metrics_by_id"),
-        )
-        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
-        _scale_analysis_payload(page, payload, reporting["money_scale"])
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, f"Analysis series '{page}' failed")
 
     return jsonify(
         {
@@ -3361,14 +3454,8 @@ def chart_builder_catalog_api():
             firm_id=active_firm.id if active_firm is not None else None,
             global_filters=_extract_chart_builder_global_filters_from_request(),
         )
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        catalog = build_chart_field_catalog(
-            team_id=membership.team_id,
-            firm_id=active_firm.id if active_firm is not None else None,
-            global_filters=_extract_chart_builder_global_filters_from_request(),
-        )
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Chart Builder catalog failed")
     return jsonify(catalog)
 
 
@@ -3395,18 +3482,8 @@ def chart_builder_query_api():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        try:
-            payload = run_chart_query(
-                spec=body,
-                team_id=membership.team_id,
-                firm_id=active_firm.id if active_firm is not None else None,
-                global_filters=global_filters,
-            )
-        except ValueError as nested:
-            return jsonify({"error": str(nested)}), 400
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Chart Builder query failed")
 
     return jsonify(payload)
 
@@ -3415,11 +3492,14 @@ def chart_builder_query_api():
 @login_required
 def chart_builder_templates_api():
     membership = _require_team_scope()
-    rows = (
-        ChartBuilderTemplate.query.filter_by(team_id=membership.team_id)
-        .order_by(ChartBuilderTemplate.updated_at.desc(), ChartBuilderTemplate.id.desc())
-        .all()
-    )
+    try:
+        rows = (
+            ChartBuilderTemplate.query.filter_by(team_id=membership.team_id)
+            .order_by(ChartBuilderTemplate.updated_at.desc(), ChartBuilderTemplate.id.desc())
+            .all()
+        )
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Chart Builder templates load failed")
     return jsonify({"templates": [_serialize_chart_builder_template(row) for row in rows]})
 
 
@@ -3527,20 +3607,8 @@ def ic_memo(fund_name=None):
         )
         reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
         _scale_ic_memo_payload(payload, reporting["money_scale"])
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context(fund_override=fund_name)
-        metrics_by_id = {d.id: compute_deal_metrics(d) for d in filter_ctx["deals"]}
-        payload = compute_ic_memo_payload(
-            filter_ctx["deals"],
-            metrics_by_id=metrics_by_id,
-            ranking_basis="weighted_moic",
-            decile_pct=0.10,
-            decile_min=1,
-        )
-        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
-        _scale_ic_memo_payload(payload, reporting["money_scale"])
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "IC memo page failed")
 
     active_fund_scope = filter_ctx["current_fund"] or "All Funds"
     payload["meta"]["fund_scope"] = active_fund_scope
@@ -3584,10 +3652,8 @@ def deal_bridge_api(deal_id):
     firm_id = active_firm.id if active_firm is not None else None
     try:
         deal = Deal.query.filter_by(id=deal_id, firm_id=firm_id).first()
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        deal = Deal.query.filter_by(id=deal_id, firm_id=firm_id).first()
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Deal bridge query failed")
     if deal is None:
         abort(404)
 
@@ -3699,10 +3765,8 @@ def delete_upload_batch(batch_id):
 
     try:
         deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch)
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch)
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Upload batch delete failed", endpoint="upload")
 
     total_deleted = sum(int(v or 0) for v in deleted.values())
     if total_deleted == 0:
@@ -3838,11 +3902,8 @@ def delete_benchmarks():
     try:
         deleted = BenchmarkPoint.query.filter_by(team_id=membership.team_id).delete(synchronize_session=False)
         db.session.commit()
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        deleted = BenchmarkPoint.query.filter_by(team_id=membership.team_id).delete(synchronize_session=False)
-        db.session.commit()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Benchmark delete failed", endpoint="upload")
 
     if deleted == 0:
         flash("No benchmark dataset loaded for your team.", "warning")
@@ -3857,11 +3918,8 @@ def deals():
     try:
         filter_ctx = _build_filtered_deals_context()
         all_deals = filter_ctx["deals"]
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        all_deals = filter_ctx["deals"]
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Deals page failed")
     deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
     track_record = compute_deal_track_record(all_deals, metrics_by_id=deal_metrics)
     rollup_details = compute_deals_rollup_details(all_deals, track_record, metrics_by_id=deal_metrics)
@@ -3887,11 +3945,8 @@ def track_record():
     try:
         filter_ctx = _build_filtered_deals_context()
         all_deals = filter_ctx["deals"]
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        all_deals = filter_ctx["deals"]
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Track record page failed")
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
     record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
@@ -3906,11 +3961,8 @@ def download_track_record_pdf():
     try:
         filter_ctx = _build_filtered_deals_context()
         all_deals = filter_ctx["deals"]
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        filter_ctx = _build_filtered_deals_context()
-        all_deals = filter_ctx["deals"]
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Track record PDF failed")
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
     record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
@@ -3953,10 +4005,8 @@ def live_ic_pdf_pack():
 
     try:
         all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "IC PDF link pack failed")
 
     benchmark_asset_classes = _benchmark_asset_classes_for_team(membership.team_id)
     benchmark_session_key = "selected_benchmark_asset_class"
@@ -4052,10 +4102,8 @@ def download_ic_pdf_pack():
 
     try:
         all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
-    except OperationalError as exc:
-        if not _recover_missing_tables(exc):
-            raise
-        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "IC PDF pack download failed")
 
     metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in all_deals}
     as_of_date = resolve_analysis_as_of_date(all_deals)

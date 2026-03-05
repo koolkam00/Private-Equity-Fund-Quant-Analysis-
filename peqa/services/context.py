@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from typing import Any
 
-from models import BenchmarkPoint
+from models import BenchmarkPoint, db
+from sqlalchemy.exc import SQLAlchemyError
 from peqa.services.filtering import (
     apply_deal_filters,
     build_deal_scope_query,
@@ -12,6 +14,9 @@ from peqa.services.filtering import (
 )
 from services.metrics.common import resolve_analysis_as_of_date
 from services.metrics.deal import compute_deal_metrics
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,13 +82,22 @@ class AnalysisContext:
 def benchmark_asset_classes_for_team(team_id):
     if team_id is None:
         return []
-    rows = (
-        BenchmarkPoint.query.with_entities(BenchmarkPoint.asset_class)
-        .filter(BenchmarkPoint.team_id == team_id)
-        .distinct()
-        .order_by(BenchmarkPoint.asset_class.asc())
-        .all()
-    )
+    try:
+        rows = (
+            BenchmarkPoint.query.with_entities(BenchmarkPoint.asset_class)
+            .filter(BenchmarkPoint.team_id == team_id)
+            .distinct()
+            .order_by(BenchmarkPoint.asset_class.asc())
+            .all()
+        )
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.exception(
+            "Benchmark asset class lookup failed [%s]: %s",
+            type(exc).__name__,
+            getattr(exc, "orig", exc),
+        )
+        return []
     return [row[0] for row in rows if row[0]]
 
 
@@ -113,11 +127,20 @@ def load_team_benchmark_thresholds(team_id, asset_class, strategy=None, region=N
         "region": (region or "").strip() or None,
         "size_bucket": (size_bucket or "").strip() or None,
     }
-    rows = (
-        BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id, BenchmarkPoint.asset_class == asset)
-        .order_by(BenchmarkPoint.vintage_year.asc(), BenchmarkPoint.metric.asc(), BenchmarkPoint.quartile.asc())
-        .all()
-    )
+    try:
+        rows = (
+            BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id, BenchmarkPoint.asset_class == asset)
+            .order_by(BenchmarkPoint.vintage_year.asc(), BenchmarkPoint.metric.asc(), BenchmarkPoint.quartile.asc())
+            .all()
+        )
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.exception(
+            "Benchmark threshold lookup failed [%s]: %s",
+            type(exc).__name__,
+            getattr(exc, "orig", exc),
+        )
+        return {}
 
     thresholds = {}
     scores = {}

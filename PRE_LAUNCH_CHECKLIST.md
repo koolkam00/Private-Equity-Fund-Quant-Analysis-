@@ -42,6 +42,7 @@ pg_dump "$DATABASE_URL" > prelaunch_backup.sql
 Run these in a fresh browser session on the deployed URL.
 
 - [ ] `GET /healthz` returns HTTP `200` and `{"status":"ok"}`.
+- [ ] `GET /readyz` returns HTTP `200` and `{"status":"ok"}`.
 - [ ] Login works with a valid user.
 - [ ] Invalid login is rejected.
 - [ ] Owner/admin can create an invite link on `/team`.
@@ -88,6 +89,12 @@ Run these in a fresh browser session on the deployed URL.
 
 ```bash
 gunicorn wsgi:app
+```
+
+- [ ] Deploy migration step completes successfully:
+
+```bash
+python -m flask --app app db-upgrade
 ```
 
 - [ ] No startup errors in Render logs.

@@ -4,6 +4,8 @@ import re
 from zipfile import ZipFile
 
 from openpyxl import Workbook, load_workbook
+from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from models import (
     BenchmarkPoint,
@@ -67,6 +69,64 @@ def test_dashboard_page(client):
     assert b'id="firm-picker-data-payload"' in response.data
     assert b"Cmd/Ctrl+K" in response.data
     assert b'global-firm-select' not in response.data
+
+
+def test_readyz_reports_error_until_alembic_revision_exists(anonymous_client):
+    response = anonymous_client.get("/readyz")
+    assert response.status_code == 500
+    body = response.get_json()
+    assert body["status"] == "error"
+    assert "alembic_version" in body["missing_tables"]
+
+    with db.engine.begin() as conn:
+        conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('4a62775748c8')"))
+
+    healthy = anonymous_client.get("/readyz")
+    assert healthy.status_code == 200
+    body = healthy.get_json()
+    assert body["status"] == "ok"
+    assert body["revision"] == "4a62775748c8"
+
+
+def test_dashboard_schema_failure_rolls_back_and_renders_fallback(client, monkeypatch):
+    import legacy_app
+
+    rollback_calls = {"count": 0}
+    original_rollback = db.session.rollback
+
+    def _spy_rollback():
+        rollback_calls["count"] += 1
+        return original_rollback()
+
+    def _raise_programming_error(*args, **kwargs):
+        raise ProgrammingError("SELECT * FROM benchmark_points", {}, Exception('relation "benchmark_points" does not exist'))
+
+    monkeypatch.setattr(db.session, "rollback", _spy_rollback)
+    monkeypatch.setattr(legacy_app, "_build_filtered_deals_context", _raise_programming_error)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 503
+    assert b"Portfolio Dashboard" in response.data
+    assert b"Database schema is not ready." in response.data
+    assert rollback_calls["count"] >= 1
+
+
+def test_analysis_series_schema_failure_returns_json_503(client, monkeypatch):
+    import legacy_app
+
+    def _raise_programming_error(*args, **kwargs):
+        raise ProgrammingError("SELECT * FROM benchmark_points", {}, Exception('relation "benchmark_points" does not exist'))
+
+    monkeypatch.setattr(legacy_app, "_build_filtered_deals_context", _raise_programming_error)
+
+    response = client.get("/api/analysis/benchmarking/series")
+
+    assert response.status_code == 503
+    body = response.get_json()
+    assert body["error"] == "database_schema_not_ready"
+    assert "db-upgrade" in body["message"]
 
 
 def test_sidebar_pdf_download_link_is_above_team_and_upload(client):

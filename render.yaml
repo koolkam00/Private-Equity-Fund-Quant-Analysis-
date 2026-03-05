@@ -4,7 +4,9 @@ services:
     runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt
+    preDeployCommand: python -m flask --app app db-upgrade
     startCommand: gunicorn wsgi:app
+    healthCheckPath: /readyz
     envVars:
       - key: FLASK_ENV
         value: production
