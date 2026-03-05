@@ -85,16 +85,20 @@
             </div>
             <div class="header-actions">
                 {% if current_user.is_authenticated %}
-                <form class="global-fund-form" id="global-firm-form" method="POST" action="{{ url_for('select_firm_scope', firm_id=0) }}">
-                    <label>
-                        <span>Active Firm</span>
-                        <select id="global-firm-select" name="firm_scope">
-                            {% for firm in app_firms %}
-                            <option value="{{ firm.id }}" {% if app_active_firm_id == firm.id %}selected{% endif %}>{{ firm.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                </form>
+                <button
+                    type="button"
+                    class="btn-upload btn-secondary firm-picker-trigger"
+                    id="firm-picker-trigger"
+                    {% if not app_firms %}disabled{% endif %}
+                    aria-haspopup="dialog"
+                    aria-expanded="false"
+                    aria-controls="firm-picker-modal"
+                >
+                    <i class="bi bi-building-check"></i>
+                    <span>Active Firm: {{ app_active_firm.name if app_active_firm else "None" }}</span>
+                    <span class="firm-picker-shortcut">Cmd/Ctrl+K</span>
+                </button>
+                <form id="firm-picker-submit-form" method="POST" hidden></form>
                 <form method="POST" action="{{ url_for('logout') }}">
                     <button type="submit" class="btn-upload btn-secondary btn-logout">
                         <i class="bi bi-box-arrow-right"></i> Sign Out
@@ -121,21 +125,46 @@
         {% block content %}{% endblock %}
     </main>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    <script>
-        (function () {
-            const firmSelect = document.getElementById("global-firm-select");
-            const firmForm = document.getElementById("global-firm-form");
-            if (firmSelect && firmForm) {
-                firmSelect.addEventListener("change", () => {
-                    const val = firmSelect.value;
-                    if (!val) return;
-                    firmForm.action = `/firms/${encodeURIComponent(val)}/select`;
-                    firmForm.submit();
-                });
-            }
-        })();
+    {% if current_user.is_authenticated %}
+    <div class="firm-picker-modal" id="firm-picker-modal" hidden aria-hidden="true">
+        <div class="firm-picker-backdrop" data-firm-picker-close></div>
+        <section class="firm-picker-panel" role="dialog" aria-modal="true" aria-labelledby="firm-picker-title">
+            <header class="firm-picker-header">
+                <h2 id="firm-picker-title">Switch Active Firm</h2>
+                <button type="button" class="firm-picker-close" data-firm-picker-close aria-label="Close firm picker">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </header>
+            <div class="firm-picker-search-wrap">
+                <i class="bi bi-search"></i>
+                <input
+                    id="firm-picker-search"
+                    type="search"
+                    class="firm-picker-search"
+                    placeholder="Search firms..."
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+            </div>
+            <div id="firm-picker-sections" class="firm-picker-sections"></div>
+            <div id="firm-picker-empty" class="firm-picker-empty" hidden></div>
+        </section>
+    </div>
+    <script id="firm-picker-data-payload" type="application/json">
+        {
+            "activeFirmId": {{ app_active_firm_id|tojson }},
+            "userId": {{ (app_active_membership.user_id if app_active_membership else none)|tojson }},
+            "teamId": {{ (app_active_team.id if app_active_team else none)|tojson }},
+            "firms": [
+                {% for firm in app_firms %}
+                {"id": {{ firm.id|tojson }}, "name": {{ firm.name|tojson }}}{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ]
+        }
     </script>
+    {% endif %}
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 
 </html>

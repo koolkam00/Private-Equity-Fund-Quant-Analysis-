@@ -8,6 +8,7 @@ let dashboardExposureChart = null;
 let dashboardExitTypeChart = null;
 let icMemoCharts = [];
 let dealsRollupDetailsPayload = null;
+let firmPickerState = null;
 
 const DRIVER_LABELS = {
     revenue: 'Revenue Growth',
@@ -2458,6 +2459,310 @@ function initChartBuilder() {
     chartBuilderLoadTemplates();
 }
 
+function firmPickerNormalizeIds(values, allowedIds) {
+    const out = [];
+    const seen = new Set();
+    const rows = Array.isArray(values) ? values : [];
+    rows.forEach((value) => {
+        const id = Number(value);
+        if (!Number.isInteger(id) || !allowedIds.has(id) || seen.has(id)) return;
+        seen.add(id);
+        out.push(id);
+    });
+    return out;
+}
+
+function firmPickerStorageKey(userId, teamId) {
+    const userScope = Number.isInteger(Number(userId)) ? Number(userId) : 'anon';
+    const teamScope = Number.isInteger(Number(teamId)) ? Number(teamId) : 'none';
+    return `firm_picker:v1:user_${userScope}:team_${teamScope}`;
+}
+
+function loadFirmPickerPreferences(storageKey) {
+    try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) return { pinnedFirmIds: [], recentFirmIds: [] };
+        const parsed = JSON.parse(raw);
+        return {
+            pinnedFirmIds: Array.isArray(parsed?.pinnedFirmIds) ? parsed.pinnedFirmIds : [],
+            recentFirmIds: Array.isArray(parsed?.recentFirmIds) ? parsed.recentFirmIds : [],
+        };
+    } catch (err) {
+        return { pinnedFirmIds: [], recentFirmIds: [] };
+    }
+}
+
+function saveFirmPickerPreferences() {
+    if (!firmPickerState) return;
+    const payload = {
+        pinnedFirmIds: firmPickerState.pinnedFirmIds,
+        recentFirmIds: firmPickerState.recentFirmIds.slice(0, 10),
+    };
+    try {
+        window.localStorage.setItem(firmPickerState.storageKey, JSON.stringify(payload));
+    } catch (err) {
+        // Ignore storage failures (private mode/quota).
+    }
+}
+
+function firmPickerRankFirms(firms, query) {
+    const sorted = [...firms].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return sorted;
+    const starts = [];
+    const contains = [];
+    sorted.forEach((firm) => {
+        const name = firm.name.toLowerCase();
+        if (name.startsWith(q)) {
+            starts.push(firm);
+        } else if (name.includes(q)) {
+            contains.push(firm);
+        }
+    });
+    return starts.concat(contains);
+}
+
+function firmPickerTogglePin(firmId) {
+    if (!firmPickerState) return;
+    const idx = firmPickerState.pinnedFirmIds.indexOf(firmId);
+    if (idx >= 0) {
+        firmPickerState.pinnedFirmIds.splice(idx, 1);
+    } else {
+        firmPickerState.pinnedFirmIds.push(firmId);
+    }
+    saveFirmPickerPreferences();
+    renderFirmPicker();
+}
+
+function firmPickerRecordRecent(firmId) {
+    if (!firmPickerState) return;
+    const next = firmPickerState.recentFirmIds.filter((id) => id !== firmId);
+    next.unshift(firmId);
+    firmPickerState.recentFirmIds = next.slice(0, 10);
+}
+
+function firmPickerSubmitSelection(firmId) {
+    if (!firmPickerState || !Number.isInteger(firmId)) return;
+    firmPickerRecordRecent(firmId);
+    saveFirmPickerPreferences();
+    firmPickerState.submitForm.action = `/firms/${encodeURIComponent(String(firmId))}/select`;
+    firmPickerState.submitForm.submit();
+}
+
+function firmPickerMoveHighlight(step) {
+    if (!firmPickerState) return;
+    const ids = firmPickerState.renderedFirmIds;
+    if (!ids.length) return;
+    let currentIdx = ids.indexOf(firmPickerState.highlightedFirmId);
+    if (currentIdx < 0) currentIdx = 0;
+    const nextIdx = (currentIdx + step + ids.length) % ids.length;
+    firmPickerState.highlightedFirmId = ids[nextIdx];
+    renderFirmPicker();
+}
+
+function renderFirmPickerSection(title, firms) {
+    const section = document.createElement('section');
+    section.className = 'firm-picker-section';
+    const heading = document.createElement('h3');
+    heading.className = 'firm-picker-section-title';
+    heading.textContent = title;
+    section.appendChild(heading);
+
+    const list = document.createElement('div');
+    list.className = 'firm-picker-list';
+
+    firms.forEach((firm) => {
+        const item = document.createElement('div');
+        item.className = 'firm-picker-row-item';
+
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'firm-picker-row';
+        row.dataset.firmSelect = String(firm.id);
+        if (firm.id === firmPickerState.activeFirmId) row.classList.add('is-active');
+        if (firm.id === firmPickerState.highlightedFirmId) row.classList.add('is-highlighted');
+        row.addEventListener('click', () => firmPickerSubmitSelection(firm.id));
+
+        const name = document.createElement('span');
+        name.className = 'firm-picker-row-name';
+        name.textContent = firm.name;
+        row.appendChild(name);
+
+        if (firm.id === firmPickerState.activeFirmId) {
+            const active = document.createElement('span');
+            active.className = 'firm-picker-row-status';
+            active.textContent = 'Active';
+            row.appendChild(active);
+        }
+
+        const pinButton = document.createElement('button');
+        pinButton.type = 'button';
+        pinButton.className = 'firm-picker-pin';
+        pinButton.dataset.firmPin = String(firm.id);
+        const isPinned = firmPickerState.pinnedFirmIds.includes(firm.id);
+        pinButton.setAttribute('aria-pressed', isPinned ? 'true' : 'false');
+        pinButton.title = isPinned ? 'Unpin firm' : 'Pin firm';
+        pinButton.innerHTML = `<i class="bi ${isPinned ? 'bi-star-fill' : 'bi-star'}"></i>`;
+        pinButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            firmPickerTogglePin(firm.id);
+        });
+
+        item.appendChild(row);
+        item.appendChild(pinButton);
+        list.appendChild(item);
+    });
+
+    section.appendChild(list);
+    return section;
+}
+
+function renderFirmPicker() {
+    if (!firmPickerState) return;
+    const query = firmPickerState.searchInput.value;
+    const ranked = firmPickerRankFirms(firmPickerState.firms, query);
+    const pinnedSet = new Set(firmPickerState.pinnedFirmIds);
+    const recentSet = new Set(firmPickerState.recentFirmIds);
+
+    const pinned = ranked.filter((firm) => pinnedSet.has(firm.id));
+    const recent = ranked.filter((firm) => !pinnedSet.has(firm.id) && recentSet.has(firm.id));
+    const all = ranked.filter((firm) => !pinnedSet.has(firm.id) && !recentSet.has(firm.id));
+
+    const sections = [];
+    if (pinned.length) sections.push({ title: 'Pinned', firms: pinned });
+    if (recent.length) sections.push({ title: 'Recent', firms: recent });
+    if (all.length) sections.push({ title: 'All Firms (A-Z)', firms: all });
+
+    firmPickerState.sections.innerHTML = '';
+    if (!sections.length) {
+        firmPickerState.empty.hidden = false;
+        if (firmPickerState.firms.length) {
+            firmPickerState.empty.textContent = 'No firms match your search.';
+        } else {
+            firmPickerState.empty.textContent = 'No firms are available for your team.';
+        }
+        firmPickerState.renderedFirmIds = [];
+        return;
+    }
+
+    firmPickerState.empty.hidden = true;
+    sections.forEach((section) => {
+        firmPickerState.sections.appendChild(renderFirmPickerSection(section.title, section.firms));
+    });
+
+    const renderedIds = sections.flatMap((section) => section.firms.map((firm) => firm.id));
+    firmPickerState.renderedFirmIds = renderedIds;
+    if (!renderedIds.includes(firmPickerState.highlightedFirmId)) {
+        firmPickerState.highlightedFirmId = renderedIds[0];
+        renderFirmPicker();
+    }
+}
+
+function openFirmPicker() {
+    if (!firmPickerState || !firmPickerState.firms.length) return;
+    firmPickerState.modal.hidden = false;
+    firmPickerState.modal.setAttribute('aria-hidden', 'false');
+    firmPickerState.trigger.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('firm-picker-open');
+    firmPickerState.searchInput.value = '';
+    firmPickerState.highlightedFirmId = firmPickerState.activeFirmId || firmPickerState.firms[0]?.id || null;
+    renderFirmPicker();
+    window.requestAnimationFrame(() => {
+        firmPickerState.searchInput.focus();
+        firmPickerState.searchInput.select();
+    });
+}
+
+function closeFirmPicker() {
+    if (!firmPickerState) return;
+    firmPickerState.modal.hidden = true;
+    firmPickerState.modal.setAttribute('aria-hidden', 'true');
+    firmPickerState.trigger.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('firm-picker-open');
+}
+
+function initFirmPicker() {
+    const payload = getJsonScriptPayload('firm-picker-data-payload');
+    const modal = document.getElementById('firm-picker-modal');
+    const trigger = document.getElementById('firm-picker-trigger');
+    const searchInput = document.getElementById('firm-picker-search');
+    const sections = document.getElementById('firm-picker-sections');
+    const empty = document.getElementById('firm-picker-empty');
+    const submitForm = document.getElementById('firm-picker-submit-form');
+    if (!payload || !modal || !trigger || !searchInput || !sections || !empty || !submitForm) return;
+
+    const firms = Array.isArray(payload.firms)
+        ? payload.firms
+            .map((firm) => ({ id: Number(firm?.id), name: String(firm?.name || '').trim() }))
+            .filter((firm) => Number.isInteger(firm.id) && firm.name.length > 0)
+        : [];
+    const allowedIds = new Set(firms.map((firm) => firm.id));
+    const storageKey = firmPickerStorageKey(payload.userId, payload.teamId);
+    const stored = loadFirmPickerPreferences(storageKey);
+    const pinnedFirmIds = firmPickerNormalizeIds(stored.pinnedFirmIds, allowedIds);
+    const recentFirmIds = firmPickerNormalizeIds(stored.recentFirmIds, allowedIds).slice(0, 10);
+
+    firmPickerState = {
+        modal,
+        trigger,
+        searchInput,
+        sections,
+        empty,
+        submitForm,
+        firms,
+        activeFirmId: Number.isInteger(Number(payload.activeFirmId)) ? Number(payload.activeFirmId) : null,
+        storageKey,
+        pinnedFirmIds,
+        recentFirmIds,
+        highlightedFirmId: null,
+        renderedFirmIds: [],
+    };
+    saveFirmPickerPreferences();
+
+    trigger.addEventListener('click', () => openFirmPicker());
+    searchInput.addEventListener('input', () => renderFirmPicker());
+    modal.querySelectorAll('[data-firm-picker-close]').forEach((btn) => {
+        btn.addEventListener('click', () => closeFirmPicker());
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (!firmPickerState) return;
+        const key = event.key || '';
+        const isShortcut = (event.metaKey || event.ctrlKey) && key.toLowerCase() === 'k';
+        if (isShortcut) {
+            event.preventDefault();
+            openFirmPicker();
+            return;
+        }
+
+        const isOpen = !firmPickerState.modal.hidden;
+        if (!isOpen) return;
+
+        if (key === 'Escape') {
+            event.preventDefault();
+            closeFirmPicker();
+            return;
+        }
+        if (key === 'ArrowDown') {
+            event.preventDefault();
+            firmPickerMoveHighlight(1);
+            return;
+        }
+        if (key === 'ArrowUp') {
+            event.preventDefault();
+            firmPickerMoveHighlight(-1);
+            return;
+        }
+        if (key === 'Enter') {
+            event.preventDefault();
+            if (Number.isInteger(firmPickerState.highlightedFirmId)) {
+                firmPickerSubmitSelection(firmPickerState.highlightedFirmId);
+            }
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     attachTableSorting();
     attachDropZone();
@@ -2486,4 +2791,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindMethodologyAnchors();
     initChartBuilder();
+    initFirmPicker();
 });

@@ -62,6 +62,11 @@ def test_dashboard_page(client):
     assert b'id="bridge-lever-table-body"' in response.data
     assert b"Capital Value Loss Ratio" in response.data
     assert b"Download 4 Analysis PDFs" in response.data
+    assert b'id="firm-picker-trigger"' in response.data
+    assert b'id="firm-picker-modal"' in response.data
+    assert b'id="firm-picker-data-payload"' in response.data
+    assert b"Cmd/Ctrl+K" in response.data
+    assert b'global-firm-select' not in response.data
 
 
 def test_sidebar_pdf_download_link_is_above_team_and_upload(client):

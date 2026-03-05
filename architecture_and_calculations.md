@@ -294,7 +294,32 @@ Active firm precedence:
 1. session `active_firm_id`
 2. first accessible firm with data for current team (fallback)
 
-### 9.2 Upload Replacement Rule
+### 9.2 Active Firm Picker UX
+- Header control:
+  - Replaces the legacy firm `<select>` with an active-firm trigger button.
+  - Opens a global searchable modal picker.
+- Picker organization:
+  - `Pinned`
+  - `Recent`
+  - `All Firms (A-Z)`
+- Search behavior:
+  - case-insensitive substring match
+  - starts-with matches ranked before contains matches
+- Keyboard behavior:
+  - `Cmd/Ctrl+K` opens picker from any authenticated page
+  - `ArrowUp/ArrowDown` moves highlighted firm
+  - `Enter` activates highlighted firm
+  - `Esc` closes picker
+- Persistence model:
+  - Browser `localStorage`
+  - key namespace: `firm_picker:v1:user_<id>:team_<id>`
+  - payload: `pinnedFirmIds`, `recentFirmIds`
+  - stale IDs are sanitized against current team-accessible firm IDs
+- Switching contract:
+  - unchanged server route: `POST /firms/<id>/select`
+  - active firm remains session-scoped (`session["active_firm_id"]`)
+
+### 9.3 Upload Replacement Rule
 - Upload parser default mode is `replace_fund`.
 - Deals sheet requires `Firm Name` and workbook must contain exactly one distinct firm.
 - Deals sheet requires `As Of Date` and workbook must contain exactly one distinct `As Of Date` across all non-empty rows.
@@ -310,7 +335,7 @@ Active firm precedence:
   - insert newly uploaded rows atomically in one transaction
 - `upload_batch` and `upload_issues` history are preserved for auditability.
 
-### 9.3 As Of Date Display Metadata
+### 9.4 As Of Date Display Metadata
 - `deals.as_of_date` is an additive nullable date field populated by new uploads.
 - Display scope:
   - Dashboard metadata
