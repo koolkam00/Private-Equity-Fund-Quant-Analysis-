@@ -151,6 +151,7 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
         "Value Creation (EBITDA)",
         "Value Creation (Revenue)",
         "IC Memo",
+        "Deals",
         "Download 4 Analysis PDFs",
         "Upload Deals",
     ]
