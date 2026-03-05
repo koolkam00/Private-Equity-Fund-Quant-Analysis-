@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in sectors %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Geography</span>
+                <select name="geography">
+                    <option value="">All Geographies</option>
+                    {% for g in geographies %}<option value="{{ g }}" {% if current_geography == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_sector or current_geography or current_benchmark_asset_class %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<div class="panel">
+    <p class="subtitle">{{ page_meta.description }}</p>
+    <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card"><span>Managers</span><strong>{{ analysis.kpis.manager_count }}</strong></div>
+    <div class="kpi-card"><span>Funds</span><strong>{{ analysis.kpis.fund_count }}</strong></div>
+    <div class="kpi-card"><span>Top-Half Rate</span><strong>{{ fmt_pct_1dp(analysis.kpis.top_half_rate) }}</strong></div>
+    <div class="kpi-card"><span>Q4 Rate</span><strong>{{ fmt_pct_1dp(analysis.kpis.q4_rate) }}</strong></div>
+    <div class="kpi-card"><span>Realized Value Share</span><strong>{{ fmt_pct_1dp(analysis.kpis.realized_value_share) }}</strong></div>
+    <div class="kpi-card"><span>Any Benchmark Coverage</span><strong>{{ fmt_pct_1dp(analysis.benchmark_coverage.any_coverage_pct) }}</strong></div>
+</div>
+
+<div class="panel">
+    <h3>Manager Consistency Summary</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Manager</th>
+                <th class="num">Funds</th>
+                <th class="num">Top-Half Rate</th>
+                <th class="num">Q4 Rate</th>
+                <th class="num">Realized Share</th>
+                <th class="num">Loss Ratio</th>
+                <th class="num">IRR Dispersion</th>
+                <th class="num">MOIC Dispersion</th>
+                <th class="num">DPI Dispersion</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.manager_rows %}
+            <tr>
+                <td>{{ row.manager_name }}</td>
+                <td class="num">{{ row.fund_count }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.top_half_rate) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.q4_rate) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.realized_value_share) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.loss_ratio) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.dispersion_net_irr) }}</td>
+                <td class="num">{{ fmt_multiple(row.dispersion_net_moic) }}</td>
+                <td class="num">{{ fmt_multiple(row.dispersion_net_dpi) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="num">No manager history is available in this scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel">
+    <h3>Fund Quartile History</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th>Manager</th>
+                <th class="num">Vintage</th>
+                <th>Net IRR</th>
+                <th>Net MOIC</th>
+                <th>Net DPI</th>
+                <th class="num">Median Delta</th>
+                <th class="num">Top-Half Rate</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_name }}</td>
+                <td>{{ row.manager_name }}</td>
+                <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                <td>{{ row.quartile_history.net_irr.rank.label }}</td>
+                <td>{{ row.quartile_history.net_moic.rank.label }}</td>
+                <td>{{ row.quartile_history.net_dpi.rank.label }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.median_delta_to_peer_median) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.top_half_rate) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="num">No fund-level manager rows available.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -23,6 +23,12 @@ from services.metrics.analysis import (
     compute_valuation_quality_analysis,
 )
 from services.metrics.ic_memo import compute_ic_memo_payload
+from services.metrics.lp import (
+    compute_lp_due_diligence_memo,
+    compute_lp_liquidity_quality_analysis,
+    compute_manager_consistency_analysis,
+    compute_public_market_comparison_analysis,
+)
 from services.metrics.methodology import build_methodology_payload
 from services.metrics.quality import compute_data_quality
 from services.metrics.risk import compute_loss_and_distribution
@@ -62,6 +68,10 @@ __all__ = [
     "compute_stress_lab_analysis",
     "compute_deal_trajectory_analysis",
     "compute_ic_memo_payload",
+    "compute_lp_due_diligence_memo",
+    "compute_lp_liquidity_quality_analysis",
+    "compute_manager_consistency_analysis",
+    "compute_public_market_comparison_analysis",
     "build_methodology_payload",
     "build_chart_field_catalog",
     "run_chart_query",

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
 {% block title %}Accept Invite — PE Portfolio Lab{% endblock %}
 {% block page_title %}Accept Team Invite{% endblock %}
 {% block page_actions %}{% endblock %}
@@ -8,6 +9,7 @@
     <h3>Join {{ team.name if team else "Team" }}</h3>
     <p class="tiny">Invite for {{ invite.email }}. Set your password to activate access.</p>
     <form method="POST" class="auth-form">
+        {{ csrf_field() }}
         <label class="filter-field">
             <span>Email</span>
             <input type="email" name="email" value="{{ invite.email }}" required autocomplete="email">

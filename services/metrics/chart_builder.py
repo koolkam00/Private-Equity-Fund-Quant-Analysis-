@@ -6,6 +6,8 @@ from collections import defaultdict
 from datetime import date, datetime
 import math
 
+from sqlalchemy import select
+
 from models import (
     BenchmarkPoint,
     Deal,
@@ -15,6 +17,8 @@ from models import (
     FundQuarterSnapshot,
     db,
 )
+from peqa.services.filtering import apply_deal_filters, build_deal_scope_query
+from peqa.services.metrics.status import normalize_realization_status
 from services.metrics.common import safe_divide
 from services.metrics.deal import compute_deal_metrics
 
@@ -249,16 +253,7 @@ def _to_float(value):
 
 
 def _normalize_status(status):
-    raw = (status or "").strip().lower()
-    if "partial" in raw and "realized" in raw:
-        return "Partially Realized"
-    if "fully" in raw and "realized" in raw:
-        return "Fully Realized"
-    if raw == "realized" or ("realized" in raw and "unrealized" not in raw):
-        return "Fully Realized"
-    if "unrealized" in raw or raw == "":
-        return "Unrealized"
-    return "Other"
+    return normalize_realization_status(status)
 
 
 def _deal_vintage_year(deal):
@@ -307,15 +302,78 @@ def _deal_passes_global_filters(deal, global_filters):
 
 
 def _team_firm_deals(team_id, firm_id, global_filters):
-    if firm_id is None:
-        return []
-    query = Deal.query.filter(Deal.firm_id == firm_id)
-    rows = query.all()
-    if team_id is not None:
-        scoped_rows = [d for d in rows if d.team_id is None or d.team_id == team_id]
-        if scoped_rows:
-            rows = scoped_rows
-    return [d for d in rows if _deal_passes_global_filters(d, global_filters)]
+    query = build_deal_scope_query(team_id=team_id, firm_id=firm_id)
+    return apply_deal_filters(query, global_filters).all()
+
+
+def _filtered_deal_ids_query(team_id, firm_id, global_filters):
+    return apply_deal_filters(
+        build_deal_scope_query(team_id=team_id, firm_id=firm_id),
+        global_filters,
+    ).with_entities(Deal.id)
+
+
+def _row_count_for_source(source, team_id, firm_id, global_filters):
+    if source == "deals":
+        return apply_deal_filters(
+            build_deal_scope_query(team_id=team_id, firm_id=firm_id),
+            global_filters,
+        ).count()
+
+    if source == "deal_quarterly":
+        if firm_id is None:
+            return 0
+        subquery = _filtered_deal_ids_query(team_id, firm_id, global_filters).subquery()
+        return (
+            db.session.query(db.func.count(DealQuarterSnapshot.id))
+            .filter(DealQuarterSnapshot.firm_id == firm_id, DealQuarterSnapshot.deal_id.in_(select(subquery.c.id)))
+            .scalar()
+            or 0
+        )
+
+    if source == "fund_quarterly":
+        if firm_id is None:
+            return 0
+        query = FundQuarterSnapshot.query.filter(FundQuarterSnapshot.firm_id == firm_id)
+        if global_filters.get("fund"):
+            query = query.filter(FundQuarterSnapshot.fund_number == global_filters["fund"])
+        return query.count()
+
+    if source == "cashflows":
+        if firm_id is None:
+            return 0
+        subquery = _filtered_deal_ids_query(team_id, firm_id, global_filters).subquery()
+        return (
+            db.session.query(db.func.count(DealCashflowEvent.id))
+            .filter(DealCashflowEvent.firm_id == firm_id, DealCashflowEvent.deal_id.in_(select(subquery.c.id)))
+            .scalar()
+            or 0
+        )
+
+    if source == "underwrite":
+        if firm_id is None:
+            return 0
+        subquery = _filtered_deal_ids_query(team_id, firm_id, global_filters).subquery()
+        return (
+            db.session.query(db.func.count(db.func.distinct(DealUnderwriteBaseline.deal_id)))
+            .filter(
+                DealUnderwriteBaseline.firm_id == firm_id,
+                DealUnderwriteBaseline.deal_id.in_(select(subquery.c.id)),
+            )
+            .scalar()
+            or 0
+        )
+
+    if source == "benchmarks":
+        if team_id is None:
+            return 0
+        query = BenchmarkPoint.query.filter(BenchmarkPoint.team_id == team_id)
+        asset_class = (global_filters.get("benchmark_asset_class") or "").strip()
+        if asset_class:
+            query = query.filter(BenchmarkPoint.asset_class == asset_class)
+        return query.count()
+
+    raise ChartBuilderError(f"Unsupported source '{source}'.")
 
 
 def _bridge_driver_from_metrics(metrics, key):
@@ -1202,7 +1260,7 @@ def build_chart_field_catalog(team_id, firm_id, global_filters):
     for source in SUPPORTED_SOURCES:
         dims, measures, _field_map = _catalog_lookup(source)
         try:
-            row_count = len(_rows_for_source(source, team_id, firm_id, filters))
+            row_count = _row_count_for_source(source, team_id, firm_id, filters)
         except Exception:
             row_count = 0
         wavg_supported = DEFAULT_WEIGHT_FIELD_BY_SOURCE.get(source) is not None
@@ -1276,4 +1334,3 @@ def run_chart_query(spec, team_id, firm_id, global_filters):
     if chart_type_resolved in {"bar", "line", "area"} and validated["series_field"]:
         payload["meta"]["stacked"] = True
     return payload
-

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+
+{% block page_actions %}
+<button type="button" class="btn-upload btn-secondary" onclick="window.print()">
+    <i class="bi bi-file-earmark-pdf"></i> Print Memo
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_benchmark_asset_class %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<div class="panel">
+    <p class="subtitle">{{ page_meta.description }}</p>
+    <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }} • Methodology {{ analysis.meta.methodology_version }}</p>
+    <p class="tiny">Peer Cohort: {{ analysis.meta.peer_cohort }}</p>
+    <p class="tiny">
+        {% for flag in analysis.data_coverage_flags %}
+        {{ flag }}{% if not loop.last %} | {% endif %}
+        {% else %}
+        No current coverage flags.
+        {% endfor %}
+    </p>
+</div>
+
+<div class="panel">
+    <h3>Fund Metadata</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th class="num">Vintage</th>
+                <th>Strategy</th>
+                <th>Region</th>
+                <th class="num">Fund Size</th>
+                <th>Manager</th>
+                <th>Peer Group</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_metadata %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                <td>{{ row.strategy or "—" }}</td>
+                <td>{{ row.region_focus or "—" }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
+                <td>{{ row.manager_name or "—" }}</td>
+                <td>{{ row.benchmark_peer_group or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="num">No fund metadata was uploaded for this scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card"><span>Liquidity DPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.dpi_current) }}</strong></div>
+    <div class="kpi-card"><span>Liquidity TVPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.tvpi_current) }}</strong></div>
+    <div class="kpi-card"><span>Manager Top-Half Rate</span><strong>{{ fmt_pct_1dp(analysis.manager_consistency.kpis.top_half_rate) }}</strong></div>
+    <div class="kpi-card"><span>PME Complete Coverage</span><strong>{{ analysis.public_market_comparison.coverage.funds_with_complete_coverage }}</strong></div>
+ </div>
+
+<div class="panel two-col">
+    <div>
+        <h3>Liquidity Quality</h3>
+        <table class="compact-table">
+            <tr><td>RVPI</td><td class="num">{{ fmt_multiple(analysis.liquidity_quality.kpis.rvpi_current) }}</td></tr>
+            <tr><td>Unrealized Dependency</td><td class="num">{{ fmt_pct_1dp(analysis.liquidity_quality.kpis.unrealized_dependency) }}</td></tr>
+            <tr><td>Tail NAV %</td><td class="num">{{ fmt_pct_1dp(analysis.liquidity_quality.kpis.tail_nav_pct) }}</td></tr>
+            <tr><td>Aged Unrealized Count</td><td class="num">{{ analysis.liquidity_quality.kpis.aged_unrealized_count }}</td></tr>
+        </table>
+    </div>
+    <div>
+        <h3>Public Market Comparison</h3>
+        <table class="compact-table">
+            {% for row in analysis.public_market_comparison.fund_rows[:5] %}
+            <tr><td>{{ row.fund_number }} ({{ row.benchmark_code or "—" }})</td><td class="num">{{ fmt_multiple(row.ks_pme) }}</td></tr>
+            {% else %}
+            <tr><td>No PME rows available.</td><td class="num">—</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="panel">
+    <h3>Manager Consistency Snapshot</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Manager</th>
+                <th class="num">Funds</th>
+                <th class="num">Top-Half Rate</th>
+                <th class="num">Q4 Rate</th>
+                <th class="num">Realized Share</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.manager_consistency.manager_rows %}
+            <tr>
+                <td>{{ row.manager_name }}</td>
+                <td class="num">{{ row.fund_count }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.top_half_rate) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.q4_rate) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.realized_value_share) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="num">No manager history available.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

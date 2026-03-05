@@ -3,11 +3,17 @@ from types import SimpleNamespace
 
 from app import _rank_benchmark_metric
 from models import (
+    BenchmarkPoint,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
+    Firm,
+    FundCashflow,
+    FundMetadata,
     FundQuarterSnapshot,
+    PublicMarketIndexLevel,
+    Team,
     db,
 )
 from services.metrics import (
@@ -23,8 +29,12 @@ from services.metrics import (
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
     compute_fund_liquidity_analysis,
+    compute_lp_due_diligence_memo,
+    compute_lp_liquidity_quality_analysis,
     compute_loss_and_distribution,
+    compute_manager_consistency_analysis,
     compute_portfolio_analytics,
+    compute_public_market_comparison_analysis,
     compute_stress_lab_analysis,
     compute_underwrite_outcome_analysis,
     compute_valuation_quality_analysis,
@@ -1323,3 +1333,171 @@ def test_stress_lab_expected_hold_period_changes_stressed_irr(app_context):
 
     assert short_hold["stressed_moic"] == long_hold["stressed_moic"]
     assert short_hold["stressed_implied_irr"] > long_hold["stressed_implied_irr"]
+
+
+def test_lp_liquidity_quality_analysis_outputs_expected_kpis(app_context):
+    team = Team(name="Liquidity Team", slug="liquidity-team")
+    firm = Firm(name="Liquidity Firm", slug="liquidity-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="LP Liquidity Co",
+        fund_number="Fund LQ",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Unrealized",
+        investment_date=date(2018, 1, 1),
+        equity_invested=100,
+        realized_value=30,
+        unrealized_value=90,
+    )
+    db.session.add(
+        FundQuarterSnapshot(
+            fund_number="Fund LQ",
+            firm_id=deal.firm_id,
+            team_id=deal.team_id,
+            quarter_end=date(2025, 12, 31),
+            committed_capital=200,
+            paid_in_capital=150,
+            distributed_capital=60,
+            nav=90,
+            unfunded_commitment=50,
+        )
+    )
+    db.session.commit()
+
+    out = compute_lp_liquidity_quality_analysis([deal], firm_id=deal.firm_id, team_id=deal.team_id)
+    assert out["meta"]["fund_count"] == 1
+    assert abs((out["kpis"]["dpi_current"] or 0.0) - 0.4) < 1e-9
+    assert abs((out["kpis"]["tvpi_current"] or 0.0) - 1.0) < 1e-9
+    assert out["fund_rows"][0]["fund_number"] == "Fund LQ"
+
+
+def test_manager_consistency_analysis_outputs_manager_rows(app_context):
+    team = Team(name="Manager Team", slug="manager-team")
+    firm = Firm(name="Manager Firm", slug="manager-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+
+    d1 = _add_db_deal(
+        company_name="Fund One Co",
+        fund_number="Fund One",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        equity_invested=100,
+        realized_value=180,
+        unrealized_value=0,
+        net_irr=0.21,
+        net_moic=1.9,
+        net_dpi=1.3,
+    )
+    d2 = _add_db_deal(
+        company_name="Fund Two Co",
+        fund_number="Fund Two",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        equity_invested=120,
+        realized_value=190,
+        unrealized_value=0,
+        net_irr=0.16,
+        net_moic=1.6,
+        net_dpi=1.0,
+    )
+    db.session.add_all(
+        [
+            FundMetadata(team_id=team.id, firm_id=d1.firm_id, fund_number="Fund One", vintage_year=2019, manager_name="Manager A", strategy="Buyout"),
+            FundMetadata(team_id=team.id, firm_id=d2.firm_id, fund_number="Fund Two", vintage_year=2020, manager_name="Manager A", strategy="Buyout"),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.17),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.20),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_irr", quartile="median", value=0.15),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_irr", quartile="lower_quartile", value=0.10),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_irr", quartile="upper_quartile", value=0.18),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="median", value=1.7),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="lower_quartile", value=1.4),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_moic", quartile="upper_quartile", value=2.0),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_moic", quartile="median", value=1.5),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_moic", quartile="lower_quartile", value=1.2),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_moic", quartile="upper_quartile", value=1.8),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="median", value=1.1),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="lower_quartile", value=0.8),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2019, metric="net_dpi", quartile="upper_quartile", value=1.3),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_dpi", quartile="median", value=0.9),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_dpi", quartile="lower_quartile", value=0.6),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2020, metric="net_dpi", quartile="upper_quartile", value=1.1),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_manager_consistency_analysis([d1, d2], team_id=team.id, firm_id=d1.firm_id, benchmark_asset_class="Buyout")
+    assert out["kpis"]["manager_count"] == 1
+    assert out["manager_rows"][0]["manager_name"] == "Manager A"
+    assert len(out["fund_rows"]) == 2
+
+
+def test_public_market_comparison_analysis_computes_ks_pme_and_direct_alpha(app_context):
+    team = Team(name="PME Team", slug="pme-team")
+    firm = Firm(name="PME Firm", slug="pme-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="PME Co",
+        fund_number="Fund PME",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Partially Realized",
+        investment_date=date(2021, 1, 1),
+        equity_invested=100,
+        realized_value=40,
+        unrealized_value=70,
+    )
+    db.session.add(FundMetadata(team_id=deal.team_id, firm_id=deal.firm_id, fund_number="Fund PME", benchmark_peer_group="SP500"))
+    db.session.add_all(
+        [
+            FundCashflow(team_id=deal.team_id, firm_id=deal.firm_id, fund_number="Fund PME", event_date=date(2021, 1, 15), event_type="Capital Call", amount=-100, nav_after_event=100, currency_code="USD"),
+            FundCashflow(team_id=deal.team_id, firm_id=deal.firm_id, fund_number="Fund PME", event_date=date(2024, 6, 30), event_type="Distribution", amount=60, nav_after_event=70, currency_code="USD"),
+            FundQuarterSnapshot(fund_number="Fund PME", team_id=deal.team_id, firm_id=deal.firm_id, quarter_end=date(2024, 12, 31), paid_in_capital=100, distributed_capital=60, nav=70),
+            PublicMarketIndexLevel(team_id=deal.team_id, benchmark_code="SP500", level_date=date(2021, 1, 15), level=1000, currency_code="USD", source="Fixture"),
+            PublicMarketIndexLevel(team_id=deal.team_id, benchmark_code="SP500", level_date=date(2024, 6, 30), level=1400, currency_code="USD", source="Fixture"),
+            PublicMarketIndexLevel(team_id=deal.team_id, benchmark_code="SP500", level_date=date(2024, 12, 31), level=1500, currency_code="USD", source="Fixture"),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_public_market_comparison_analysis([deal], team_id=deal.team_id, firm_id=deal.firm_id, benchmark_asset_class="SP500")
+    assert len(out["fund_rows"]) == 1
+    row = out["fund_rows"][0]
+    assert row["benchmark_code"] == "SP500"
+    assert row["ks_pme"] is not None
+    assert row["direct_alpha"] is not None
+    assert row["coverage"] == "complete"
+
+
+def test_lp_due_diligence_memo_combines_sections(app_context):
+    team = Team(name="Memo Team", slug="memo-team")
+    firm = Firm(name="Memo Firm", slug="memo-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Memo Co",
+        fund_number="Fund Memo",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Unrealized",
+        investment_date=date(2020, 1, 1),
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=130,
+    )
+    db.session.add(FundMetadata(team_id=deal.team_id, firm_id=deal.firm_id, fund_number="Fund Memo", vintage_year=2020, manager_name="Memo Manager"))
+    db.session.commit()
+
+    out = compute_lp_due_diligence_memo([deal], team_id=deal.team_id, firm_id=deal.firm_id)
+    assert out["meta"]["methodology_version"] == "lp-ddq-v1"
+    assert "liquidity_quality" in out
+    assert "manager_consistency" in out
+    assert "public_market_comparison" in out

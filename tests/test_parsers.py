@@ -12,7 +12,10 @@ from models import (
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
     Firm,
+    FundCashflow,
+    FundMetadata,
     FundQuarterSnapshot,
+    PublicMarketIndexLevel,
     Team,
     TeamFirmAccess,
     UploadIssue,
@@ -652,6 +655,9 @@ def test_parse_deals_multisheet_optional_sections(app_context):
         assert result["supplemental_counts"]["deal_quarterly"] == 2
         assert result["supplemental_counts"]["fund_quarterly"] == 1
         assert result["supplemental_counts"]["underwrite"] == 1
+        assert result["supplemental_counts"]["fund_metadata"] == 0
+        assert result["supplemental_counts"]["fund_cashflows"] == 0
+        assert result["supplemental_counts"]["public_market_benchmarks"] == 0
 
         deal = Deal.query.filter_by(company_name="Multi Co", firm_id=result["firm_id"], team_id=team.id).first()
         assert deal is not None
@@ -686,7 +692,70 @@ def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app
             "deal_quarterly": 0,
             "fund_quarterly": 0,
             "underwrite": 0,
+            "fund_metadata": 0,
+            "fund_cashflows": 0,
+            "public_market_benchmarks": 0,
         }
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_multisheet_lp_optional_tabs_load(app_context):
+    team = create_team()
+    firm_name = "LP Upload Firm"
+    sheets = {
+        "Deals": {
+            "Firm Name": [firm_name],
+            "As Of Date": [date(2025, 12, 31)],
+            "Company Name": ["LP Co"],
+            "Fund": ["Fund LP"],
+            "Equity Invested": [120],
+            "Realized Value": [40],
+            "Unrealized Value": [150],
+        },
+        "Fund Metadata": {
+            "Firm Name": [firm_name],
+            "Fund Number": ["Fund LP"],
+            "Vintage Year": [2020],
+            "Strategy": ["Buyout"],
+            "Region Focus": ["North America"],
+            "Fund Size": [850],
+            "Manager Name": ["Manager A"],
+            "Benchmark Peer Group": ["SP500"],
+            "Status": ["Harvesting"],
+        },
+        "Fund Cashflows": {
+            "Firm Name": [firm_name, firm_name],
+            "Fund Number": ["Fund LP", "Fund LP"],
+            "Event Date": ["2021-01-15", "2024-06-30"],
+            "Event Type": ["Capital Call", "Distribution"],
+            "Amount": [-100, 55],
+            "NAV After Event": [100, 85],
+            "Currency": ["USD", "USD"],
+        },
+        "Public Market Benchmarks": {
+            "Benchmark Code": ["SP500", "SP500"],
+            "Date": ["2021-01-15", "2024-06-30"],
+            "Level": [1000, 1400],
+            "Currency": ["USD", "USD"],
+            "Source": ["Fixture", "Fixture"],
+        },
+    }
+    file_path = create_temp_workbook(sheets)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 1
+        assert result["supplemental_counts"]["fund_metadata"] == 1
+        assert result["supplemental_counts"]["fund_cashflows"] == 2
+        assert result["supplemental_counts"]["public_market_benchmarks"] == 2
+
+        fund_metadata = FundMetadata.query.filter_by(team_id=team.id, fund_number="Fund LP").first()
+        assert fund_metadata is not None
+        assert fund_metadata.strategy == "Buyout"
+        assert fund_metadata.manager_name == "Manager A"
+
+        assert FundCashflow.query.filter_by(team_id=team.id, fund_number="Fund LP").count() == 2
+        assert PublicMarketIndexLevel.query.filter_by(team_id=team.id, benchmark_code="SP500").count() == 2
     finally:
         os.remove(file_path)
 

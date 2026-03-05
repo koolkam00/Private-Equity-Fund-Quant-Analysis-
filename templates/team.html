@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
 {% block title %}Team Collaboration — PE Portfolio Lab{% endblock %}
 {% block page_title %}Team Collaboration{% endblock %}
 {% block page_actions %}{% if team %}<span class="record-count">{{ team.name }}</span>{% endif %}{% endblock %}
@@ -34,6 +35,7 @@
         <p class="tiny">Teams manage collaboration and access. Data analytics scope is controlled by the active firm selector.</p>
         {% if membership.role in ['owner', 'admin'] %}
         <form method="POST" action="{{ url_for('create_team_invite') }}" class="auth-form">
+            {{ csrf_field() }}
             <label class="filter-field">
                 <span>Invite Email</span>
                 <input type="email" name="email" required placeholder="investor@firm.com">

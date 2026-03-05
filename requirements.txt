@@ -1,6 +1,9 @@
 Flask==3.1.0
 Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
+Flask-WTF==1.2.2
+Flask-Migrate==4.1.0
+Flask-Limiter==3.12
 pandas==2.2.3
 openpyxl==3.1.5
 reportlab==4.2.5

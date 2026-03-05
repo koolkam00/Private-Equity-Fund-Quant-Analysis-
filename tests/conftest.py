@@ -8,6 +8,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 TEST_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_runtime.db"))
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
+if os.path.exists(TEST_DB_PATH):
+    os.remove(TEST_DB_PATH)
 
 from app import app, db
 from models import Firm, Team, TeamFirmAccess, TeamMembership, User

@@ -24,6 +24,18 @@ const AXIS_GRID = 'rgba(20, 35, 33, 0.10)';
 const AXIS_TICK = '#435854';
 let currencyMetaCache = null;
 
+function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? String(meta.content || '').trim() : '';
+}
+
+function jsonHeaders(extra = {}) {
+    const headers = { ...extra };
+    const csrfToken = getCsrfToken();
+    if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+    return headers;
+}
+
 function getCurrencyMeta() {
     if (currencyMetaCache) return currencyMetaCache;
     const body = document.body;
@@ -2041,7 +2053,7 @@ function chartBuilderRunCard(cardId) {
     const spec = chartBuilderBuildSpec(card);
     return fetch(chartBuilderState.endpoints.queryUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(spec),
     })
         .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
@@ -2176,7 +2188,7 @@ function chartBuilderSaveTemplate(isUpdate, preferredName) {
 
     fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
     })
         .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
@@ -2196,6 +2208,7 @@ function chartBuilderDeleteTemplate() {
     if (!window.confirm('Delete this template?')) return;
     fetch(`${chartBuilderState.endpoints.templatesUrl}/${encodeURIComponent(templateId)}`, {
         method: 'DELETE',
+        headers: jsonHeaders(),
     })
         .then((r) => r.json())
         .then(() => {

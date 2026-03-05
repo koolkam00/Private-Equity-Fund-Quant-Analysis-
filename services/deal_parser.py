@@ -13,7 +13,10 @@ from models import (
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
     Firm,
+    FundCashflow,
+    FundMetadata,
     FundQuarterSnapshot,
+    PublicMarketIndexLevel,
     TeamFirmAccess,
     UploadIssue,
     db,
@@ -186,6 +189,9 @@ SHEET_ALIASES = {
     "deal_quarterly": {"deal quarterly", "dealquarterly", "quarterly deals", "deal snapshots", "deal_snapshot"},
     "fund_quarterly": {"fund quarterly", "fundquarterly", "fund snapshots", "fund_snapshot"},
     "underwrite": {"underwrite", "underwrites", "underwriting"},
+    "fund_metadata": {"fund metadata", "fund_meta", "fund details", "fund info"},
+    "fund_cashflows": {"fund cashflows", "fund cashflow", "fund cash flows"},
+    "public_market_benchmarks": {"public market benchmarks", "public markets", "public market", "pme benchmarks"},
 }
 
 CASHFLOW_COLUMN_MAP = {
@@ -275,6 +281,62 @@ UNDERWRITE_COLUMN_MAP = {
     "exit multiple target": "target_exit_multiple",
     "target revenue cagr": "target_revenue_cagr",
     "target ebitda cagr": "target_ebitda_cagr",
+}
+
+FUND_METADATA_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
+    "fund": "fund_number",
+    "fund name": "fund_number",
+    "fund number": "fund_number",
+    "vintage": "vintage_year",
+    "vintage year": "vintage_year",
+    "strategy": "strategy",
+    "region": "region_focus",
+    "region focus": "region_focus",
+    "fund size": "fund_size",
+    "first close": "first_close_date",
+    "first close date": "first_close_date",
+    "final close": "final_close_date",
+    "final close date": "final_close_date",
+    "manager": "manager_name",
+    "manager name": "manager_name",
+    "benchmark peer group": "benchmark_peer_group",
+    "peer group": "benchmark_peer_group",
+    "status": "status",
+}
+
+FUND_CASHFLOW_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
+    "fund": "fund_number",
+    "fund name": "fund_number",
+    "fund number": "fund_number",
+    "event date": "event_date",
+    "date": "event_date",
+    "cashflow date": "event_date",
+    "event type": "event_type",
+    "type": "event_type",
+    "amount": "amount",
+    "nav after event": "nav_after_event",
+    "nav": "nav_after_event",
+    "currency": "currency_code",
+    "currency code": "currency_code",
+}
+
+PUBLIC_MARKET_BENCHMARK_COLUMN_MAP = {
+    "benchmark": "benchmark_code",
+    "benchmark code": "benchmark_code",
+    "index code": "benchmark_code",
+    "code": "benchmark_code",
+    "date": "level_date",
+    "level date": "level_date",
+    "index date": "level_date",
+    "level": "level",
+    "index level": "level",
+    "currency": "currency_code",
+    "currency code": "currency_code",
+    "source": "source",
 }
 
 
@@ -772,6 +834,238 @@ def _parse_underwrite_sheet(
     return count
 
 
+def _parse_fund_metadata_sheet(
+    df,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
+    count = 0
+    df = _normalize_optional_df(
+        df,
+        FUND_METADATA_COLUMN_MAP,
+        {
+            "firm_name",
+            "fund_number",
+            "vintage_year",
+            "strategy",
+            "region_focus",
+            "fund_size",
+            "first_close_date",
+            "final_close_date",
+            "manager_name",
+            "benchmark_peer_group",
+            "status",
+        },
+        date_cols={"first_close_date", "final_close_date"},
+        float_cols={"fund_size", "vintage_year"},
+    )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Fund Metadata sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
+
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        if row.isna().all():
+            continue
+
+        row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Fund Metadata row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, None, "warning", msg, row_payload)
+            continue
+
+        fund_number = clean_str(row.get("fund_number"))
+        if fund_number is None:
+            msg = f"Fund Metadata row {row_num}: skipped — Fund Number is required."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, None, "warning", msg, row_payload)
+            continue
+
+        vintage_year = clean_val(row.get("vintage_year"))
+        if vintage_year is not None:
+            try:
+                vintage_year = int(float(vintage_year))
+            except (TypeError, ValueError):
+                vintage_year = None
+
+        existing = FundMetadata.query.filter_by(
+            team_id=team_id,
+            firm_id=firm_id,
+            fund_number=fund_number,
+        ).first()
+        if existing is None:
+            existing = FundMetadata(
+                team_id=team_id,
+                firm_id=firm_id,
+                fund_number=fund_number,
+            )
+            db.session.add(existing)
+
+        existing.vintage_year = vintage_year
+        existing.strategy = clean_str(row.get("strategy"))
+        existing.region_focus = clean_str(row.get("region_focus"))
+        existing.fund_size = clean_val(row.get("fund_size"))
+        existing.first_close_date = clean_val(row.get("first_close_date"))
+        existing.final_close_date = clean_val(row.get("final_close_date"))
+        existing.manager_name = clean_str(row.get("manager_name"))
+        existing.benchmark_peer_group = clean_str(row.get("benchmark_peer_group"))
+        existing.status = clean_str(row.get("status"))
+        existing.upload_batch = batch_id
+        count += 1
+
+    return count
+
+
+def _parse_fund_cashflows_sheet(
+    df,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
+    count = 0
+    df = _normalize_optional_df(
+        df,
+        FUND_CASHFLOW_COLUMN_MAP,
+        {
+            "firm_name",
+            "fund_number",
+            "event_date",
+            "event_type",
+            "amount",
+            "nav_after_event",
+            "currency_code",
+        },
+        date_cols={"event_date"},
+        float_cols={"amount", "nav_after_event"},
+    )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Fund Cashflows sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
+
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        if row.isna().all():
+            continue
+
+        row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Fund Cashflows row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, None, "warning", msg, row_payload)
+            continue
+
+        fund_number = clean_str(row.get("fund_number"))
+        event_date = clean_val(row.get("event_date"))
+        event_type = clean_str(row.get("event_type"))
+        amount = clean_val(row.get("amount"))
+        if fund_number is None or event_date is None or event_type is None or amount is None:
+            msg = f"Fund Cashflows row {row_num}: skipped — Fund Number, Event Date, Event Type, and Amount are required."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, None, "warning", msg, row_payload)
+            continue
+
+        db.session.add(
+            FundCashflow(
+                fund_number=fund_number,
+                firm_id=firm_id,
+                team_id=team_id,
+                event_date=event_date,
+                event_type=event_type,
+                amount=float(amount),
+                nav_after_event=clean_val(row.get("nav_after_event")),
+                currency_code=normalize_currency_code(row.get("currency_code"), default=None),
+                upload_batch=batch_id,
+            )
+        )
+        count += 1
+
+    return count
+
+
+def _parse_public_market_benchmarks_sheet(
+    df,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
+    count = 0
+    df = _normalize_optional_df(
+        df,
+        PUBLIC_MARKET_BENCHMARK_COLUMN_MAP,
+        {"benchmark_code", "level_date", "level", "currency_code", "source"},
+        date_cols={"level_date"},
+        float_cols={"level"},
+    )
+
+    normalized_codes = set()
+    for _, row in df.iterrows():
+        code = clean_str(row.get("benchmark_code"))
+        if code is not None:
+            normalized_codes.add(code)
+
+    if normalized_codes:
+        PublicMarketIndexLevel.query.filter(
+            PublicMarketIndexLevel.team_id == team_id,
+            PublicMarketIndexLevel.benchmark_code.in_(sorted(normalized_codes)),
+        ).delete(synchronize_session=False)
+
+    seen_keys = set()
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        if row.isna().all():
+            continue
+
+        row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        benchmark_code = clean_str(row.get("benchmark_code"))
+        level_date = clean_val(row.get("level_date"))
+        level = clean_val(row.get("level"))
+        if benchmark_code is None or level_date is None or level is None:
+            msg = f"Public Market Benchmarks row {row_num}: skipped — Benchmark Code, Date, and Level are required."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, None, "warning", msg, row_payload)
+            continue
+
+        key = (benchmark_code.lower(), level_date)
+        if key in seen_keys:
+            msg = f"Public Market Benchmarks row {row_num}: skipped — duplicate benchmark/date key."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, None, "warning", msg, row_payload)
+            continue
+        seen_keys.add(key)
+
+        db.session.add(
+            PublicMarketIndexLevel(
+                team_id=team_id,
+                benchmark_code=benchmark_code,
+                level_date=level_date,
+                level=float(level),
+                currency_code=normalize_currency_code(row.get("currency_code"), default=None),
+                source=clean_str(row.get("source")),
+                upload_batch=batch_id,
+            )
+        )
+        count += 1
+
+    return count
+
+
 def _parse_optional_sheets(
     workbook,
     deals_sheet_name,
@@ -794,6 +1088,9 @@ def _parse_optional_sheets(
         "deal_quarterly": 0,
         "fund_quarterly": 0,
         "underwrite": 0,
+        "fund_metadata": 0,
+        "fund_cashflows": 0,
+        "public_market_benchmarks": 0,
     }
 
     for key, aliases in (
@@ -801,6 +1098,9 @@ def _parse_optional_sheets(
         ("deal_quarterly", SHEET_ALIASES["deal_quarterly"]),
         ("fund_quarterly", SHEET_ALIASES["fund_quarterly"]),
         ("underwrite", SHEET_ALIASES["underwrite"]),
+        ("fund_metadata", SHEET_ALIASES["fund_metadata"]),
+        ("fund_cashflows", SHEET_ALIASES["fund_cashflows"]),
+        ("public_market_benchmarks", SHEET_ALIASES["public_market_benchmarks"]),
     ):
         sheet_name, df = _find_sheet(workbook, aliases)
         if df is None:
@@ -855,6 +1155,36 @@ def _parse_optional_sheets(
                 batch_id,
                 errors,
             )
+        elif key == "fund_metadata":
+            counts[key] = _parse_fund_metadata_sheet(
+                df,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
+        elif key == "fund_cashflows":
+            counts[key] = _parse_fund_cashflows_sheet(
+                df,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
+        elif key == "public_market_benchmarks":
+            counts[key] = _parse_public_market_benchmarks_sheet(
+                df,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
 
     return counts
 
@@ -892,6 +1222,14 @@ def _replace_existing_fund_data(firm_id, fund_names):
         FundQuarterSnapshot.query.filter(
             FundQuarterSnapshot.firm_id == firm_id,
             _fund_filter_expr(FundQuarterSnapshot.fund_number, fund_name),
+        ).delete(synchronize_session=False)
+        FundMetadata.query.filter(
+            FundMetadata.firm_id == firm_id,
+            _fund_filter_expr(FundMetadata.fund_number, fund_name),
+        ).delete(synchronize_session=False)
+        FundCashflow.query.filter(
+            FundCashflow.firm_id == firm_id,
+            _fund_filter_expr(FundCashflow.fund_number, fund_name),
         ).delete(synchronize_session=False)
         deleted_deals = Deal.query.filter(
             Deal.firm_id == firm_id,
@@ -1021,6 +1359,9 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     - Deal Quarterly (optional)
     - Fund Quarterly (optional)
     - Underwrite (optional)
+    - Fund Metadata (optional)
+    - Fund Cashflows (optional)
+    - Public Market Benchmarks (optional)
 
     Args:
         file_path: Local path to uploaded workbook.
@@ -1033,7 +1374,15 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     """
     batch_id = str(uuid.uuid4())[:8]
     issue_report_id = str(uuid.uuid4())
-    zero_supplemental = {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0}
+    zero_supplemental = {
+        "cashflows": 0,
+        "deal_quarterly": 0,
+        "fund_quarterly": 0,
+        "underwrite": 0,
+        "fund_metadata": 0,
+        "fund_cashflows": 0,
+        "public_market_benchmarks": 0,
+    }
 
     workbook = pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
     if not workbook:

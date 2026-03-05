@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_status or current_benchmark_asset_class %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<div class="panel">
+    <p class="subtitle">{{ page_meta.description }}</p>
+    <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card"><span>Complete Coverage</span><strong>{{ analysis.coverage.funds_with_complete_coverage }}</strong></div>
+    <div class="kpi-card"><span>Partial Coverage</span><strong>{{ analysis.coverage.funds_with_partial_coverage }}</strong></div>
+    <div class="kpi-card"><span>No Coverage</span><strong>{{ analysis.coverage.funds_with_no_coverage }}</strong></div>
+    <div class="kpi-card"><span>Funds</span><strong>{{ analysis.meta.fund_count }}</strong></div>
+</div>
+
+<div class="panel">
+    <h3>Fund PME Comparison</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th>Benchmark</th>
+                <th class="num">KS PME</th>
+                <th class="num">Direct Alpha</th>
+                <th>Coverage</th>
+                <th class="num">NAV Used</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td>{{ row.benchmark_code or "—" }}</td>
+                <td class="num">{{ fmt_multiple(row.ks_pme) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.direct_alpha) }}</td>
+                <td>{{ row.coverage }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.nav_used) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="num">No public market comparison rows available.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel">
+    <h3>Benchmark Series Coverage</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Benchmark</th>
+                <th>Series Start</th>
+                <th>Series End</th>
+                <th class="num">Rows</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.benchmark_rows %}
+            <tr>
+                <td>{{ row.benchmark_code }}</td>
+                <td>{{ fmt_date_mdy(row.series_start) }}</td>
+                <td>{{ fmt_date_mdy(row.series_end) }}</td>
+                <td class="num">{{ row.row_count }}</td>
+                <td>{{ row.source or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="num">No uploaded public market benchmark series were found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

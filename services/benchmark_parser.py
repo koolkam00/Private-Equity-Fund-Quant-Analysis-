@@ -10,6 +10,10 @@ COLUMN_MAP = {
     "asset class": "asset_class",
     "asset": "asset_class",
     "assetclass": "asset_class",
+    "strategy": "strategy",
+    "region": "region",
+    "size bucket": "size_bucket",
+    "size_bucket": "size_bucket",
     "vintage year": "vintage_year",
     "vintage": "vintage_year",
     "year": "vintage_year",
@@ -19,7 +23,7 @@ COLUMN_MAP = {
     "value": "value",
 }
 
-VALID_COLUMNS = {"asset_class", "vintage_year", "metric", "quartile", "value"}
+VALID_COLUMNS = {"asset_class", "strategy", "region", "size_bucket", "vintage_year", "metric", "quartile", "value"}
 
 METRIC_MAP = {
     "net irr": "net_irr",
@@ -154,7 +158,19 @@ def parse_benchmarks(file_path, team_id, replace_mode="replace_all"):
             errors.append(f"Row {row_num}: Value must be numeric.")
             continue
 
-        key = (asset_class.strip().lower(), vintage_year, metric, quartile)
+        strategy = clean_str(raw.get("strategy"))
+        region = clean_str(raw.get("region"))
+        size_bucket = clean_str(raw.get("size_bucket"))
+
+        key = (
+            asset_class.strip().lower(),
+            (strategy or "").strip().lower(),
+            (region or "").strip().lower(),
+            (size_bucket or "").strip().lower(),
+            vintage_year,
+            metric,
+            quartile,
+        )
         if key in seen:
             first_row = seen[key]
             errors.append(
@@ -167,6 +183,9 @@ def parse_benchmarks(file_path, team_id, replace_mode="replace_all"):
         rows.append(
             {
                 "asset_class": asset_class,
+                "strategy": strategy,
+                "region": region,
+                "size_bucket": size_bucket,
                 "vintage_year": vintage_year,
                 "metric": metric,
                 "quartile": quartile,
@@ -204,6 +223,9 @@ def parse_benchmarks(file_path, team_id, replace_mode="replace_all"):
             BenchmarkPoint(
                 team_id=team_id,
                 asset_class=row["asset_class"],
+                strategy=row["strategy"],
+                region=row["region"],
+                size_bucket=row["size_bucket"],
                 vintage_year=row["vintage_year"],
                 metric=row["metric"],
                 quartile=row["quartile"],

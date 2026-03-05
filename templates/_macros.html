@@ -58,3 +58,7 @@
 {% macro audit_link(anchor_id, text="Methodology") -%}
     <a class="metric-audit-link" href="{{ url_for('methodology') }}#{{ anchor_id }}" title="View methodology">{{ text }}</a>
 {%- endmacro %}
+
+{% macro csrf_field() -%}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}

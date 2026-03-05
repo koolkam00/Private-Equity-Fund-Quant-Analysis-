@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_date_monyy  with context %}
+{% from "_macros.html" import csrf_field, fmt_date_monyy  with context %}
 {% block title %}Manage Firms — PE Portfolio Lab{% endblock %}
 {% block page_title %}Manage Firms{% endblock %}
 {% block page_actions %}<span class="record-count">{{ firm_rows|length }} firms</span>{% endblock %}
@@ -29,6 +29,7 @@
                 <td>{{ fmt_date_monyy(stats.get("last_updated")) if stats.get("last_updated") else "—" }}</td>
                 <td class="num">
                     <form method="POST" action="{{ url_for('select_firm_scope', firm_id=firm.id) }}" class="inline-form">
+                        {{ csrf_field() }}
                         <button type="submit" class="btn-upload btn-secondary btn-sm">
                             {% if active_firm_id == firm.id %}Selected{% else %}Select{% endif %}
                         </button>

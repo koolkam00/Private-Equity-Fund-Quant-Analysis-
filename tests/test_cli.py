@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from app import app
 from models import Deal, Firm, db
+from peqa.app_factory import create_app
+from sqlalchemy import inspect as sa_inspect
 
 
 def test_fx_refresh_cli_failed_only_updates_failed_non_usd(app_context, monkeypatch):
@@ -118,3 +120,99 @@ def test_fx_refresh_cli_scopes_by_firm_id_and_as_of(app_context, monkeypatch):
     refreshed_b = db.session.get(Firm, firm_b.id)
     assert refreshed_a is not None and refreshed_a.fx_last_status == "lookup_failed"
     assert refreshed_b is not None and refreshed_b.fx_last_status == "lookup_failed"
+
+
+def test_db_upgrade_cli_applies_migrations_to_blank_database(tmp_path):
+    db_path = tmp_path / "cli-upgrade.db"
+    uploads_path = tmp_path / "uploads"
+    isolated_app = create_app(
+        {
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+            "UPLOAD_FOLDER": str(uploads_path),
+        }
+    )
+
+    runner = isolated_app.test_cli_runner()
+    result = runner.invoke(args=["db-upgrade"])
+
+    assert result.exit_code == 0
+    assert "Database schema is up to date." in result.output
+
+    with isolated_app.app_context():
+        inspector = sa_inspect(db.engine)
+        table_names = set(inspector.get_table_names())
+        assert "alembic_version" in table_names
+        assert {
+            "firms",
+            "teams",
+            "users",
+            "deals",
+            "fund_metadata",
+            "fund_cashflows",
+            "public_market_index_levels",
+            "benchmark_points",
+            "chart_builder_templates",
+            "upload_issues",
+        }.issubset(table_names)
+
+
+def test_bootstrap_admin_cli_runs_migrations_and_seeds_admin(tmp_path, monkeypatch):
+    db_path = tmp_path / "cli-bootstrap.db"
+    uploads_path = tmp_path / "uploads"
+    isolated_app = create_app(
+        {
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+            "UPLOAD_FOLDER": str(uploads_path),
+        }
+    )
+
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "strong-password")
+    monkeypatch.setenv("BOOTSTRAP_TEAM_NAME", "Admin Team")
+
+    runner = isolated_app.test_cli_runner()
+    result = runner.invoke(args=["bootstrap-admin"])
+
+    assert result.exit_code == 0
+    assert "Bootstrap completed." in result.output
+
+    with isolated_app.app_context():
+        from models import Team, TeamMembership, User
+
+        user = User.query.filter_by(email="admin@example.com").first()
+        assert user is not None
+        team = Team.query.filter_by(name="Admin Team").first()
+        assert team is not None
+        membership = TeamMembership.query.filter_by(team_id=team.id, user_id=user.id).first()
+        assert membership is not None
+        assert membership.role == "owner"
+
+
+def test_db_upgrade_cli_stamps_legacy_non_versioned_database(tmp_path):
+    db_path = tmp_path / "cli-legacy.db"
+    uploads_path = tmp_path / "uploads"
+    isolated_app = create_app(
+        {
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path}",
+            "UPLOAD_FOLDER": str(uploads_path),
+        }
+    )
+
+    with isolated_app.app_context():
+        db.create_all()
+        inspector = sa_inspect(db.engine)
+        assert "alembic_version" not in set(inspector.get_table_names())
+
+    runner = isolated_app.test_cli_runner()
+    result = runner.invoke(args=["db-upgrade"])
+
+    assert result.exit_code == 0
+    with isolated_app.app_context():
+        inspector = sa_inspect(db.engine)
+        assert "alembic_version" in set(inspector.get_table_names())

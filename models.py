@@ -1,6 +1,6 @@
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, UniqueConstraint, inspect, text
+from sqlalchemy import ForeignKey, Index, UniqueConstraint, inspect, text
 
 
 db = SQLAlchemy()
@@ -124,6 +124,76 @@ class FundQuarterSnapshot(db.Model):
         return f"<FundQuarterSnapshot fund={self.fund_number} quarter_end={self.quarter_end}>"
 
 
+class FundMetadata(db.Model):
+    __tablename__ = "fund_metadata"
+    __table_args__ = (
+        UniqueConstraint("team_id", "firm_id", "fund_number", name="uq_fund_metadata_team_firm_fund"),
+        Index("ix_fund_metadata_firm_fund", "firm_id", "fund_number"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    fund_number = db.Column(db.String(50), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=False, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    vintage_year = db.Column(db.Integer, nullable=True, index=True)
+    strategy = db.Column(db.String(128), nullable=True, index=True)
+    region_focus = db.Column(db.String(128), nullable=True)
+    fund_size = db.Column(db.Float, nullable=True)
+    first_close_date = db.Column(db.Date, nullable=True)
+    final_close_date = db.Column(db.Date, nullable=True)
+    manager_name = db.Column(db.String(255), nullable=True, index=True)
+    benchmark_peer_group = db.Column(db.String(128), nullable=True)
+    status = db.Column(db.String(64), nullable=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<FundMetadata fund={self.fund_number} firm={self.firm_id}>"
+
+
+class FundCashflow(db.Model):
+    __tablename__ = "fund_cashflows"
+    __table_args__ = (
+        Index("ix_fund_cashflows_firm_fund_event", "firm_id", "fund_number", "event_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    fund_number = db.Column(db.String(50), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=False, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    event_date = db.Column(db.Date, nullable=False, index=True)
+    event_type = db.Column(db.String(64), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    nav_after_event = db.Column(db.Float, nullable=True)
+    currency_code = db.Column(db.String(3), nullable=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<FundCashflow fund={self.fund_number} event_date={self.event_date}>"
+
+
+class PublicMarketIndexLevel(db.Model):
+    __tablename__ = "public_market_index_levels"
+    __table_args__ = (
+        UniqueConstraint("team_id", "benchmark_code", "level_date", name="uq_public_market_index_levels_team_code_date"),
+        Index("ix_public_market_index_levels_code_date", "benchmark_code", "level_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    benchmark_code = db.Column(db.String(64), nullable=False, index=True)
+    level_date = db.Column(db.Date, nullable=False, index=True)
+    level = db.Column(db.Float, nullable=False)
+    currency_code = db.Column(db.String(3), nullable=True)
+    source = db.Column(db.String(128), nullable=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<PublicMarketIndexLevel team={self.team_id} code={self.benchmark_code} level_date={self.level_date}>"
+
+
 class DealUnderwriteBaseline(db.Model):
     __tablename__ = "deal_underwrite_baselines"
 
@@ -171,16 +241,30 @@ class BenchmarkPoint(db.Model):
         UniqueConstraint(
             "team_id",
             "asset_class",
+            "strategy",
+            "region",
+            "size_bucket",
             "vintage_year",
             "metric",
             "quartile",
-            name="uq_benchmark_points_team_asset_vintage_metric_quartile",
+            name="uq_benchmark_points_team_asset_dims_vintage_metric_quartile",
+        ),
+        Index(
+            "ix_benchmark_points_asset_dims_vintage",
+            "asset_class",
+            "strategy",
+            "region",
+            "size_bucket",
+            "vintage_year",
         ),
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
     asset_class = db.Column(db.String(128), nullable=False, index=True)
+    strategy = db.Column(db.String(128), nullable=True, index=True)
+    region = db.Column(db.String(128), nullable=True, index=True)
+    size_bucket = db.Column(db.String(128), nullable=True, index=True)
     vintage_year = db.Column(db.Integer, nullable=False, index=True)
     metric = db.Column(db.String(32), nullable=False)
     quartile = db.Column(db.String(32), nullable=False)
@@ -324,6 +408,12 @@ def _ensure_index(engine, index_name, table_name, column_name):
         conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"))
 
 
+def _ensure_index_columns(engine, index_name, table_name, column_names):
+    columns = ", ".join(column_names)
+    with engine.begin() as conn:
+        conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({columns})"))
+
+
 def _archive_legacy_cashflows(engine, inspector):
     if "cashflows" not in inspector.get_table_names():
         return
@@ -379,6 +469,9 @@ def ensure_schema_updates():
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
     DealQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
     FundQuarterSnapshot.__table__.create(bind=engine, checkfirst=True)
+    FundMetadata.__table__.create(bind=engine, checkfirst=True)
+    FundCashflow.__table__.create(bind=engine, checkfirst=True)
+    PublicMarketIndexLevel.__table__.create(bind=engine, checkfirst=True)
     DealUnderwriteBaseline.__table__.create(bind=engine, checkfirst=True)
     inspector = inspect(engine)
 
@@ -444,6 +537,41 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "upload_batch", "VARCHAR(100)")
     _ensure_column(engine, inspector, "fund_quarter_snapshots", "created_at", "DATETIME")
 
+    _ensure_column(engine, inspector, "fund_metadata", "fund_number", "VARCHAR(50)")
+    _ensure_column(engine, inspector, "fund_metadata", "firm_id", "INTEGER")
+    _ensure_column(engine, inspector, "fund_metadata", "team_id", "INTEGER")
+    _ensure_column(engine, inspector, "fund_metadata", "vintage_year", "INTEGER")
+    _ensure_column(engine, inspector, "fund_metadata", "strategy", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "fund_metadata", "region_focus", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "fund_metadata", "fund_size", "FLOAT")
+    _ensure_column(engine, inspector, "fund_metadata", "first_close_date", "DATE")
+    _ensure_column(engine, inspector, "fund_metadata", "final_close_date", "DATE")
+    _ensure_column(engine, inspector, "fund_metadata", "manager_name", "VARCHAR(255)")
+    _ensure_column(engine, inspector, "fund_metadata", "benchmark_peer_group", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "fund_metadata", "status", "VARCHAR(64)")
+    _ensure_column(engine, inspector, "fund_metadata", "upload_batch", "VARCHAR(100)")
+    _ensure_column(engine, inspector, "fund_metadata", "created_at", "DATETIME")
+
+    _ensure_column(engine, inspector, "fund_cashflows", "fund_number", "VARCHAR(50)")
+    _ensure_column(engine, inspector, "fund_cashflows", "firm_id", "INTEGER")
+    _ensure_column(engine, inspector, "fund_cashflows", "team_id", "INTEGER")
+    _ensure_column(engine, inspector, "fund_cashflows", "event_date", "DATE")
+    _ensure_column(engine, inspector, "fund_cashflows", "event_type", "VARCHAR(64)")
+    _ensure_column(engine, inspector, "fund_cashflows", "amount", "FLOAT")
+    _ensure_column(engine, inspector, "fund_cashflows", "nav_after_event", "FLOAT")
+    _ensure_column(engine, inspector, "fund_cashflows", "currency_code", "VARCHAR(3)")
+    _ensure_column(engine, inspector, "fund_cashflows", "upload_batch", "VARCHAR(100)")
+    _ensure_column(engine, inspector, "fund_cashflows", "created_at", "DATETIME")
+
+    _ensure_column(engine, inspector, "public_market_index_levels", "team_id", "INTEGER")
+    _ensure_column(engine, inspector, "public_market_index_levels", "benchmark_code", "VARCHAR(64)")
+    _ensure_column(engine, inspector, "public_market_index_levels", "level_date", "DATE")
+    _ensure_column(engine, inspector, "public_market_index_levels", "level", "FLOAT")
+    _ensure_column(engine, inspector, "public_market_index_levels", "currency_code", "VARCHAR(3)")
+    _ensure_column(engine, inspector, "public_market_index_levels", "source", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "public_market_index_levels", "upload_batch", "VARCHAR(100)")
+    _ensure_column(engine, inspector, "public_market_index_levels", "created_at", "DATETIME")
+
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "deal_id", "INTEGER")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "target_irr", "FLOAT")
     _ensure_column(engine, inspector, "deal_underwrite_baselines", "target_moic", "FLOAT")
@@ -459,24 +587,51 @@ def ensure_schema_updates():
 
     _ensure_column(engine, inspector, "upload_issues", "firm_id", "INTEGER")
     _ensure_column(engine, inspector, "upload_issues", "team_id", "INTEGER")
+    _ensure_column(engine, inspector, "benchmark_points", "strategy", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "benchmark_points", "region", "VARCHAR(128)")
+    _ensure_column(engine, inspector, "benchmark_points", "size_bucket", "VARCHAR(128)")
 
     _ensure_index(engine, "ix_deals_firm_id", "deals", "firm_id")
     _ensure_index(engine, "ix_deal_cashflow_events_firm_id", "deal_cashflow_events", "firm_id")
     _ensure_index(engine, "ix_deal_quarter_snapshots_firm_id", "deal_quarter_snapshots", "firm_id")
     _ensure_index(engine, "ix_fund_quarter_snapshots_firm_id", "fund_quarter_snapshots", "firm_id")
+    _ensure_index(engine, "ix_fund_metadata_firm_id", "fund_metadata", "firm_id")
+    _ensure_index(engine, "ix_fund_cashflows_firm_id", "fund_cashflows", "firm_id")
     _ensure_index(engine, "ix_deal_underwrite_baselines_firm_id", "deal_underwrite_baselines", "firm_id")
     _ensure_index(engine, "ix_upload_issues_firm_id", "upload_issues", "firm_id")
     _ensure_index(engine, "ix_deals_team_id", "deals", "team_id")
     _ensure_index(engine, "ix_deal_cashflow_events_team_id", "deal_cashflow_events", "team_id")
     _ensure_index(engine, "ix_deal_quarter_snapshots_team_id", "deal_quarter_snapshots", "team_id")
     _ensure_index(engine, "ix_fund_quarter_snapshots_team_id", "fund_quarter_snapshots", "team_id")
+    _ensure_index(engine, "ix_fund_metadata_team_id", "fund_metadata", "team_id")
+    _ensure_index(engine, "ix_fund_cashflows_team_id", "fund_cashflows", "team_id")
+    _ensure_index(engine, "ix_public_market_index_levels_team_id", "public_market_index_levels", "team_id")
     _ensure_index(engine, "ix_deal_underwrite_baselines_team_id", "deal_underwrite_baselines", "team_id")
     _ensure_index(engine, "ix_upload_issues_team_id", "upload_issues", "team_id")
     _ensure_index(engine, "ix_team_firm_access_team_id", "team_firm_access", "team_id")
     _ensure_index(engine, "ix_team_firm_access_firm_id", "team_firm_access", "firm_id")
     _ensure_index(engine, "ix_benchmark_points_team_id", "benchmark_points", "team_id")
     _ensure_index(engine, "ix_benchmark_points_asset_class", "benchmark_points", "asset_class")
+    _ensure_index(engine, "ix_benchmark_points_strategy", "benchmark_points", "strategy")
+    _ensure_index(engine, "ix_benchmark_points_region", "benchmark_points", "region")
+    _ensure_index(engine, "ix_benchmark_points_size_bucket", "benchmark_points", "size_bucket")
     _ensure_index(engine, "ix_benchmark_points_vintage_year", "benchmark_points", "vintage_year")
+    _ensure_index(engine, "ix_public_market_index_levels_benchmark_code", "public_market_index_levels", "benchmark_code")
+    _ensure_index(engine, "ix_public_market_index_levels_level_date", "public_market_index_levels", "level_date")
+    _ensure_index_columns(engine, "ix_fund_metadata_firm_fund", "fund_metadata", ["firm_id", "fund_number"])
+    _ensure_index_columns(engine, "ix_fund_cashflows_firm_fund_event", "fund_cashflows", ["firm_id", "fund_number", "event_date"])
+    _ensure_index_columns(
+        engine,
+        "ix_public_market_index_levels_code_date",
+        "public_market_index_levels",
+        ["benchmark_code", "level_date"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_benchmark_points_asset_dims_vintage",
+        "benchmark_points",
+        ["asset_class", "strategy", "region", "size_bucket", "vintage_year"],
+    )
     _ensure_index(engine, "ix_chart_builder_templates_team_id", "chart_builder_templates", "team_id")
     _ensure_index(engine, "ix_chart_builder_templates_source", "chart_builder_templates", "source")
 

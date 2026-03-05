@@ -6,21 +6,13 @@ from collections import defaultdict
 from datetime import date
 
 from models import DealCashflowEvent, DealQuarterSnapshot, DealUnderwriteBaseline, FundQuarterSnapshot
+from peqa.services.metrics.status import normalize_realization_status
 from services.metrics.common import safe_divide
 from services.metrics.deal import compute_deal_metrics
 
 
 def _normalize_status(raw_status):
-    status = (raw_status or "").strip().lower()
-    if "partial" in status and "realized" in status:
-        return "Partially Realized"
-    if "fully" in status and "realized" in status:
-        return "Fully Realized"
-    if status == "realized" or ("realized" in status and "unrealized" not in status):
-        return "Fully Realized"
-    if "unrealized" in status or status == "":
-        return "Unrealized"
-    return "Other"
+    return normalize_realization_status(raw_status)
 
 
 def _as_rate(value):

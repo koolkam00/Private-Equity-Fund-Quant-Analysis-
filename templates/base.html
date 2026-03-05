@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+{% from "_macros.html" import csrf_field with context %}
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}PE Portfolio Analytics{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,6 +44,14 @@
             {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
             <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item nav-sub {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
                     class="bi bi-bar-chart-steps"></i> Benchmarking Analysis</a>
+            <a href="{{ url_for('analysis_page', page='lp-liquidity-quality') }}" class="nav-item nav-sub {% if active_analysis == 'lp-liquidity-quality' %}active{% endif %}"><i
+                    class="bi bi-droplet-half"></i> LP Liquidity Quality</a>
+            <a href="{{ url_for('analysis_page', page='manager-consistency') }}" class="nav-item nav-sub {% if active_analysis == 'manager-consistency' %}active{% endif %}"><i
+                    class="bi bi-diagram-3"></i> Manager Consistency</a>
+            <a href="{{ url_for('analysis_page', page='public-market-comparison') }}" class="nav-item nav-sub {% if active_analysis == 'public-market-comparison' %}active{% endif %}"><i
+                    class="bi bi-graph-up"></i> Public Market Comparison</a>
+            <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i
+                    class="bi bi-file-earmark-text"></i> LP Due Diligence Memo</a>
             <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item nav-sub {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
                     class="bi bi-table"></i> Value Creation (EBITDA)</a>
             <a href="{{ url_for('analysis_page', page='vca-revenue') }}" class="nav-item nav-sub {% if active_analysis == 'vca-revenue' %}active{% endif %}"><i
@@ -98,8 +108,9 @@
                     <span>Active Firm: {{ app_active_firm.name if app_active_firm else "None" }}</span>
                     <span class="firm-picker-shortcut">Cmd/Ctrl+K</span>
                 </button>
-                <form id="firm-picker-submit-form" method="POST" hidden></form>
+                <form id="firm-picker-submit-form" method="POST" hidden>{{ csrf_field() }}</form>
                 <form method="POST" action="{{ url_for('logout') }}">
+                    {{ csrf_field() }}
                     <button type="submit" class="btn-upload btn-secondary btn-logout">
                         <i class="bi bi-box-arrow-right"></i> Sign Out
                     </button>

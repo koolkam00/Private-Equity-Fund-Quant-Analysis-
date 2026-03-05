@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_date_monyy  with context %}
+{% from "_macros.html" import csrf_field, fmt_date_monyy  with context %}
 {% block title %}Manage Funds — PE Portfolio Lab{% endblock %}
 {% block page_title %}Manage Funds{% endblock %}
 {% block page_actions %}
@@ -28,10 +28,12 @@
                 <td>{{ fmt_date_monyy(row.last_updated) if row.last_updated else "—" }}</td>
                 <td class="num">
                     <form method="POST" action="{{ url_for('select_fund_scope', fund_name=row.fund_name) }}" class="inline-form">
+                        {{ csrf_field() }}
                         <button type="submit" class="btn-upload btn-secondary btn-sm">{% if active_fund == row.fund_name %}Selected{% else %}Select{% endif %}</button>
                     </form>
                     <a href="{{ url_for('upload') }}" class="btn-upload btn-secondary btn-sm">Replace via Upload</a>
                     <form method="POST" action="{{ url_for('delete_fund', fund_name=row.fund_name) }}" class="inline-form" onsubmit="return confirm('Delete fund {{ row.fund_name }} and all related records?');">
+                        {{ csrf_field() }}
                         <button type="submit" class="btn-upload btn-sm btn-danger-soft">Delete</button>
                     </form>
                 </td>
