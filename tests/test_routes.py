@@ -51,6 +51,13 @@ def _build_benchmark_workbook_bytes(rows):
     return buffer
 
 
+def _sidebar_nav_html(response):
+    html = response.data.decode("utf-8")
+    match = re.search(r'<nav class="nav">(.*?)</nav>', html, re.DOTALL)
+    assert match is not None
+    return match.group(1)
+
+
 def test_index_redirect(client):
     response = client.get("/")
     assert response.status_code == 302
@@ -64,6 +71,7 @@ def test_dashboard_page(client):
     assert b'id="bridge-lever-table-body"' in response.data
     assert b"Capital Value Loss Ratio" in response.data
     assert b"Download 4 Analysis PDFs" in response.data
+    assert b"Upload Deals" in response.data
     assert b'id="firm-picker-trigger"' in response.data
     assert b'id="firm-picker-modal"' in response.data
     assert b'id="firm-picker-data-payload"' in response.data
@@ -129,16 +137,51 @@ def test_analysis_series_schema_failure_returns_json_503(client, monkeypatch):
     assert "db-upgrade" in body["message"]
 
 
-def test_sidebar_pdf_download_link_is_above_team_and_upload(client):
+def test_sidebar_primary_order_and_analysis_grouping(client):
     response = client.get("/dashboard")
     assert response.status_code == 200
-    html = response.data.decode("utf-8")
-    pdf_idx = html.find("Download 4 Analysis PDFs")
-    team_idx = html.find("> Team</a>")
-    upload_idx = html.find("> Upload</a>")
-    assert pdf_idx != -1 and team_idx != -1 and upload_idx != -1
-    assert pdf_idx < team_idx
-    assert pdf_idx < upload_idx
+    nav_html = _sidebar_nav_html(response)
+    assert "Upload Deals" in nav_html
+    assert "> Upload</a>" not in nav_html
+
+    primary_labels = [
+        "Dashboard",
+        "Benchmarking Analysis",
+        "Track Record",
+        "Value Creation (EBITDA)",
+        "Value Creation (Revenue)",
+        "IC Memo",
+        "Download 4 Analysis PDFs",
+        "Upload Deals",
+    ]
+    primary_positions = []
+    for label in primary_labels:
+        idx = nav_html.find(label)
+        assert idx != -1, label
+        primary_positions.append(idx)
+    assert primary_positions == sorted(primary_positions)
+
+    analysis_idx = nav_html.find('<div class="nav-section">Analysis</div>')
+    assert analysis_idx != -1
+    assert primary_positions[-1] < analysis_idx
+
+    analysis_labels = [
+        "LP Liquidity Quality",
+        "Manager Consistency",
+        "Public Market Comparison",
+        "LP Due Diligence Memo",
+        "Fund Liquidity",
+        "Underwrite vs Outcome",
+        "Valuation Quality",
+        "Exit Readiness",
+        "Stress Lab",
+        "Deal Trajectory",
+        "Chart Builder",
+    ]
+    for label in analysis_labels:
+        idx = nav_html.find(label)
+        assert idx != -1, label
+        assert idx > analysis_idx, label
 
 
 def test_upload_page(client):

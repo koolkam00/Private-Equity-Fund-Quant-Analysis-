@@ -35,15 +35,24 @@
         <div class="team-chip">{{ app_active_firm.name }}</div>
         {% endif %}
         <nav class="nav">
+            {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
             <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}"><i
                     class="bi bi-grid-1x2"></i> Dashboard</a>
-            <a href="{{ url_for('deals') }}" class="nav-item {% if request.endpoint == 'deals' %}active{% endif %}"><i
-                    class="bi bi-buildings"></i> Deals</a>
+            <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
+                    class="bi bi-bar-chart-steps"></i> Benchmarking Analysis</a>
             <a href="{{ url_for('track_record') }}" class="nav-item {% if request.endpoint == 'track_record' %}active{% endif %}"><i
                     class="bi bi-table"></i> Track Record</a>
-            {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
-            <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item nav-sub {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
-                    class="bi bi-bar-chart-steps"></i> Benchmarking Analysis</a>
+            <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
+                    class="bi bi-table"></i> Value Creation (EBITDA)</a>
+            <a href="{{ url_for('analysis_page', page='vca-revenue') }}" class="nav-item {% if active_analysis == 'vca-revenue' %}active{% endif %}"><i
+                    class="bi bi-table"></i> Value Creation (Revenue)</a>
+            <a href="{{ url_for('ic_memo') }}" class="nav-item {% if request.endpoint == 'ic_memo' %}active{% endif %}"><i
+                    class="bi bi-file-earmark-richtext"></i> IC Memo</a>
+            <a href="{{ url_for('live_ic_pdf_pack') }}" class="nav-item"><i
+                    class="bi bi-file-earmark-zip"></i> Download 4 Analysis PDFs</a>
+            <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
+                    class="bi bi-cloud-upload"></i> Upload Deals</a>
+            <div class="nav-section">Analysis</div>
             <a href="{{ url_for('analysis_page', page='lp-liquidity-quality') }}" class="nav-item nav-sub {% if active_analysis == 'lp-liquidity-quality' %}active{% endif %}"><i
                     class="bi bi-droplet-half"></i> LP Liquidity Quality</a>
             <a href="{{ url_for('analysis_page', page='manager-consistency') }}" class="nav-item nav-sub {% if active_analysis == 'manager-consistency' %}active{% endif %}"><i
@@ -52,11 +61,6 @@
                     class="bi bi-graph-up"></i> Public Market Comparison</a>
             <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i
                     class="bi bi-file-earmark-text"></i> LP Due Diligence Memo</a>
-            <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item nav-sub {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Value Creation (EBITDA)</a>
-            <a href="{{ url_for('analysis_page', page='vca-revenue') }}" class="nav-item nav-sub {% if active_analysis == 'vca-revenue' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Value Creation (Revenue)</a>
-            <div class="nav-section">Analysis</div>
             <a href="{{ url_for('analysis_page', page='fund-liquidity') }}" class="nav-item nav-sub {% if active_analysis == 'fund-liquidity' %}active{% endif %}"><i
                     class="bi bi-graph-up-arrow"></i> Fund Liquidity</a>
             <a href="{{ url_for('analysis_page', page='underwrite-outcome') }}" class="nav-item nav-sub {% if active_analysis == 'underwrite-outcome' %}active{% endif %}"><i
@@ -71,18 +75,14 @@
                     class="bi bi-bezier2"></i> Deal Trajectory</a>
             <a href="{{ url_for('analysis_page', page='chart-builder') }}" class="nav-item nav-sub {% if active_analysis == 'chart-builder' %}active{% endif %}"><i
                     class="bi bi-bar-chart-line"></i> Chart Builder</a>
-            <a href="{{ url_for('ic_memo') }}" class="nav-item nav-sub {% if request.endpoint == 'ic_memo' %}active{% endif %}"><i
-                    class="bi bi-file-earmark-richtext"></i> IC Memo</a>
-            <a href="{{ url_for('methodology') }}" class="nav-item nav-sub {% if request.endpoint == 'methodology' %}active{% endif %}"><i
+            <a href="{{ url_for('deals') }}" class="nav-item {% if request.endpoint == 'deals' %}active{% endif %}"><i
+                    class="bi bi-buildings"></i> Deals</a>
+            <a href="{{ url_for('methodology') }}" class="nav-item {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
             <a href="{{ url_for('firms') }}" class="nav-item {% if request.endpoint == 'firms' %}active{% endif %}"><i
                     class="bi bi-building"></i> Manage Firms</a>
-            <a href="{{ url_for('live_ic_pdf_pack') }}" class="nav-item"><i
-                    class="bi bi-file-earmark-zip"></i> Download 4 Analysis PDFs</a>
             <a href="{{ url_for('team') }}" class="nav-item {% if request.endpoint == 'team' %}active{% endif %}"><i
                     class="bi bi-people"></i> Team</a>
-            <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
-                    class="bi bi-cloud-upload"></i> Upload</a>
         </nav>
     </aside>
     {% endif %}

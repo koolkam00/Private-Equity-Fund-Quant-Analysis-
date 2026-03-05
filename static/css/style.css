@@ -36,6 +36,9 @@ body.pe-app {
     background: #102f2a;
     color: #d8efea;
     padding: 22px 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 .team-chip {
     margin: -8px 0 16px;
@@ -52,7 +55,14 @@ body.pe-app {
 .brand-dot { width: 13px; height: 13px; border-radius: 50%; background: var(--accent-2); }
 .brand-title { font-weight: 800; }
 .brand-subtitle { font-size: 12px; opacity: 0.8; }
-.nav { display: grid; gap: 6px; }
+.nav {
+    display: grid;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
 .nav-section {
     margin-top: 10px;
     margin-bottom: 2px;
