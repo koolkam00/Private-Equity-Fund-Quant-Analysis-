@@ -2013,28 +2013,58 @@ def _handle_upload(parse_func, redirect_route):
                 replace_mode="replace_fund",
             )
         if result["success"] > 0:
-            flash(f"Successfully imported {result['success']} deal records (batch {result['batch_id']}).", "success")
-            firm_name = result.get("firm_name")
-            if firm_name:
-                flash(f"Upload firm scope: {firm_name}.", "info")
-            firm_currency = normalize_currency_code(result.get("firm_currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
-            flash(f"Firm currency: {firm_currency}.", "info")
-            upload_as_of_date = result.get("as_of_date")
-            if upload_as_of_date is not None:
-                as_of_text = upload_as_of_date.isoformat() if hasattr(upload_as_of_date, "isoformat") else str(upload_as_of_date)
-                flash(f"Upload As Of Date: {as_of_text}.", "info")
-            fx_status = (result.get("fx_status") or "").lower()
-            fx_rate = result.get("fx_rate_to_usd")
-            fx_date = result.get("fx_rate_date")
-            if firm_currency != DEFAULT_CURRENCY_CODE and fx_status == "ok" and fx_rate:
-                fx_date_text = fx_date.isoformat() if hasattr(fx_date, "isoformat") else str(fx_date or "N/A")
+            firms_processed = result.get("firms_processed") or []
+            firm_count = int(result.get("firm_count") or (len(firms_processed) or 1))
+            if firm_count > 1 and firms_processed:
                 flash(
-                    f"Reporting conversion active: {firm_currency}->USD at {float(fx_rate):.6f} (effective {fx_date_text}).",
-                    "info",
+                    f"Successfully imported {result['success']} deal records across {firm_count} firms "
+                    f"(batch {result['batch_id']}).",
+                    "success",
                 )
-            fx_warning = result.get("fx_warning")
-            if fx_warning:
-                flash(f"FX warning: {str(fx_warning).splitlines()[0].strip()}", "warning")
+                for firm_summary in firms_processed[:12]:
+                    firm_name = firm_summary.get("firm_name") or "Unknown Firm"
+                    firm_currency = (
+                        normalize_currency_code(firm_summary.get("currency"), default=DEFAULT_CURRENCY_CODE)
+                        or DEFAULT_CURRENCY_CODE
+                    )
+                    upload_as_of_date = firm_summary.get("as_of_date")
+                    as_of_text = (
+                        upload_as_of_date.isoformat()
+                        if hasattr(upload_as_of_date, "isoformat")
+                        else str(upload_as_of_date or "N/A")
+                    )
+                    flash(f"{firm_name} | Currency: {firm_currency} | As Of Date: {as_of_text}", "info")
+                    fx_warning = firm_summary.get("fx_warning")
+                    if fx_warning:
+                        flash(
+                            f"FX warning ({firm_name}): {str(fx_warning).splitlines()[0].strip()}",
+                            "warning",
+                        )
+                if len(firms_processed) > 12:
+                    flash(f"...and {len(firms_processed) - 12} additional firms in this upload.", "info")
+            else:
+                flash(f"Successfully imported {result['success']} deal records (batch {result['batch_id']}).", "success")
+                firm_name = result.get("firm_name")
+                if firm_name:
+                    flash(f"Upload firm scope: {firm_name}.", "info")
+                firm_currency = normalize_currency_code(result.get("firm_currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+                flash(f"Firm currency: {firm_currency}.", "info")
+                upload_as_of_date = result.get("as_of_date")
+                if upload_as_of_date is not None:
+                    as_of_text = upload_as_of_date.isoformat() if hasattr(upload_as_of_date, "isoformat") else str(upload_as_of_date)
+                    flash(f"Upload As Of Date: {as_of_text}.", "info")
+                fx_status = (result.get("fx_status") or "").lower()
+                fx_rate = result.get("fx_rate_to_usd")
+                fx_date = result.get("fx_rate_date")
+                if firm_currency != DEFAULT_CURRENCY_CODE and fx_status == "ok" and fx_rate:
+                    fx_date_text = fx_date.isoformat() if hasattr(fx_date, "isoformat") else str(fx_date or "N/A")
+                    flash(
+                        f"Reporting conversion active: {firm_currency}->USD at {float(fx_rate):.6f} (effective {fx_date_text}).",
+                        "info",
+                    )
+                fx_warning = result.get("fx_warning")
+                if fx_warning:
+                    flash(f"FX warning: {str(fx_warning).splitlines()[0].strip()}", "warning")
         replaced_funds = result.get("replaced_funds") or {}
         if replaced_funds:
             replaced_summaries = ", ".join(f"{name} ({count} old deals replaced)" for name, count in replaced_funds.items())
@@ -2042,6 +2072,16 @@ def _handle_upload(parse_func, redirect_route):
                 flash(f"Replaced existing fund data in {result['firm_name']}: {replaced_summaries}.", "info")
             else:
                 flash(f"Replaced existing fund data: {replaced_summaries}.", "info")
+        elif result.get("firm_count", 1) > 1:
+            for firm_summary in (result.get("firms_processed") or []):
+                firm_replaced = firm_summary.get("replaced_funds") or {}
+                if not firm_replaced:
+                    continue
+                replaced_summaries = ", ".join(
+                    f"{name} ({count} old deals replaced)" for name, count in firm_replaced.items()
+                )
+                firm_name = firm_summary.get("firm_name") or "Unknown Firm"
+                flash(f"Replaced existing fund data in {firm_name}: {replaced_summaries}.", "info")
         if result.get("duplicates_skipped", 0) > 0:
             flash(f"Skipped {result['duplicates_skipped']} duplicate deal records.", "warning")
         if result.get("quarantined_count", 0) > 0:

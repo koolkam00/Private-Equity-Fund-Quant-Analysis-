@@ -223,6 +223,10 @@ def test_download_deal_template(client):
     headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
     assert "Firm Currency" in headers
     assert "As Of Date" in headers
+    for sheet_name in ["Cashflows", "Deal Quarterly", "Fund Quarterly", "Underwrite"]:
+        sheet = wb[sheet_name]
+        optional_headers = [c.value for c in next(sheet.iter_rows(min_row=1, max_row=1))]
+        assert "Firm Name" in optional_headers
 
 
 def test_download_benchmark_template(client):

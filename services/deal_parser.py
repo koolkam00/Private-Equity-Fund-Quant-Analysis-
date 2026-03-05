@@ -189,6 +189,8 @@ SHEET_ALIASES = {
 }
 
 CASHFLOW_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
     "company": "company_name",
     "company name": "company_name",
     "deal": "company_name",
@@ -207,6 +209,8 @@ CASHFLOW_COLUMN_MAP = {
 }
 
 DEAL_QUARTER_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
     "company": "company_name",
     "company name": "company_name",
     "deal": "company_name",
@@ -229,6 +233,8 @@ DEAL_QUARTER_COLUMN_MAP = {
 }
 
 FUND_QUARTER_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
     "fund": "fund_number",
     "fund name": "fund_number",
     "fund number": "fund_number",
@@ -249,6 +255,8 @@ FUND_QUARTER_COLUMN_MAP = {
 }
 
 UNDERWRITE_COLUMN_MAP = {
+    "firm": "firm_name",
+    "firm name": "firm_name",
     "company": "company_name",
     "company name": "company_name",
     "deal": "company_name",
@@ -406,15 +414,52 @@ def _normalize_optional_df(df, column_map, valid_fields, date_cols=None, float_c
     return df
 
 
-def _parse_cashflows_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors):
+def _firm_lookup_key(name):
+    normalized = clean_str(name)
+    if normalized is None:
+        return None
+    return normalized.lower()
+
+
+def _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name):
+    firm_name = clean_str(row.get("firm_name"))
+    if firm_name is None:
+        if require_firm_name:
+            return None, "Firm Name is required for multi-firm supplemental uploads."
+        if default_firm_id is None:
+            return None, "Firm Name is required because a default firm scope is unavailable."
+        return default_firm_id, None
+
+    firm_id = firm_name_to_id.get(_firm_lookup_key(firm_name))
+    if firm_id is None:
+        return None, f"Firm '{firm_name}' was not found in uploaded Deals rows."
+    return firm_id, None
+
+
+def _parse_cashflows_sheet(
+    df,
+    lookup_by_firm,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
     count = 0
     df = _normalize_optional_df(
         df,
         CASHFLOW_COLUMN_MAP,
-        {"company_name", "fund_number", "event_date", "event_type", "amount", "notes"},
+        {"firm_name", "company_name", "fund_number", "event_date", "event_type", "amount", "notes"},
         date_cols={"event_date"},
         float_cols={"amount"},
     )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Cashflows sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -422,6 +467,19 @@ def _parse_cashflows_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_
             continue
 
         row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Cashflows row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+        lookup = lookup_by_firm.get(firm_id)
+        if lookup is None:
+            msg = f"Cashflows row {row_num}: skipped — could not resolve firm upload scope."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+
         deal, reason = _match_deal(row, lookup)
         if deal is None:
             msg = f"Cashflows row {row_num}: skipped — {reason}."
@@ -455,12 +513,23 @@ def _parse_cashflows_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_
     return count
 
 
-def _parse_deal_quarter_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors):
+def _parse_deal_quarter_sheet(
+    df,
+    lookup_by_firm,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
     count = 0
     df = _normalize_optional_df(
         df,
         DEAL_QUARTER_COLUMN_MAP,
         {
+            "firm_name",
             "company_name",
             "fund_number",
             "quarter_end",
@@ -475,6 +544,11 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, firm_id, issue_report_id, bat
         date_cols={"quarter_end"},
         float_cols={"revenue", "ebitda", "enterprise_value", "net_debt", "equity_value"},
     )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Deal Quarterly sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -482,6 +556,19 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, firm_id, issue_report_id, bat
             continue
 
         row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Deal Quarterly row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+        lookup = lookup_by_firm.get(firm_id)
+        if lookup is None:
+            msg = f"Deal Quarterly row {row_num}: skipped — could not resolve firm upload scope."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+
         deal, reason = _match_deal(row, lookup)
         if deal is None:
             msg = f"Deal Quarterly row {row_num}: skipped — {reason}."
@@ -517,12 +604,22 @@ def _parse_deal_quarter_sheet(df, lookup, team_id, firm_id, issue_report_id, bat
     return count
 
 
-def _parse_fund_quarter_sheet(df, team_id, firm_id, issue_report_id, batch_id, errors):
+def _parse_fund_quarter_sheet(
+    df,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
     count = 0
     df = _normalize_optional_df(
         df,
         FUND_QUARTER_COLUMN_MAP,
         {
+            "firm_name",
             "fund_number",
             "quarter_end",
             "committed_capital",
@@ -540,6 +637,11 @@ def _parse_fund_quarter_sheet(df, team_id, firm_id, issue_report_id, batch_id, e
             "unfunded_commitment",
         },
     )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Fund Quarterly sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -547,6 +649,13 @@ def _parse_fund_quarter_sheet(df, team_id, firm_id, issue_report_id, batch_id, e
             continue
 
         row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Fund Quarterly row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, None, "warning", msg, row_payload)
+            continue
+
         fund_number = clean_str(row.get("fund_number"))
         quarter_end = clean_val(row.get("quarter_end"))
         if fund_number is None or quarter_end is None:
@@ -574,12 +683,23 @@ def _parse_fund_quarter_sheet(df, team_id, firm_id, issue_report_id, batch_id, e
     return count
 
 
-def _parse_underwrite_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors):
+def _parse_underwrite_sheet(
+    df,
+    lookup_by_firm,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    team_id,
+    issue_report_id,
+    batch_id,
+    errors,
+):
     count = 0
     df = _normalize_optional_df(
         df,
         UNDERWRITE_COLUMN_MAP,
         {
+            "firm_name",
             "company_name",
             "fund_number",
             "baseline_date",
@@ -600,6 +720,11 @@ def _parse_underwrite_sheet(df, lookup, team_id, firm_id, issue_report_id, batch
             "target_ebitda_cagr",
         },
     )
+    if require_firm_name and "firm_name" not in df.columns:
+        msg = "Underwrite sheet requires a Firm Name column when Deals sheet includes multiple firms."
+        errors.append(msg)
+        _record_issue(issue_report_id, batch_id, team_id, None, None, None, "warning", msg, {})
+        return 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -607,6 +732,19 @@ def _parse_underwrite_sheet(df, lookup, team_id, firm_id, issue_report_id, batch
             continue
 
         row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_id, firm_err = _resolve_optional_firm_for_row(row, firm_name_to_id, default_firm_id, require_firm_name)
+        if firm_id is None:
+            msg = f"Underwrite row {row_num}: skipped — {firm_err}"
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+        lookup = lookup_by_firm.get(firm_id)
+        if lookup is None:
+            msg = f"Underwrite row {row_num}: skipped — could not resolve firm upload scope."
+            errors.append(msg)
+            _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, clean_str(row.get("company_name")), "warning", msg, row_payload)
+            continue
+
         deal, reason = _match_deal(row, lookup)
         if deal is None:
             msg = f"Underwrite row {row_num}: skipped — {reason}."
@@ -634,10 +772,23 @@ def _parse_underwrite_sheet(df, lookup, team_id, firm_id, issue_report_id, batch
     return count
 
 
-def _parse_optional_sheets(workbook, deals_sheet_name, team_id, firm_id, issue_report_id, batch_id, errors):
+def _parse_optional_sheets(
+    workbook,
+    deals_sheet_name,
+    team_id,
+    firm_name_to_id,
+    default_firm_id,
+    require_firm_name,
+    issue_report_id,
+    batch_id,
+    errors,
+):
     # Limit optional-sheet matching to deals inserted by the current upload batch
     # to avoid accidental collisions against historical rows in the same firm.
-    lookup = _build_deal_lookup(firm_id, upload_batch=batch_id)
+    lookup_by_firm = {}
+    for firm_id in sorted(set(firm_name_to_id.values())):
+        lookup_by_firm[firm_id] = _build_deal_lookup(firm_id, upload_batch=batch_id)
+
     counts = {
         "cashflows": 0,
         "deal_quarterly": 0,
@@ -658,13 +809,52 @@ def _parse_optional_sheets(workbook, deals_sheet_name, team_id, firm_id, issue_r
             continue
 
         if key == "cashflows":
-            counts[key] = _parse_cashflows_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_cashflows_sheet(
+                df,
+                lookup_by_firm,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
         elif key == "deal_quarterly":
-            counts[key] = _parse_deal_quarter_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_deal_quarter_sheet(
+                df,
+                lookup_by_firm,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
         elif key == "fund_quarterly":
-            counts[key] = _parse_fund_quarter_sheet(df, team_id, firm_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_fund_quarter_sheet(
+                df,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
         elif key == "underwrite":
-            counts[key] = _parse_underwrite_sheet(df, lookup, team_id, firm_id, issue_report_id, batch_id, errors)
+            counts[key] = _parse_underwrite_sheet(
+                df,
+                lookup_by_firm,
+                firm_name_to_id,
+                default_firm_id,
+                require_firm_name,
+                team_id,
+                issue_report_id,
+                batch_id,
+                errors,
+            )
 
     return counts
 
@@ -824,9 +1014,9 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
     Supports a multi-sheet workbook:
     - Deals (required)
-      - Firm Name required (single distinct value)
-      - Firm Currency optional ISO-3 (defaults to USD)
-      - As Of Date required and consistent across all non-empty rows
+      - Firm Name required on all non-empty rows
+      - As Of Date required and consistent per firm
+      - Firm Currency optional ISO-3 (defaults to USD) and consistent per firm
     - Cashflows (optional)
     - Deal Quarterly (optional)
     - Fund Quarterly (optional)
@@ -843,6 +1033,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     """
     batch_id = str(uuid.uuid4())[:8]
     issue_report_id = str(uuid.uuid4())
+    zero_supplemental = {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0}
 
     workbook = pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
     if not workbook:
@@ -854,7 +1045,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "duplicates_skipped": 0,
             "quarantined_count": 0,
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
         }
 
     deals_sheet_name, df = _select_deals_sheet(workbook)
@@ -872,7 +1063,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "duplicates_skipped": 0,
             "quarantined_count": 0,
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
         }
 
     if "firm_name" not in df.columns:
@@ -884,7 +1075,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "duplicates_skipped": 0,
             "quarantined_count": 0,
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
         }
 
     if "as_of_date" not in df.columns:
@@ -896,7 +1087,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "duplicates_skipped": 0,
             "quarantined_count": 0,
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
         }
 
     df = df[[c for c in df.columns if c in VALID_FIELDS]]
@@ -914,12 +1105,47 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         df[col] = df[col].astype(str).replace("nan", None)
 
     non_empty_mask = ~df.isna().all(axis=1)
-    firm_values = []
+    non_empty_rows = df[non_empty_mask]
+    firm_groups = {}
     missing_firm_rows = []
-    for idx, row in df[non_empty_mask].iterrows():
+    for idx, row in non_empty_rows.iterrows():
         firm_val = clean_str(row.get("firm_name"))
         if firm_val:
-            firm_values.append(firm_val)
+            key = _firm_lookup_key(firm_val)
+            group = firm_groups.setdefault(
+                key,
+                {
+                    "firm_name": firm_val,
+                    "row_indices": [],
+                    "as_of_dates": set(),
+                    "currency_values": [],
+                    "missing_as_of_rows": [],
+                },
+            )
+            group["row_indices"].append(idx)
+            as_of_val = clean_val(row.get("as_of_date"))
+            if as_of_val is None:
+                group["missing_as_of_rows"].append(idx + 2)
+            else:
+                group["as_of_dates"].add(as_of_val)
+            if "firm_currency" in df.columns:
+                code = normalize_currency_code(row.get("firm_currency"), default=None)
+                if code is None and clean_str(row.get("firm_currency")) is not None:
+                    return {
+                        "success": 0,
+                        "errors": [
+                            "Firm Currency must be a valid ISO-3 code (e.g., USD, EUR, GBP) for all Deals rows."
+                        ],
+                        "batch_id": batch_id,
+                        "bridge_complete": 0,
+                        "duplicates_skipped": 0,
+                        "quarantined_count": 0,
+                        "issue_report_id": issue_report_id,
+                        "supplemental_counts": zero_supplemental,
+                        "replaced_funds": {},
+                    }
+                if code:
+                    group["currency_values"].append(code)
         else:
             missing_firm_rows.append(idx + 2)
 
@@ -932,127 +1158,111 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "duplicates_skipped": 0,
             "quarantined_count": len(missing_firm_rows),
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
             "replaced_funds": {},
         }
 
-    missing_as_of_rows = []
-    distinct_as_of_dates = set()
-    for idx, row in df[non_empty_mask].iterrows():
-        as_of_val = clean_val(row.get("as_of_date"))
-        if as_of_val is None:
-            missing_as_of_rows.append(idx + 2)
-        else:
-            distinct_as_of_dates.add(as_of_val)
-
-    if missing_as_of_rows:
+    if not firm_groups:
         return {
             "success": 0,
-            "errors": [f"As Of Date is required on Deals rows: {', '.join(str(r) for r in missing_as_of_rows[:20])}"],
-            "batch_id": batch_id,
-            "bridge_complete": 0,
-            "duplicates_skipped": 0,
-            "quarantined_count": len(missing_as_of_rows),
-            "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
-            "replaced_funds": {},
-        }
-
-    if len(distinct_as_of_dates) != 1:
-        return {
-            "success": 0,
-            "errors": [
-                "Deals sheet must contain exactly one As Of Date per upload. "
-                f"Found {len(distinct_as_of_dates)} distinct values."
-            ],
+            "errors": [],
             "batch_id": batch_id,
             "bridge_complete": 0,
             "duplicates_skipped": 0,
             "quarantined_count": 0,
             "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
-            "replaced_funds": {},
-        }
-    upload_as_of_date = next(iter(distinct_as_of_dates))
-
-    distinct_firms = sorted(set(firm_values))
-    if len(distinct_firms) != 1:
-        return {
-            "success": 0,
-            "errors": [
-                "Deals sheet must contain exactly one Firm Name per upload. "
-                f"Found {len(distinct_firms)}: {', '.join(distinct_firms[:10])}"
-            ],
-            "batch_id": batch_id,
-            "bridge_complete": 0,
-            "duplicates_skipped": 0,
-            "quarantined_count": 0,
-            "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
+            "supplemental_counts": zero_supplemental,
             "replaced_funds": {},
         }
 
-    currency_values = []
-    if "firm_currency" in df.columns:
-        for _, row in df[non_empty_mask].iterrows():
-            code = normalize_currency_code(row.get("firm_currency"), default=None)
-            if code is None and clean_str(row.get("firm_currency")) is not None:
-                return {
-                    "success": 0,
-                    "errors": [
-                        "Firm Currency must be a valid ISO-3 code (e.g., USD, EUR, GBP) for all Deals rows."
-                    ],
-                    "batch_id": batch_id,
-                    "bridge_complete": 0,
-                    "duplicates_skipped": 0,
-                    "quarantined_count": 0,
-                    "issue_report_id": issue_report_id,
-                    "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
-                    "replaced_funds": {},
-                }
-            if code:
-                currency_values.append(code)
-    distinct_currencies = sorted(set(currency_values))
-    if len(distinct_currencies) > 1:
-        return {
-            "success": 0,
-            "errors": [
-                "Deals sheet must contain exactly one Firm Currency per upload. "
-                f"Found {len(distinct_currencies)}: {', '.join(distinct_currencies[:10])}"
-            ],
-            "batch_id": batch_id,
-            "bridge_complete": 0,
-            "duplicates_skipped": 0,
-            "quarantined_count": 0,
-            "issue_report_id": issue_report_id,
-            "supplemental_counts": {"cashflows": 0, "deal_quarterly": 0, "fund_quarterly": 0, "underwrite": 0},
-            "replaced_funds": {},
-        }
-    firm_currency = distinct_currencies[0] if distinct_currencies else DEFAULT_CURRENCY_CODE
+    firm_contexts = {}
+    for lookup_key in sorted(firm_groups.keys()):
+        group = firm_groups[lookup_key]
+        if group["missing_as_of_rows"]:
+            return {
+                "success": 0,
+                "errors": [
+                    f"As Of Date is required for firm '{group['firm_name']}' on Deals rows: "
+                    f"{', '.join(str(r) for r in group['missing_as_of_rows'][:20])}"
+                ],
+                "batch_id": batch_id,
+                "bridge_complete": 0,
+                "duplicates_skipped": 0,
+                "quarantined_count": len(group["missing_as_of_rows"]),
+                "issue_report_id": issue_report_id,
+                "supplemental_counts": zero_supplemental,
+                "replaced_funds": {},
+            }
 
-    firm = _resolve_or_create_firm(distinct_firms[0], base_currency=firm_currency)
-    firm_id = firm.id
-    _ensure_team_firm_access(team_id, firm_id, created_by_user_id=uploader_user_id)
-    fx_meta = _refresh_firm_fx_metadata(firm, upload_date=date.today())
+        if len(group["as_of_dates"]) != 1:
+            return {
+                "success": 0,
+                "errors": [
+                    f"Deals rows for firm '{group['firm_name']}' must contain exactly one As Of Date. "
+                    f"Found {len(group['as_of_dates'])} distinct values."
+                ],
+                "batch_id": batch_id,
+                "bridge_complete": 0,
+                "duplicates_skipped": 0,
+                "quarantined_count": 0,
+                "issue_report_id": issue_report_id,
+                "supplemental_counts": zero_supplemental,
+                "replaced_funds": {},
+            }
+
+        distinct_currencies = sorted(set(group["currency_values"]))
+        if len(distinct_currencies) > 1:
+            return {
+                "success": 0,
+                "errors": [
+                    f"Deals rows for firm '{group['firm_name']}' must contain exactly one Firm Currency. "
+                    f"Found {len(distinct_currencies)}: {', '.join(distinct_currencies[:10])}"
+                ],
+                "batch_id": batch_id,
+                "bridge_complete": 0,
+                "duplicates_skipped": 0,
+                "quarantined_count": 0,
+                "issue_report_id": issue_report_id,
+                "supplemental_counts": zero_supplemental,
+                "replaced_funds": {},
+            }
+        firm_currency = distinct_currencies[0] if distinct_currencies else DEFAULT_CURRENCY_CODE
+        upload_as_of_date = next(iter(group["as_of_dates"]))
+        firm = _resolve_or_create_firm(group["firm_name"], base_currency=firm_currency)
+        _ensure_team_firm_access(team_id, firm.id, created_by_user_id=uploader_user_id)
+        fx_meta = _refresh_firm_fx_metadata(firm, upload_date=date.today())
+        firm_contexts[lookup_key] = {
+            "firm_name": group["firm_name"],
+            "firm_id": firm.id,
+            "firm_currency": firm.base_currency or DEFAULT_CURRENCY_CODE,
+            "as_of_date": upload_as_of_date,
+            "fx_meta": fx_meta,
+            "row_indices": list(group["row_indices"]),
+            "replaced_funds": {},
+            "success_count": 0,
+        }
 
     if replace_mode == "replace_fund":
-        uploaded_funds = set()
-        if "fund_number" in df.columns:
-            for fund_raw in df["fund_number"].tolist():
-                uploaded_funds.add(clean_str(fund_raw))
-        else:
-            uploaded_funds.add(None)
-        replaced_funds = _replace_existing_fund_data(firm_id, uploaded_funds)
+        for lookup_key in sorted(firm_contexts.keys()):
+            context = firm_contexts[lookup_key]
+            uploaded_funds = set()
+            if "fund_number" in df.columns:
+                for row_idx in context["row_indices"]:
+                    uploaded_funds.add(clean_str(df.at[row_idx, "fund_number"]))
+            else:
+                uploaded_funds.add(None)
+            context["replaced_funds"] = _replace_existing_fund_data(context["firm_id"], uploaded_funds)
         db.session.flush()
         db.session.expunge_all()
-    else:
-        replaced_funds = {}
 
-    existing_keys = {
-        (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
-        for d in Deal.query.filter_by(firm_id=firm_id).all()
-        if d.company_name
-    }
+    existing_keys_by_firm = {}
+    for context in firm_contexts.values():
+        firm_id = context["firm_id"]
+        existing_keys_by_firm[firm_id] = {
+            (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
+            for d in Deal.query.filter_by(firm_id=firm_id).all()
+            if d.company_name
+        }
 
     success = 0
     errors = []
@@ -1066,6 +1276,17 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             continue
 
         row_payload = {k: clean_val(v) for k, v in row.to_dict().items()}
+        firm_name = clean_str(row.get("firm_name"))
+        lookup_key = _firm_lookup_key(firm_name)
+        context = firm_contexts.get(lookup_key)
+        if context is None:
+            msg = f"Row {row_num}: Quarantined — unknown firm scope '{firm_name or 'N/A'}'."
+            errors.append(msg)
+            quarantined_count += 1
+            _record_issue(issue_report_id, batch_id, team_id, None, row_num, clean_str(row.get("company_name")), "error", msg, row_payload)
+            continue
+        firm_id = context["firm_id"]
+
         company = row.get("company_name")
 
         if pd.isna(company) or company is None or str(company).strip() in ("", "None"):
@@ -1077,6 +1298,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
         fund_val = clean_str(row.get("fund_number")) or ""
         deal_key = (str(company).strip().lower(), fund_val.strip().lower())
+        existing_keys = existing_keys_by_firm[firm_id]
         if deal_key in existing_keys:
             msg = f"Row {row_num}: Skipped duplicate — '{company}' already exists."
             errors.append(msg)
@@ -1191,6 +1413,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
 
             db.session.add(deal)
             success += 1
+            context["success_count"] += 1
         except Exception as exc:
             msg = f"Row {row_num}: Quarantined — {str(exc)}"
             errors.append(msg)
@@ -1198,8 +1421,48 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, str(company).strip(), "error", msg, row_payload)
 
     db.session.flush()
-    supplemental_counts = _parse_optional_sheets(workbook, deals_sheet_name, team_id, firm_id, issue_report_id, batch_id, errors)
+    firm_name_to_id = {lookup_key: context["firm_id"] for lookup_key, context in firm_contexts.items()}
+    is_multi_firm = len(firm_contexts) > 1
+    default_firm_id = None if is_multi_firm else next(iter(firm_contexts.values()))["firm_id"]
+    supplemental_counts = _parse_optional_sheets(
+        workbook,
+        deals_sheet_name,
+        team_id,
+        firm_name_to_id,
+        default_firm_id,
+        is_multi_firm,
+        issue_report_id,
+        batch_id,
+        errors,
+    )
     db.session.commit()
+
+    sorted_contexts = [firm_contexts[key] for key in sorted(firm_contexts.keys())]
+    firms_processed = []
+    for context in sorted_contexts:
+        fx_meta = context["fx_meta"] or {}
+        firms_processed.append(
+            {
+                "firm_name": context["firm_name"],
+                "firm_id": context["firm_id"],
+                "currency": context["firm_currency"],
+                "as_of_date": context["as_of_date"],
+                "success_count": context["success_count"],
+                "replaced_funds": context["replaced_funds"],
+                "fx_status": fx_meta.get("fx_status"),
+                "fx_rate_to_usd": fx_meta.get("fx_rate_to_usd"),
+                "fx_rate_date": fx_meta.get("fx_rate_date"),
+                "fx_warning": fx_meta.get("fx_warning"),
+            }
+        )
+
+    primary_context = sorted_contexts[0]
+    primary_fx = primary_context["fx_meta"] or {}
+    top_level_as_of = max(
+        [ctx["as_of_date"] for ctx in sorted_contexts if ctx.get("as_of_date") is not None],
+        default=None,
+    )
+    top_level_replaced = primary_context["replaced_funds"] if not is_multi_firm else {}
 
     return {
         "success": success,
@@ -1210,13 +1473,15 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         "quarantined_count": quarantined_count,
         "issue_report_id": issue_report_id,
         "supplemental_counts": supplemental_counts,
-        "replaced_funds": replaced_funds,
-        "firm_name": firm.name,
-        "firm_id": firm.id,
-        "firm_currency": firm.base_currency or DEFAULT_CURRENCY_CODE,
-        "fx_rate_to_usd": fx_meta.get("fx_rate_to_usd"),
-        "fx_rate_date": fx_meta.get("fx_rate_date"),
-        "fx_status": fx_meta.get("fx_status"),
-        "fx_warning": fx_meta.get("fx_warning"),
-        "as_of_date": upload_as_of_date,
+        "replaced_funds": top_level_replaced,
+        "firm_name": primary_context["firm_name"] if not is_multi_firm else None,
+        "firm_id": primary_context["firm_id"] if not is_multi_firm else None,
+        "firm_currency": primary_context["firm_currency"] if not is_multi_firm else None,
+        "fx_rate_to_usd": primary_fx.get("fx_rate_to_usd") if not is_multi_firm else None,
+        "fx_rate_date": primary_fx.get("fx_rate_date") if not is_multi_firm else None,
+        "fx_status": primary_fx.get("fx_status") if not is_multi_firm else None,
+        "fx_warning": primary_fx.get("fx_warning") if not is_multi_firm else None,
+        "as_of_date": top_level_as_of,
+        "firm_count": len(sorted_contexts),
+        "firms_processed": firms_processed,
     }

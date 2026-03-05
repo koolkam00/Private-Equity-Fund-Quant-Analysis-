@@ -321,18 +321,21 @@ Active firm precedence:
 
 ### 9.3 Upload Replacement Rule
 - Upload parser default mode is `replace_fund`.
-- Deals sheet requires `Firm Name` and workbook must contain exactly one distinct firm.
-- Deals sheet requires `As Of Date` and workbook must contain exactly one distinct `As Of Date` across all non-empty rows.
+- Deals sheet requires `Firm Name` on all non-empty rows and can contain multiple firms in one workbook.
+- Deals sheet requires `As Of Date` on all non-empty rows, with exactly one distinct value per firm.
 - Deals sheet optional `Firm Currency` must be a valid ISO-3 code when present.
-- If `Firm Currency` is missing/blank, firm currency defaults to `USD`.
-- Each workbook must resolve to exactly one currency value after normalization.
+- If `Firm Currency` is missing/blank for a firm, that firm defaults to `USD`.
+- Each firm must resolve to exactly one currency value after normalization.
 - Unknown firm names are auto-created.
 - Existing firm currency is updated from the uploaded workbook when a different valid `Firm Currency` is provided.
-- For each fund found in uploaded Deals sheet:
+- For each uploaded firm, for each fund found in that firm’s Deals rows:
   - delete prior firm-scoped deals for that fund
   - delete dependent supplemental rows for those deals
   - delete firm-scoped fund-quarter snapshots for that fund
   - insert newly uploaded rows atomically in one transaction
+- Optional-sheet contract (`Cashflows`, `Deal Quarterly`, `Fund Quarterly`, `Underwrite`):
+  - if Deals workbook contains multiple firms, optional sheets must include `Firm Name` for deterministic mapping
+  - if Deals workbook contains a single firm, optional sheets remain backward compatible without `Firm Name`
 - `upload_batch` and `upload_issues` history are preserved for auditability.
 
 ### 9.4 As Of Date Display Metadata
@@ -348,7 +351,7 @@ Active firm precedence:
 - Mixed upload snapshots in one filtered view are represented by showing the latest visible as-of date.
 - This is display-only metadata; time-based metric calculations are unchanged.
 
-### 9.4 Benchmark Upload Contract
+### 9.5 Benchmark Upload Contract
 - Benchmark ingestion route: `POST /upload/benchmarks`
 - Optional benchmark template route: `GET /upload/benchmarks/template`
 - Required benchmark columns:
@@ -369,7 +372,7 @@ Active firm precedence:
 - Upload mode is full replace per team:
   - existing `benchmark_points` rows for that team are deleted before insert.
 
-### 9.5 Firm Currency USD Reporting Conversion
+### 9.6 Firm Currency USD Reporting Conversion
 - Each firm stores native uploaded currency in `firms.base_currency`.
 - Additional firm FX metadata is stored in:
   - `firms.fx_rate_to_usd`

@@ -234,20 +234,33 @@ def test_parse_deals_rejects_mixed_as_of_dates(app_context):
         os.remove(file_path)
 
 
-def test_parse_deals_single_firm_per_workbook(app_context):
+def test_parse_deals_allows_multiple_firms_per_workbook(app_context):
     team = create_team()
     data = {
         "Firm Name": ["Firm A", "Firm B"],
-        "As Of Date": [date(2025, 12, 31), date(2025, 12, 31)],
+        "As Of Date": [date(2025, 12, 31), date(2026, 1, 31)],
+        "Firm Currency": ["USD", "EUR"],
         "Company Name": ["Co A", "Co B"],
-        "Fund": ["Fund I", "Fund I"],
+        "Fund": ["Fund I", "Fund II"],
         "Equity Invested": [100, 120],
+        "Realized Value": [130, 140],
+        "Unrealized Value": [0, 0],
     }
     file_path = create_temp_excel(data)
     try:
         result = parse_deals(file_path, team_id=team.id)
-        assert result["success"] == 0
-        assert any("exactly one Firm Name" in msg for msg in result["errors"])
+        assert result["success"] == 2
+        assert result["firm_count"] == 2
+        assert len(result["firms_processed"]) == 2
+        assert result["firm_name"] is None
+        assert result["firm_currency"] is None
+        assert any(row["firm_name"] == "Firm A" and row["currency"] == "USD" for row in result["firms_processed"])
+        assert any(row["firm_name"] == "Firm B" and row["currency"] == "EUR" for row in result["firms_processed"])
+        firm_a = Firm.query.filter_by(name="Firm A").first()
+        firm_b = Firm.query.filter_by(name="Firm B").first()
+        assert firm_a is not None and firm_b is not None
+        assert Deal.query.filter_by(firm_id=firm_a.id, company_name="Co A", team_id=team.id).count() == 1
+        assert Deal.query.filter_by(firm_id=firm_b.id, company_name="Co B", team_id=team.id).count() == 1
     finally:
         os.remove(file_path)
 
@@ -350,6 +363,33 @@ def test_parse_deals_rejects_mixed_firm_currencies(app_context):
         result = parse_deals(file_path, team_id=team.id)
         assert result["success"] == 0
         assert any("exactly one Firm Currency" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_allows_different_firm_currency_and_as_of_between_firms(app_context):
+    team = create_team()
+    data = {
+        "Firm Name": ["Firm Alpha", "Firm Beta"],
+        "As Of Date": [date(2025, 12, 31), date(2026, 3, 31)],
+        "Firm Currency": ["USD", "GBP"],
+        "Company Name": ["Alpha Co", "Beta Co"],
+        "Fund": ["Fund 1", "Fund 2"],
+        "Equity Invested": [100, 100],
+        "Realized Value": [115, 135],
+        "Unrealized Value": [0, 0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 2
+        assert result["firm_count"] == 2
+        as_of_map = {row["firm_name"]: row["as_of_date"] for row in result["firms_processed"]}
+        ccy_map = {row["firm_name"]: row["currency"] for row in result["firms_processed"]}
+        assert as_of_map["Firm Alpha"] == date(2025, 12, 31)
+        assert as_of_map["Firm Beta"] == date(2026, 3, 31)
+        assert ccy_map["Firm Alpha"] == "USD"
+        assert ccy_map["Firm Beta"] == "GBP"
     finally:
         os.remove(file_path)
 
@@ -651,6 +691,36 @@ def test_parse_deals_multisheet_missing_optional_tabs_is_backward_compatible(app
         os.remove(file_path)
 
 
+def test_parse_deals_multifirm_optional_sheets_require_firm_name(app_context):
+    team = create_team()
+    sheets = {
+        "Deals": {
+            "Firm Name": ["Firm A", "Firm B"],
+            "As Of Date": [date(2025, 12, 31), date(2026, 1, 31)],
+            "Company Name": ["Co A", "Co B"],
+            "Fund": ["Fund I", "Fund II"],
+            "Equity Invested": [100, 120],
+            "Realized Value": [120, 150],
+            "Unrealized Value": [0, 0],
+        },
+        "Cashflows": {
+            "Company Name": ["Co A", "Co B"],
+            "Fund": ["Fund I", "Fund II"],
+            "Event Date": ["2022-01-01", "2022-02-01"],
+            "Event Type": ["Capital Call", "Capital Call"],
+            "Amount": [-10, -12],
+        },
+    }
+    file_path = create_temp_workbook(sheets)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 2
+        assert result["supplemental_counts"]["cashflows"] == 0
+        assert any("Cashflows sheet requires a Firm Name column" in msg for msg in result["errors"])
+    finally:
+        os.remove(file_path)
+
+
 def test_parse_deals_replaces_existing_fund_by_default(app_context):
     team = create_team()
     firm = create_firm("Replace Firm")
@@ -715,5 +785,42 @@ def test_parse_deals_replace_is_scoped_to_firm(app_context):
 
         assert Deal.query.filter_by(firm_id=firm_b_id, fund_number="Fund Shared", company_name="Old Firm B").count() == 1
         assert Deal.query.filter_by(firm_id=firm_b_id, fund_number="Fund Shared", company_name="New Firm A").count() == 0
+    finally:
+        os.remove(file_path)
+
+
+def test_parse_deals_replace_mode_applies_per_firm_in_multi_firm_workbook(app_context):
+    team = create_team()
+    firm_a = create_firm("Multi Replace A")
+    firm_b = create_firm("Multi Replace B")
+    db.session.add_all(
+        [
+            Deal(company_name="Old A", fund_number="Fund Shared", equity_invested=10, firm_id=firm_a.id, team_id=team.id),
+            Deal(company_name="Old B", fund_number="Fund Shared", equity_invested=10, firm_id=firm_b.id, team_id=team.id),
+        ]
+    )
+    db.session.commit()
+
+    data = {
+        "Firm Name": [firm_a.name, firm_b.name],
+        "As Of Date": [date(2025, 12, 31), date(2025, 12, 31)],
+        "Company Name": ["New A", "New B"],
+        "Fund": ["Fund Shared", "Fund Shared"],
+        "Equity Invested": [100, 100],
+        "Realized Value": [130, 140],
+        "Unrealized Value": [0, 0],
+    }
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 2
+        assert result["firm_count"] == 2
+        by_firm = {row["firm_name"]: row["replaced_funds"] for row in result["firms_processed"]}
+        assert by_firm[firm_a.name]["Fund Shared"] == 1
+        assert by_firm[firm_b.name]["Fund Shared"] == 1
+        assert Deal.query.filter_by(firm_id=firm_a.id, company_name="Old A", fund_number="Fund Shared").count() == 0
+        assert Deal.query.filter_by(firm_id=firm_b.id, company_name="Old B", fund_number="Fund Shared").count() == 0
+        assert Deal.query.filter_by(firm_id=firm_a.id, company_name="New A", fund_number="Fund Shared").count() == 1
+        assert Deal.query.filter_by(firm_id=firm_b.id, company_name="New B", fund_number="Fund Shared").count() == 1
     finally:
         os.remove(file_path)
