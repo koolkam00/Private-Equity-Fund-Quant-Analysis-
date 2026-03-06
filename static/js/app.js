@@ -499,6 +499,7 @@ function renderBridgeLeverTable(tableBodyEl, payload, options = {}) {
     tableBodyEl.innerHTML = '';
 
     displayRows.forEach((row) => {
+        const isNegative = (value) => Number.isFinite(Number(value)) && Number(value) < 0;
         const tr = document.createElement('tr');
         const label = document.createElement('td');
         label.textContent = row.label;
@@ -506,16 +507,19 @@ function renderBridgeLeverTable(tableBodyEl, payload, options = {}) {
 
         const dollar = document.createElement('td');
         dollar.className = 'num';
+        if (isNegative(row.dollar)) dollar.classList.add('value-negative');
         dollar.textContent = formatBridgeValue(row.dollar, 'dollar');
         tr.appendChild(dollar);
 
         const moic = document.createElement('td');
         moic.className = 'num';
+        if (isNegative(row.moic)) moic.classList.add('value-negative');
         moic.textContent = formatBridgeValue(row.moic, 'moic');
         tr.appendChild(moic);
 
         const pct = document.createElement('td');
         pct.className = 'num';
+        if (isNegative(row.pct)) pct.classList.add('value-negative');
         pct.textContent = formatBridgeValue(row.pct, 'pct');
         tr.appendChild(pct);
 

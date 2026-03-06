@@ -1,11 +1,21 @@
+{% macro _negative_wrap(text, value) -%}
+    {%- if value is none -%}
+        {{- text -}}
+    {%- elif value < 0 -%}
+        <span class="value-negative">{{ text }}</span>
+    {%- else -%}
+        {{- text -}}
+    {%- endif -%}
+{%- endmacro %}
+
 {% macro fmt_currency(value, currency_code=None) -%}
     {%- set code = currency_code or app_currency_code or "USD" -%}
-    {{- fmt_currency_millions(value, code, True) -}}
+    {{- _negative_wrap(fmt_currency_millions(value, code, True), value) -}}
 {%- endmacro %}
 
 {% macro fmt_currency_symbol(value, currency_code=None) -%}
     {%- set code = currency_code or app_currency_code or "USD" -%}
-    {{- fmt_currency_millions(value, code, False) -}}
+    {{- _negative_wrap(fmt_currency_millions(value, code, False), value) -}}
 {%- endmacro %}
 
 {% macro fmt_currency_unit_label() -%}
@@ -18,11 +28,11 @@
 {%- endmacro %}
 
 {% macro fmt_multiple(value) -%}
-    {%- if value is none -%}—{%- else -%}{{ "%.2fx"|format(value) }}{%- endif -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.2fx"|format(value), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_pct(value) -%}
-    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value) }}{%- endif -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.1f%%"|format(value), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_date_monyy(value) -%}
@@ -34,25 +44,33 @@
 {%- endmacro %}
 
 {% macro fmt_years_1dp(value) -%}
-    {%- if value is none -%}—{%- else -%}{{ "%.1f"|format(value) }}{%- endif -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.1f"|format(value), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_pct_1dp(value) -%}
-    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value * 100) }}{%- endif -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.1f%%"|format(value * 100), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_pp_1dp(value) -%}
-    {%- if value is none -%}—{%- else -%}{{ "%.1f%%"|format(value) }}{%- endif -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.1f%%"|format(value), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro fmt_growth_pct(value) -%}
     {%- if value is none -%}
         —
     {%- elif value < 0 -%}
-        <span class="value-negative">({{ "%.1f%%"|format(value|abs) }})</span>
+        {{ _negative_wrap("(" ~ "%.1f%%"|format(value|abs) ~ ")", value) }}
     {%- else -%}
         {{ "%.1f%%"|format(value) }}
     {%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_num_1dp(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.1f"|format(value), value) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_num_0dp(value) -%}
+    {%- if value is none -%}—{%- else -%}{{ _negative_wrap("%.0f"|format(value), value) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro audit_link(anchor_id, text="Methodology") -%}

@@ -20,7 +20,7 @@ from models import (
 )
 from peqa.services.context import load_team_benchmark_thresholds
 from peqa.services.metrics.status import normalize_realization_status
-from peqa.services.filtering import deal_vintage_year
+from peqa.services.filtering import build_fund_vintage_lookup, deal_vintage_year, sort_fund_rows_by_vintage
 from services.metrics.analysis import compute_valuation_quality_analysis
 from services.metrics.benchmarking import rank_benchmark_metric
 from services.metrics.common import resolve_analysis_as_of_date, safe_divide
@@ -154,6 +154,20 @@ def _fund_manager_name(fund_name, fund_metadata):
     if metadata is not None and metadata.manager_name:
         return metadata.manager_name
     return "Manager Unspecified"
+
+
+def _sort_lp_fund_rows(fund_rows, deals, team_id=None, firm_id=None, fund_metadata=None, fund_key_candidates=("fund_number", "fund_name")):
+    vintage_lookup = build_fund_vintage_lookup(
+        deals,
+        team_id=team_id,
+        firm_id=firm_id,
+        fund_metadata=fund_metadata,
+    )
+    return sort_fund_rows_by_vintage(
+        fund_rows,
+        vintage_lookup=vintage_lookup,
+        fund_key_candidates=fund_key_candidates,
+    )
 
 
 def compute_lp_liquidity_quality_analysis(deals, firm_id=None, team_id=None, as_of_date=None):
@@ -293,7 +307,7 @@ def compute_lp_liquidity_quality_analysis(deals, firm_id=None, team_id=None, as_
         ],
         "quality_flags": quality_flags,
         "risk_flags": quality_flags,
-        "fund_rows": fund_rows,
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id),
         "sections": ["kpis", "milestones", "fund_rows"],
     }
 
@@ -460,7 +474,7 @@ def compute_manager_consistency_analysis(
             "realized_value_share": safe_divide(sum((row.get("realized_value_share") or 0.0) for row in fund_rows), len(fund_rows)),
         },
         "manager_rows": manager_rows,
-        "fund_rows": fund_rows,
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id, fund_metadata=fund_metadata, fund_key_candidates=("fund_name",)),
         "benchmark_coverage": {
             "any_coverage_count": coverage_count,
             "full_coverage_count": full_coverage_count,
@@ -683,7 +697,7 @@ def compute_public_market_comparison_analysis(deals, team_id=None, firm_id=None,
             "high" if coverage_counts["funds_with_no_coverage"] == 0 and fund_rows else ("medium" if coverage_counts["funds_with_complete_coverage"] else "low"),
             "Confidence depends on exact benchmark-date coverage and whether current NAV can be tied to the index series.",
         ),
-        "fund_rows": fund_rows,
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id, fund_metadata=metadata_by_fund),
         "benchmark_rows": benchmark_rows,
         "series": series,
         "risk_flags": risk_flags,
@@ -721,6 +735,7 @@ def compute_lp_due_diligence_memo(
     nav_at_risk = compute_nav_at_risk_analysis(
         deals,
         firm_id=firm_id,
+        team_id=team_id,
         metrics_by_id=metrics_by_id,
         as_of_date=as_of,
     )
@@ -779,6 +794,13 @@ def compute_lp_due_diligence_memo(
                 "status": getattr(metadata, "status", None),
             }
         )
+    fund_metadata_rows = _sort_lp_fund_rows(
+        fund_metadata_rows,
+        deals,
+        team_id=team_id,
+        firm_id=firm_id,
+        fund_metadata=fund_metadata_lookup,
+    )
 
     coverage_flags = []
     for source in (
@@ -1240,10 +1262,7 @@ def compute_reporting_quality_analysis(
             "funds_with_stale_marks": missing_counts["stale_marks"],
         },
         "benchmark_coverage": benchmark_confidence.get("summary") or {},
-        "fund_rows": sorted(
-            fund_rows,
-            key=lambda row: (not row["decision_ready"], -(row.get("severity_score") or 0.0), row["fund_number"].lower()),
-        ),
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id, fund_metadata=metadata_by_fund),
         "issue_rows": issue_rows,
         "risk_flags": risk_flags,
         "sections": ["coverage", "freshness", "fund_rows", "issue_rows"],
@@ -1253,6 +1272,7 @@ def compute_reporting_quality_analysis(
 def compute_nav_at_risk_analysis(
     deals,
     firm_id=None,
+    team_id=None,
     metrics_by_id=None,
     as_of_date=None,
 ):
@@ -1427,7 +1447,7 @@ def compute_nav_at_risk_analysis(
         "aging_buckets": aging_buckets,
         "risk_flags": risk_flags,
         "deal_rows": unrealized_rows,
-        "fund_rows": sorted(fund_rows, key=lambda row: ((row.get("nav") or 0.0) * -1, row["fund_number"].lower())),
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id),
         "sections": ["summary", "aging_buckets", "deal_rows", "fund_rows"],
     }
 
@@ -1579,7 +1599,7 @@ def compute_benchmark_confidence_analysis(
             "wildcard_count": wildcard_count,
             "no_match_count": no_match_count,
         },
-        "fund_rows": sorted(fund_rows, key=lambda row: (row["match_quality"] == "exact", row["fund_number"].lower()), reverse=True),
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id, fund_metadata=metadata_by_fund),
         "benchmark_gaps": benchmark_gaps,
         "risk_flags": risk_flags,
         "sections": ["summary", "fund_rows", "benchmark_gaps"],
@@ -1739,7 +1759,7 @@ def compute_liquidity_forecast_analysis(
         "distribution_series": distribution_series,
         "nav_burnoff_series": nav_burnoff_series,
         "reserve_flags": reserve_flags,
-        "fund_rows": sorted(fund_rows, key=lambda row: (row["negative_outlook"], (row.get("estimated_12m_net_cashflow") or 0.0) < 0, row["fund_number"].lower()), reverse=True),
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id),
         "risk_flags": risk_flags,
         "sections": ["forecast_summary", "fund_rows", "reserve_flags"],
     }
@@ -1849,10 +1869,7 @@ def compute_fee_drag_analysis(
                 "source": "Fund-level gross vs net metrics",
             }
         ] if covered_funds else [],
-        "fund_rows": sorted(
-            fund_rows,
-            key=lambda row: ((row.get("gross_to_net_moic_delta") or 0.0) * -1, row["fund_number"].lower()),
-        ),
+        "fund_rows": _sort_lp_fund_rows(fund_rows, deals, team_id=team_id, firm_id=firm_id),
         "risk_flags": risk_flags,
         "sections": ["summary", "fund_rows", "expense_breakdown"],
     }

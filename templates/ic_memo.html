@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp  with context %}
+{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp  with context %}
 {% block title %}IC Memo Presentation — PE Portfolio Lab{% endblock %}
 {% block page_title %}IC Memo Presentation{% endblock %}
 
@@ -222,12 +222,12 @@
                 {% set loss_cap_width = 0 if loss_cap < 0 else 100 if loss_cap > 100 else loss_cap %}
                 <div class="ic-progress-row">
                     <span>Count-Based Loss Ratio</span>
-                    <strong>{{ "%.1f%%"|format(loss_count) if memo.risk.loss_ratio_count_pct is not none else "—" }}</strong>
+                    <strong>{{ fmt_pp_1dp(memo.risk.loss_ratio_count_pct) }}</strong>
                 </div>
                 <div class="ic-progress"><div class="ic-progress-fill" style="width: {{ loss_count_width }}%;"></div></div>
                 <div class="ic-progress-row">
                     <span>Capital Value Loss Ratio</span>
-                    <strong>{{ "%.1f%%"|format(loss_cap) if memo.risk.loss_ratio_capital_pct is not none else "—" }}</strong>
+                    <strong>{{ fmt_pp_1dp(memo.risk.loss_ratio_capital_pct) }}</strong>
                 </div>
                 <div class="ic-progress"><div class="ic-progress-fill ic-progress-fill-risk" style="width: {{ loss_cap_width }}%;"></div></div>
                 <p class="tiny">Losing deals: {{ memo.risk.loss_count }} / {{ memo.risk.loss_total }}</p>

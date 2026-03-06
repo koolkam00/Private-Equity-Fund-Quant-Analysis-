@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import and_, or_
 
-from models import Deal, db
+from models import Deal, FundMetadata, db
 
 
 FILTER_KEYS = (
@@ -28,6 +28,108 @@ def deal_vintage_year(deal):
     if getattr(deal, "investment_date", None) is not None:
         return int(deal.investment_date.year)
     return None
+
+
+def _normalized_fund_name(value):
+    return (value or "Unknown Fund").strip() or "Unknown Fund"
+
+
+def _coerce_vintage_year(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_fund_vintage_lookup(deals, team_id=None, firm_id=None, fund_names=None, fund_metadata=None):
+    lookup = {}
+    normalized_funds = {_normalized_fund_name(name) for name in (fund_names or []) if name is not None}
+
+    metadata_map = {}
+    if isinstance(fund_metadata, dict):
+        metadata_map = {
+            _normalized_fund_name(name): row
+            for name, row in fund_metadata.items()
+            if row is not None
+        }
+    elif fund_metadata:
+        metadata_map = {
+            _normalized_fund_name(getattr(row, "fund_number", None)): row
+            for row in fund_metadata
+            if row is not None and getattr(row, "fund_number", None)
+        }
+    elif team_id is not None and firm_id is not None:
+        query = FundMetadata.query.filter(
+            FundMetadata.team_id == team_id,
+            FundMetadata.firm_id == firm_id,
+        )
+        if normalized_funds:
+            query = query.filter(FundMetadata.fund_number.in_(sorted(normalized_funds)))
+        rows = query.order_by(FundMetadata.fund_number.asc(), FundMetadata.id.asc()).all()
+        metadata_map = {_normalized_fund_name(row.fund_number): row for row in rows if row.fund_number}
+
+    for fund_name, row in metadata_map.items():
+        vintage_year = _coerce_vintage_year(getattr(row, "vintage_year", None))
+        if vintage_year is not None:
+            lookup[fund_name] = vintage_year
+
+    for deal in deals or []:
+        fund_name = _normalized_fund_name(getattr(deal, "fund_number", None))
+        if normalized_funds and fund_name not in normalized_funds:
+            continue
+        if fund_name in lookup:
+            continue
+        vintage_year = deal_vintage_year(deal)
+        if vintage_year is None:
+            continue
+        existing = lookup.get(fund_name)
+        if existing is None or vintage_year < existing:
+            lookup[fund_name] = vintage_year
+
+    return lookup
+
+
+def fund_vintage_sort_key(fund_name, vintage_lookup=None):
+    normalized = _normalized_fund_name(fund_name)
+    vintage_year = None if vintage_lookup is None else _coerce_vintage_year(vintage_lookup.get(normalized))
+    return (
+        vintage_year is None,
+        vintage_year if vintage_year is not None else 9999,
+        normalized.lower(),
+    )
+
+
+def sort_fund_rows_by_vintage(fund_rows, vintage_lookup=None, fund_key_candidates=("fund_number", "fund_name"), vintage_key="vintage_year"):
+    def _row_value(row, key):
+        if isinstance(row, dict):
+            return row.get(key)
+        return getattr(row, key, None)
+
+    def _row_fund_name(row):
+        for key in fund_key_candidates:
+            value = _row_value(row, key)
+            if value:
+                return _normalized_fund_name(value)
+        return "Unknown Fund"
+
+    def _row_vintage_year(row):
+        direct = _coerce_vintage_year(_row_value(row, vintage_key))
+        if direct is not None:
+            return direct
+        if vintage_lookup is None:
+            return None
+        return _coerce_vintage_year(vintage_lookup.get(_row_fund_name(row)))
+
+    return sorted(
+        fund_rows,
+        key=lambda row: (
+            _row_vintage_year(row) is None,
+            _row_vintage_year(row) if _row_vintage_year(row) is not None else 9999,
+            _row_fund_name(row).lower(),
+        ),
+    )
 
 
 def parse_request_filters(values, fund_override=None):

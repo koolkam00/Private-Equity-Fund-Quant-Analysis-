@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import math
 from statistics import median
 
 from services.metrics.common import resolve_analysis_as_of_date, safe_divide
@@ -11,6 +12,7 @@ from services.metrics.portfolio import compute_bridge_aggregate, compute_portfol
 
 STATUS_ORDER = ("Fully Realized", "Partially Realized", "Unrealized", "Other")
 STATUS_INDEX = {status: idx for idx, status in enumerate(STATUS_ORDER)}
+DISPLAY_PERCENT_UNITS = 1000
 
 COLUMN_KEYS = (
     "row_num",
@@ -258,6 +260,65 @@ def _coalesce_sum(*values):
     return sum(present)
 
 
+def _round_display_percent_units(value):
+    if value >= 0:
+        return int(math.floor(value + 0.5))
+    return int(math.ceil(value - 0.5))
+
+
+def _reconciled_display_percent_units(raw_units):
+    rounded_units = [_round_display_percent_units(value) for value in raw_units]
+    delta = DISPLAY_PERCENT_UNITS - sum(rounded_units)
+    if delta == 0:
+        return rounded_units
+
+    remainders = [raw - rounded for raw, rounded in zip(raw_units, rounded_units)]
+    if delta > 0:
+        order = sorted(range(len(remainders)), key=lambda idx: (remainders[idx], -idx), reverse=True)
+    else:
+        order = sorted(range(len(remainders)), key=lambda idx: (remainders[idx], idx))
+
+    while delta != 0 and order:
+        for idx in order:
+            if delta == 0:
+                break
+            rounded_units[idx] += 1 if delta > 0 else -1
+            delta += -1 if delta > 0 else 1
+    return rounded_units
+
+
+def _normalize_displayed_vca_percentages(row):
+    gross_profit = row.get("gross_profit")
+    component_keys = (
+        ("vc_revenue_growth_dollar", "vc_revenue_growth_pct"),
+        ("vc_multiple_dollar", "vc_multiple_pct"),
+        ("vc_debt_dollar", "vc_debt_pct"),
+    )
+    if gross_profit in (None, 0):
+        for _, pct_key in component_keys:
+            row[pct_key] = None
+        row["vc_total_pct"] = None
+        return row
+
+    component_dollars = [row.get(dollar_key) for dollar_key, _ in component_keys]
+    if all(value is None for value in component_dollars):
+        for _, pct_key in component_keys:
+            row[pct_key] = None
+        row["vc_total_pct"] = None
+        return row
+
+    raw_units = []
+    for value in component_dollars:
+        ratio = safe_divide(0.0 if value is None else value, gross_profit)
+        raw_units.append((ratio or 0.0) * DISPLAY_PERCENT_UNITS)
+
+    reconciled_units = _reconciled_display_percent_units(raw_units)
+    for (_, pct_key), units in zip(component_keys, reconciled_units):
+        row[pct_key] = units / DISPLAY_PERCENT_UNITS
+    row["vc_total_pct"] = 1.0
+    return row
+
+
 def _blank_vca_row(row_kind="detail", platform=None):
     row = {key: None for key in COLUMN_KEYS}
     row["platform"] = platform
@@ -450,7 +511,7 @@ def build_vca_row(deal, metric, row_num, gross_profit_denominator):
         else None
     )
 
-    return row
+    return _normalize_displayed_vca_percentages(row)
 
 
 def build_vca_subtotal(label, deals_subset, metrics_by_id=None, gross_profit_denominator=None):
@@ -486,7 +547,7 @@ def build_vca_subtotal(label, deals_subset, metrics_by_id=None, gross_profit_den
     row.update(_bridge_values_from_subset(deals_subset, row["gross_profit"]))
     row.update(_operating_fields_from_portfolio(portfolio))
 
-    return row
+    return _normalize_displayed_vca_percentages(row)
 
 
 def build_vca_summary_rows(deal_rows):
@@ -515,7 +576,7 @@ def build_vca_summary_rows(deal_rows):
             ]
             row[key] = _weighted_average(weighted_pairs)
 
-        output.append(row)
+        output.append(_normalize_displayed_vca_percentages(row))
 
     return output
 

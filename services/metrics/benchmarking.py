@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from peqa.services.filtering import build_fund_vintage_lookup, sort_fund_rows_by_vintage
 from services.metrics.common import resolve_analysis_as_of_date, safe_divide
 from services.metrics.deal import compute_deal_metrics
 from services.metrics.portfolio import compute_deal_track_record
@@ -99,23 +100,17 @@ def compute_benchmarking_analysis(
     benchmark_asset_class="",
     metrics_by_id=None,
     as_of_date=None,
+    fund_vintage_lookup=None,
 ):
     metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in deals}
     thresholds = benchmark_thresholds or {}
     selected_asset = (benchmark_asset_class or "").strip()
     as_of = as_of_date or resolve_analysis_as_of_date(deals)
+    fund_vintage_lookup = fund_vintage_lookup or build_fund_vintage_lookup(deals)
 
-    track_record = compute_deal_track_record(deals, metrics_by_id=metrics_by_id)
+    track_record = compute_deal_track_record(deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_lookup)
 
-    fund_vintage_years = {}
-    for deal in deals:
-        fund_name = getattr(deal, "fund_number", None) or "Unknown Fund"
-        vintage_year = _deal_vintage_year(deal)
-        if vintage_year is None:
-            continue
-        existing = fund_vintage_years.get(fund_name)
-        if existing is None or vintage_year < existing:
-            fund_vintage_years[fund_name] = vintage_year
+    fund_vintage_years = dict(fund_vintage_lookup)
 
     rank_distribution = {
         metric: {"label": metric.replace("_", " ").upper(), "counts": {code: 0 for code in RANK_CODES}}
@@ -177,12 +172,10 @@ def compute_benchmarking_analysis(
         row["full_coverage"] = len(available_scores) == len(BENCHMARK_METRICS)
         fund_rows.append(row)
 
-    fund_rows.sort(
-        key=lambda r: (
-            r.get("vintage_year") is None,
-            r.get("vintage_year") if r.get("vintage_year") is not None else 9999,
-            (r.get("fund_name") or "").lower(),
-        )
+    fund_rows = sort_fund_rows_by_vintage(
+        fund_rows,
+        vintage_lookup=fund_vintage_lookup,
+        fund_key_candidates=("fund_name",),
     )
 
     threshold_rows = []

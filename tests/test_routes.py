@@ -15,6 +15,7 @@ from models import (
     DealQuarterSnapshot,
     DealUnderwriteBaseline,
     Firm,
+    FundMetadata,
     FundQuarterSnapshot,
     Team,
     TeamFirmAccess,
@@ -711,6 +712,72 @@ def test_track_record_page_renders_template_columns_and_net_performance(client):
     assert b"All Funds Summary" in response.data
     assert b"Net MOIC" in response.data
     assert b"DPI" in response.data
+
+
+def test_track_record_page_sorts_funds_by_vintage_year(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).order_by(TeamFirmAccess.id.asc()).first()
+    assert access is not None
+
+    db.session.add_all(
+        [
+            FundMetadata(team_id=membership.team_id, firm_id=access.firm_id, fund_number="Fund Zeta", vintage_year=2018),
+            FundMetadata(team_id=membership.team_id, firm_id=access.firm_id, fund_number="Fund Alpha", vintage_year=2021),
+        ]
+    )
+    db.session.add_all(
+        [
+            _with_active_scope(
+                Deal(
+                    company_name="Vintage Zeta Co",
+                    fund_number="Fund Zeta",
+                    status="Fully Realized",
+                    investment_date=date(2021, 1, 1),
+                    equity_invested=100,
+                    realized_value=150,
+                    unrealized_value=0,
+                )
+            ),
+            _with_active_scope(
+                Deal(
+                    company_name="Vintage Alpha Co",
+                    fund_number="Fund Alpha",
+                    status="Fully Realized",
+                    investment_date=date(2019, 1, 1),
+                    equity_invested=100,
+                    realized_value=140,
+                    unrealized_value=0,
+                )
+            ),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/track-record")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert html.find("Fund Zeta") < html.find("Fund Alpha")
+
+
+def test_track_record_page_marks_negative_values_red(client):
+    deal = Deal(
+        company_name="Negative Track Co",
+        fund_number="Fund Negative",
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=80,
+        unrealized_value=0,
+        irr=-0.05,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/track-record")
+    assert response.status_code == 200
+    assert b'class="value-negative">-5.0%' in response.data
 
 
 def test_ic_memo_page_renders_and_has_print_action(client):

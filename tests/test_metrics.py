@@ -44,12 +44,14 @@ from services.metrics import (
     compute_underwrite_outcome_analysis,
     compute_valuation_quality_analysis,
     compute_vca_ebitda_analysis,
+    compute_vca_revenue_analysis,
     compute_value_creation_mix,
     safe_divide,
     safe_log,
     safe_power,
 )
 from services.metrics.common import resolve_analysis_as_of_date
+from peqa.services.filtering import build_fund_vintage_lookup, sort_fund_rows_by_vintage
 
 
 def _make_deal(**kwargs):
@@ -87,6 +89,17 @@ def _make_deal(**kwargs):
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+def _assert_vca_pct_components_sum_to_one(row, growth_key):
+    components = [
+        row[growth_key],
+        row["vc_multiple_pct"],
+        row["vc_debt_pct"],
+    ]
+    assert all(value is not None for value in components)
+    assert abs(sum(components) - 1.0) < 1e-9
+    assert abs(row["vc_total_pct"] - 1.0) < 1e-9
 
 
 def test_safe_helpers():
@@ -479,6 +492,52 @@ def test_deal_track_record_groups_and_subtotals():
     assert abs(overall["invested_equity"] - 230.0) < 1e-9
     assert abs(overall["total_value"] - 340.0) < 1e-9
     assert abs(overall["moic"] - (340.0 / 230.0)) < 1e-9
+
+
+def test_fund_vintage_lookup_prefers_metadata_and_sorts_unknown_last(app_context):
+    team = Team(name="Vintage Lookup Team", slug="vintage-lookup-team")
+    firm = Firm(name="Vintage Lookup Firm", slug="vintage-lookup-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    db.session.add_all(
+        [
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Alpha", vintage_year=2019),
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Beta", vintage_year=2018),
+        ]
+    )
+    db.session.commit()
+
+    deals = [
+        _make_deal(id=1, fund_number="Fund Alpha", year_invested=2022, team_id=team.id, firm_id=firm.id),
+        _make_deal(id=2, fund_number="Fund Beta", year_invested=2020, team_id=team.id, firm_id=firm.id),
+        _make_deal(id=3, fund_number="Fund Unknown", year_invested=None, investment_date=None, team_id=team.id, firm_id=firm.id),
+    ]
+    lookup = build_fund_vintage_lookup(deals, team_id=team.id, firm_id=firm.id)
+    assert lookup["Fund Alpha"] == 2019
+    assert lookup["Fund Beta"] == 2018
+    assert "Fund Unknown" not in lookup
+
+    rows = [
+        {"fund_number": "Fund Unknown"},
+        {"fund_number": "Fund Alpha"},
+        {"fund_number": "Fund Beta"},
+    ]
+    ordered = sort_fund_rows_by_vintage(rows, vintage_lookup=lookup)
+    assert [row["fund_number"] for row in ordered] == ["Fund Beta", "Fund Alpha", "Fund Unknown"]
+
+
+def test_deal_track_record_funds_follow_vintage_lookup():
+    deals = [
+        _make_deal(id=1, fund_number="Fund Zebra", company_name="Zeta", year_invested=2022, investment_date=date(2022, 1, 1)),
+        _make_deal(id=2, fund_number="Fund Alpha", company_name="Alpha", year_invested=2020, investment_date=date(2020, 1, 1)),
+    ]
+    metrics = {deal.id: compute_deal_metrics(deal) for deal in deals}
+    out = compute_deal_track_record(
+        deals,
+        metrics_by_id=metrics,
+        fund_vintage_lookup={"Fund Zebra": 2018, "Fund Alpha": 2020},
+    )
+    assert [fund["fund_name"] for fund in out["funds"]] == ["Fund Zebra", "Fund Alpha"]
 
 
 def test_deal_track_record_rows_ordered_by_status_then_investment_date():
@@ -1008,17 +1067,75 @@ def test_vca_ebitda_subtotals_totals_and_summary_rows():
     assert abs(all_row["total_value"] - 500.0) < 1e-9
     assert abs(all_row["gross_profit"] - 100.0) < 1e-9
     assert abs(all_row["gross_profit_pct_of_total"] - 1.0) < 1e-9
+    _assert_vca_pct_components_sum_to_one(all_row, "vc_ebitda_growth_pct")
 
     grand_total = next(row for row in payload["overall_block"]["subtotal_rows"] if row["platform"] == "Grand Total")
     assert abs(grand_total["fund_total_cost"] - 400.0) < 1e-9
     assert abs(grand_total["total_value"] - 500.0) < 1e-9
     assert abs(grand_total["gross_profit"] - 100.0) < 1e-9
+    _assert_vca_pct_components_sum_to_one(grand_total, "vc_ebitda_growth_pct")
 
     summary = {row["platform"]: row for row in fund["summary_rows"]}
     assert set(summary.keys()) == {"Average", "Median", "Weighted Average"}
     assert abs(summary["Average"]["fund_total_cost"] - 200.0) < 1e-9
     assert abs(summary["Median"]["fund_total_cost"] - 200.0) < 1e-9
     assert abs(summary["Weighted Average"]["gross_moic"] - 1.25) < 1e-9
+    for row in summary.values():
+        _assert_vca_pct_components_sum_to_one(row, "vc_ebitda_growth_pct")
+
+
+def test_vca_revenue_displayed_pct_columns_total_to_one():
+    d1 = _make_deal(
+        id=205,
+        company_name="Revenue A",
+        fund_number="Fund R",
+        status="Fully Realized",
+        equity_invested=100,
+        realized_value=200,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=90,
+        entry_ebitda=10,
+        exit_ebitda=18,
+        entry_enterprise_value=120,
+        exit_enterprise_value=220,
+        entry_net_debt=30,
+        exit_net_debt=20,
+        irr=0.25,
+    )
+    d2 = _make_deal(
+        id=206,
+        company_name="Revenue B",
+        fund_number="Fund R",
+        status="Unrealized",
+        equity_invested=300,
+        realized_value=0,
+        unrealized_value=300,
+        entry_revenue=100,
+        exit_revenue=100,
+        entry_ebitda=20,
+        exit_ebitda=20,
+        entry_enterprise_value=200,
+        exit_enterprise_value=200,
+        entry_net_debt=50,
+        exit_net_debt=50,
+        irr=0.10,
+    )
+    payload = compute_vca_revenue_analysis([d1, d2], metrics_by_id={d1.id: compute_deal_metrics(d1), d2.id: compute_deal_metrics(d2)})
+
+    deal_row = payload["fund_blocks"][0]["deal_rows"][0]
+    _assert_vca_pct_components_sum_to_one(deal_row, "vc_revenue_growth_pct")
+
+    subtotal = next(row for row in payload["fund_blocks"][0]["subtotal_rows"] if row["platform"] == "Fund R - All")
+    _assert_vca_pct_components_sum_to_one(subtotal, "vc_revenue_growth_pct")
+
+    grand_total = next(row for row in payload["overall_block"]["subtotal_rows"] if row["platform"] == "Grand Total")
+    _assert_vca_pct_components_sum_to_one(grand_total, "vc_revenue_growth_pct")
+
+    summary = {row["platform"]: row for row in payload["fund_blocks"][0]["summary_rows"]}
+    assert set(summary.keys()) == {"Average", "Median", "Weighted Average"}
+    for row in summary.values():
+        _assert_vca_pct_components_sum_to_one(row, "vc_revenue_growth_pct")
 
 def _add_db_deal(**kwargs):
     defaults = {
@@ -1683,3 +1800,50 @@ def test_fee_drag_analysis_uses_gross_to_net_gap(app_context):
     assert out["meta"]["fund_count"] == 1
     assert out["summary"]["gross_to_net_moic_delta"] is not None
     assert out["fund_rows"][0]["fund_number"] == "Fund Fee"
+
+
+def test_fee_drag_fund_rows_sorted_by_vintage_year(app_context):
+    team = Team(name="Fee Sort Team", slug="fee-sort-team")
+    firm = Firm(name="Fee Sort Firm", slug="fee-sort-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal_newer = _add_db_deal(
+        company_name="Fee Newer",
+        fund_number="Fund Newer",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2021, 1, 1),
+        exit_date=date(2025, 1, 1),
+        realized_value=180,
+        unrealized_value=0,
+        net_irr=0.15,
+        net_moic=1.4,
+        net_dpi=1.1,
+        irr=0.20,
+    )
+    deal_older = _add_db_deal(
+        company_name="Fee Older",
+        fund_number="Fund Older",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2023, 1, 1),
+        exit_date=date(2025, 1, 1),
+        realized_value=170,
+        unrealized_value=0,
+        net_irr=0.14,
+        net_moic=1.3,
+        net_dpi=1.0,
+        irr=0.19,
+    )
+    db.session.add_all(
+        [
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Older", vintage_year=2018),
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Newer", vintage_year=2021),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_fee_drag_analysis([deal_newer, deal_older], team_id=team.id, firm_id=firm.id)
+    assert [row["fund_number"] for row in out["fund_rows"]] == ["Fund Older", "Fund Newer"]

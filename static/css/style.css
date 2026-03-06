@@ -1640,7 +1640,11 @@ body.pe-app {
 .status-partially-realized { background: rgba(233, 180, 76, 0.18); color: #915f09; border-color: rgba(233, 180, 76, 0.45); }
 .status-unrealized { background: rgba(47, 93, 80, 0.16); color: #2f5d50; border-color: rgba(47, 93, 80, 0.3); }
 .value-positive { color: var(--accent); }
-.value-negative { color: var(--danger); }
+.value-negative {
+    color: var(--danger);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
 .benchmark-rank {
     display: inline-flex;
     align-items: center;

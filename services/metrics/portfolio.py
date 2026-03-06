@@ -12,6 +12,7 @@ from services.metrics.bridge import (
     DRIVERS,
     STANDARD_DISPLAY_DRIVER_KEYS,
 )
+from peqa.services.filtering import build_fund_vintage_lookup, fund_vintage_sort_key
 from services.metrics.deal import compute_bridge_view, compute_deal_metrics
 from services.metrics.common import EPS, safe_divide
 
@@ -517,8 +518,9 @@ def compute_exit_type_performance(deals, metrics_by_id=None):
     }
 
 
-def compute_deal_track_record(deals, metrics_by_id=None):
+def compute_deal_track_record(deals, metrics_by_id=None, fund_vintage_lookup=None):
     metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in deals}
+    fund_vintage_lookup = fund_vintage_lookup or build_fund_vintage_lookup(deals)
 
     grouped = defaultdict(list)
     status_index = {status: idx for idx, status in enumerate(TRACK_RECORD_STATUS_ORDER)}
@@ -561,7 +563,7 @@ def compute_deal_track_record(deals, metrics_by_id=None):
     overall_realized_totals = _empty_track_totals()
     overall_unrealized_totals = _empty_track_totals()
 
-    for fund in sorted(grouped.keys(), key=lambda v: (v == "Unknown Fund", v)):
+    for fund in sorted(grouped.keys(), key=lambda fund_name: fund_vintage_sort_key(fund_name, fund_vintage_lookup)):
         fund_rows = sorted(
             grouped[fund],
             key=lambda r: (

@@ -99,7 +99,7 @@ from peqa.services.context import (
 )
 from peqa.extensions import limiter, login_manager
 from peqa.route_binding import AppBinder
-from peqa.services.filtering import deal_vintage_year, parse_request_filters
+from peqa.services.filtering import build_fund_vintage_lookup, deal_vintage_year, parse_request_filters
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -324,6 +324,14 @@ def _default_scope_context():
         "app_active_membership": None,
         "app_team_is_admin": False,
     }
+
+
+def _fund_vintage_lookup_for_scope(deals, membership=None, active_firm=None):
+    return build_fund_vintage_lookup(
+        deals,
+        team_id=membership.team_id if membership is not None else None,
+        firm_id=active_firm.id if active_firm is not None else None,
+    )
 
 
 def _firm_currency_code(firm):
@@ -2542,15 +2550,8 @@ def _serialize_chart_builder_template(row):
 
 def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class="", metrics_by_id=None):
     metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in filtered_deals}
-    fund_vintage_years = {}
-    for deal in filtered_deals:
-        fund_name = deal.fund_number or "Unknown Fund"
-        year = _deal_vintage_year(deal)
-        if year is None:
-            continue
-        existing = fund_vintage_years.get(fund_name)
-        if existing is None or year < existing:
-            fund_vintage_years[fund_name] = year
+    firm_id = filtered_deals[0].firm_id if filtered_deals else None
+    fund_vintage_years = build_fund_vintage_lookup(filtered_deals, team_id=team_id, firm_id=firm_id)
 
     portfolio = compute_portfolio_analytics(filtered_deals, metrics_by_id=metrics_by_id)
     risk = compute_loss_and_distribution(filtered_deals, metrics_by_id=metrics_by_id)
@@ -2570,7 +2571,7 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
     exit_type_performance = compute_exit_type_performance(filtered_deals, metrics_by_id=metrics_by_id)
     lead_partner_scorecard = compute_lead_partner_scorecard(filtered_deals, metrics_by_id=metrics_by_id)
     quality = compute_data_quality(filtered_deals, metrics_by_id)
-    track_record = compute_deal_track_record(filtered_deals, metrics_by_id=metrics_by_id)
+    track_record = compute_deal_track_record(filtered_deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_years)
     benchmark_thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
 
     fund_summary_rows = []
@@ -2777,6 +2778,7 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
             benchmark_thresholds=thresholds,
             benchmark_asset_class=benchmark_asset_class,
             metrics_by_id=metrics_by_id,
+            fund_vintage_lookup=build_fund_vintage_lookup(filtered_deals, team_id=team_id, firm_id=firm_id),
         )
     if page == "lp-liquidity-quality":
         return compute_lp_liquidity_quality_analysis(
@@ -2796,6 +2798,7 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         return compute_nav_at_risk_analysis(
             filtered_deals,
             firm_id=firm_id,
+            team_id=team_id,
             metrics_by_id=metrics_by_id,
             as_of_date=resolve_analysis_as_of_date(filtered_deals),
         )
@@ -4121,7 +4124,12 @@ def deals():
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Deals page failed")
     deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
-    track_record = compute_deal_track_record(all_deals, metrics_by_id=deal_metrics)
+    fund_vintage_lookup = _fund_vintage_lookup_for_scope(
+        all_deals,
+        membership=filter_ctx.get("active_membership"),
+        active_firm=filter_ctx.get("active_firm"),
+    )
+    track_record = compute_deal_track_record(all_deals, metrics_by_id=deal_metrics, fund_vintage_lookup=fund_vintage_lookup)
     rollup_details = compute_deals_rollup_details(all_deals, track_record, metrics_by_id=deal_metrics)
     reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
     scale = reporting["money_scale"]
@@ -4149,7 +4157,12 @@ def track_record():
         return _redirect_schema_failure(exc, "Track record page failed")
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
-    record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    fund_vintage_lookup = _fund_vintage_lookup_for_scope(
+        all_deals,
+        membership=filter_ctx.get("active_membership"),
+        active_firm=filter_ctx.get("active_firm"),
+    )
+    record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_lookup)
     reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
     _scale_track_record_payload(record, reporting["money_scale"])
     return render_template("track_record.html", track_record=record, deals=all_deals)
@@ -4165,7 +4178,12 @@ def download_track_record_pdf():
         return _redirect_schema_failure(exc, "Track record PDF failed")
 
     metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
-    record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    fund_vintage_lookup = _fund_vintage_lookup_for_scope(
+        all_deals,
+        membership=filter_ctx.get("active_membership"),
+        active_firm=filter_ctx.get("active_firm"),
+    )
+    record = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_lookup)
     reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
     _scale_track_record_payload(record, reporting["money_scale"])
 
@@ -4307,8 +4325,9 @@ def download_ic_pdf_pack():
 
     metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in all_deals}
     as_of_date = resolve_analysis_as_of_date(all_deals)
+    fund_vintage_lookup = _fund_vintage_lookup_for_scope(all_deals, membership=membership, active_firm=active_firm)
 
-    track_record_payload = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id)
+    track_record_payload = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_lookup)
     vca_ebitda_payload = compute_vca_ebitda_analysis(all_deals, metrics_by_id=metrics_by_id)
     vca_revenue_payload = compute_vca_revenue_analysis(all_deals, metrics_by_id=metrics_by_id)
     benchmark_thresholds = _load_team_benchmark_thresholds(team_id, current_benchmark_asset_class)
@@ -4317,6 +4336,7 @@ def download_ic_pdf_pack():
         benchmark_thresholds=benchmark_thresholds,
         benchmark_asset_class=current_benchmark_asset_class,
         metrics_by_id=metrics_by_id,
+        fund_vintage_lookup=fund_vintage_lookup,
     )
 
     reporting = _reporting_currency_context(active_firm)

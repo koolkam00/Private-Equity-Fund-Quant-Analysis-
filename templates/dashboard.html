@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, audit_link, fmt_growth_pct, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer with context %}
+{% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, audit_link, fmt_growth_pct, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer with context %}
 {% block title %}Dashboard — PE Portfolio Lab{% endblock %}
 {% block page_title %}Portfolio Dashboard{% endblock %}
 {% block page_subtitle %}Start with the portfolio briefing view, then drill into benchmarking, liquidity, and deal-level evidence only where the summary surface points to follow-up work.{% endblock %}
@@ -115,11 +115,11 @@
     </div>
     <div class="summary-card">
         <span>Gross MOIC</span>
-        <strong>{{ "%.2fx"|format(kpis.gross_moic) if kpis.gross_moic is not none else "—" }}</strong>
+        <strong>{{ fmt_multiple(kpis.gross_moic) }}</strong>
     </div>
     <div class="summary-card">
         <span>Gross IRR</span>
-        <strong>{{ "%.1f%%"|format((kpis.gross_irr or 0) * 100) if kpis.gross_irr is not none else "—" }}</strong>
+        <strong>{{ fmt_pct_1dp(kpis.gross_irr) }}</strong>
     </div>
     <div class="summary-card">
         <span>As Of</span>
@@ -188,11 +188,11 @@
     <div class="kpi-card"><span>Total Deals</span><strong>{{ kpis.total_deals }}</strong></div>
     <div class="kpi-card"><span>Total Equity</span><strong>{{ fmt_currency(kpis.total_equity) }}</strong></div>
     <div class="kpi-card"><span>Total Value</span><strong>{{ fmt_currency(kpis.total_value) }}</strong></div>
-    <div class="kpi-card"><span>Gross MOIC {{ audit_link('metric-gross-moic', 'info') }}</span><strong class="{% if kpis.gross_moic is not none and kpis.gross_moic >= 1 %}value-positive{% elif kpis.gross_moic is not none %}value-negative{% endif %}">{{ "%.2fx"|format(kpis.gross_moic) if kpis.gross_moic is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Gross MOIC {{ audit_link('metric-gross-moic', 'info') }}</span><strong class="{% if kpis.gross_moic is not none and kpis.gross_moic >= 1 %}value-positive{% elif kpis.gross_moic is not none %}value-negative{% endif %}">{{ fmt_multiple(kpis.gross_moic) }}</strong></div>
     <div class="kpi-card"><span>Value Created</span><strong class="{% if kpis.total_value_created >= 0 %}value-positive{% else %}value-negative{% endif %}">{{ fmt_currency(kpis.total_value_created) }}</strong></div>
-    <div class="kpi-card"><span>Loss Ratio (Count)</span><strong class="{% if loss.count_pct is not none and loss.count_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.count_pct) if loss.count_pct is not none else "—" }}</strong></div>
-    <div class="kpi-card"><span>Capital Value Loss Ratio</span><strong class="{% if loss.capital_pct is not none and loss.capital_pct > 30 %}value-negative{% endif %}">{{ "%.1f%%"|format(loss.capital_pct) if loss.capital_pct is not none else "—" }}</strong></div>
-    <div class="kpi-card"><span>Gross IRR (Wtd) {{ audit_link('metric-track-record-gross-irr-precedence', 'info') }}</span><strong class="{% if kpis.gross_irr is not none and kpis.gross_irr >= 0 %}value-positive{% elif kpis.gross_irr is not none %}value-negative{% endif %}">{{ "%.1f%%"|format((kpis.gross_irr or 0)*100) if kpis.gross_irr is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Loss Ratio (Count)</span><strong class="{% if loss.count_pct is not none and loss.count_pct > 30 %}value-negative{% endif %}">{{ fmt_pp_1dp(loss.count_pct) }}</strong></div>
+    <div class="kpi-card"><span>Capital Value Loss Ratio</span><strong class="{% if loss.capital_pct is not none and loss.capital_pct > 30 %}value-negative{% endif %}">{{ fmt_pp_1dp(loss.capital_pct) }}</strong></div>
+    <div class="kpi-card"><span>Gross IRR (Wtd) {{ audit_link('metric-track-record-gross-irr-precedence', 'info') }}</span><strong class="{% if kpis.gross_irr is not none and kpis.gross_irr >= 0 %}value-positive{% elif kpis.gross_irr is not none %}value-negative{% endif %}">{{ fmt_pct_1dp(kpis.gross_irr) }}</strong></div>
 </div>
 
 <div class="panel two-col analysis-secondary">
@@ -211,38 +211,38 @@
             <tbody>
                 <tr>
                     <td>TEV / EBITDA {{ audit_link('metric-tev-ebitda', 'info') }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_ebitda.avg) if entry_exit_summary.entry.tev_ebitda.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_ebitda.avg) if entry_exit_summary.exit.tev_ebitda.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_ebitda.wavg) if entry_exit_summary.entry.tev_ebitda.wavg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_ebitda.wavg) if entry_exit_summary.exit.tev_ebitda.wavg is not none else "—" }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.tev_ebitda.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.tev_ebitda.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.tev_ebitda.wavg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.tev_ebitda.wavg) }}</td>
                 </tr>
                 <tr>
                     <td>TEV / Revenue {{ audit_link('metric-tev-revenue', 'info') }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_revenue.avg) if entry_exit_summary.entry.tev_revenue.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_revenue.avg) if entry_exit_summary.exit.tev_revenue.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.tev_revenue.wavg) if entry_exit_summary.entry.tev_revenue.wavg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.tev_revenue.wavg) if entry_exit_summary.exit.tev_revenue.wavg is not none else "—" }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.tev_revenue.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.tev_revenue.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.tev_revenue.wavg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.tev_revenue.wavg) }}</td>
                 </tr>
                 <tr>
                     <td>Net Debt / EBITDA {{ audit_link('metric-net-debt-ebitda', 'info') }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.net_debt_ebitda.avg) if entry_exit_summary.entry.net_debt_ebitda.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.net_debt_ebitda.avg) if entry_exit_summary.exit.net_debt_ebitda.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.entry.net_debt_ebitda.wavg) if entry_exit_summary.entry.net_debt_ebitda.wavg is not none else "—" }}</td>
-                    <td class="num">{{ "%.2fx"|format(entry_exit_summary.exit.net_debt_ebitda.wavg) if entry_exit_summary.exit.net_debt_ebitda.wavg is not none else "—" }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.net_debt_ebitda.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.net_debt_ebitda.avg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.entry.net_debt_ebitda.wavg) }}</td>
+                    <td class="num">{{ fmt_multiple(entry_exit_summary.exit.net_debt_ebitda.wavg) }}</td>
                 </tr>
                 <tr>
                     <td>Net Debt / TEV {{ audit_link('metric-net-debt-tev', 'info') }}</td>
-                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.entry.net_debt_tev.avg or 0) * 100) if entry_exit_summary.entry.net_debt_tev.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.exit.net_debt_tev.avg or 0) * 100) if entry_exit_summary.exit.net_debt_tev.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.entry.net_debt_tev.wavg or 0) * 100) if entry_exit_summary.entry.net_debt_tev.wavg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format((entry_exit_summary.exit.net_debt_tev.wavg or 0) * 100) if entry_exit_summary.exit.net_debt_tev.wavg is not none else "—" }}</td>
+                    <td class="num">{{ fmt_pct_1dp(entry_exit_summary.entry.net_debt_tev.avg) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(entry_exit_summary.exit.net_debt_tev.avg) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(entry_exit_summary.entry.net_debt_tev.wavg) }}</td>
+                    <td class="num">{{ fmt_pct_1dp(entry_exit_summary.exit.net_debt_tev.wavg) }}</td>
                 </tr>
                 <tr>
                     <td>EBITDA Margin {{ audit_link('metric-ebitda-margin', 'info') }}</td>
-                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.entry.ebitda_margin.avg) if entry_exit_summary.entry.ebitda_margin.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.exit.ebitda_margin.avg) if entry_exit_summary.exit.ebitda_margin.avg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.entry.ebitda_margin.wavg) if entry_exit_summary.entry.ebitda_margin.wavg is not none else "—" }}</td>
-                    <td class="num">{{ "%.1f%%"|format(entry_exit_summary.exit.ebitda_margin.wavg) if entry_exit_summary.exit.ebitda_margin.wavg is not none else "—" }}</td>
+                    <td class="num">{{ fmt_pp_1dp(entry_exit_summary.entry.ebitda_margin.avg) }}</td>
+                    <td class="num">{{ fmt_pp_1dp(entry_exit_summary.exit.ebitda_margin.avg) }}</td>
+                    <td class="num">{{ fmt_pp_1dp(entry_exit_summary.entry.ebitda_margin.wavg) }}</td>
+                    <td class="num">{{ fmt_pp_1dp(entry_exit_summary.exit.ebitda_margin.wavg) }}</td>
                 </tr>
             </tbody>
         </table>
