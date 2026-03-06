@@ -1,7 +1,15 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}A single LP briefing page that rolls up reporting quality, liquidity, benchmark confidence, PME coverage, and fee compression into one review surface.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "memo-metadata", "label": "Metadata"},
+    {"id": "memo-kpis", "label": "Summary"},
+    {"id": "memo-manager", "label": "Managers"},
+]) }}
+{% endblock %}
 
 {% block page_actions %}
 <button type="button" class="btn-upload btn-secondary" onclick="window.print()">
@@ -50,7 +58,11 @@
     </p>
 </div>
 
-<div class="panel">
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="panel" id="memo-metadata">
     <h3>Fund Metadata</h3>
     <table class="data-table compact">
         <thead>
@@ -82,14 +94,14 @@
     </table>
 </div>
 
-<div class="kpi-grid">
+<div class="kpi-grid" id="memo-kpis">
     <div class="kpi-card"><span>Liquidity DPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.dpi_current) }}</strong></div>
     <div class="kpi-card"><span>Liquidity TVPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.tvpi_current) }}</strong></div>
     <div class="kpi-card"><span>Manager Top-Half Rate</span><strong>{{ fmt_pct_1dp(analysis.manager_consistency.kpis.top_half_rate) }}</strong></div>
     <div class="kpi-card"><span>PME Complete Coverage</span><strong>{{ analysis.public_market_comparison.coverage.funds_with_complete_coverage }}</strong></div>
  </div>
 
-<div class="panel two-col">
+<div class="panel two-col analysis-secondary">
     <div>
         <h3>Liquidity Quality</h3>
         <table class="compact-table">
@@ -111,7 +123,7 @@
     </div>
 </div>
 
-<div class="panel">
+<div class="panel analysis-secondary" id="memo-manager">
     <h3>Manager Consistency Snapshot</h3>
     <table class="data-table compact">
         <thead>
@@ -138,4 +150,5 @@
         </tbody>
     </table>
 </div>
+{{ method_note_footer(analysis.meta, "Use this memo as the summary layer before drilling into the component analyses beneath it.") }}
 {% endblock %}

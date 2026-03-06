@@ -62,3 +62,105 @@
 {% macro csrf_field() -%}
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
+
+{% macro context_strip(items, extra_class='') -%}
+    {%- if items -%}
+    <section class="context-strip {{ extra_class }}">
+        {%- for item in items if item.value is not none and item.value != '' -%}
+        <div class="context-strip-item">
+            <span class="context-strip-label">{{ item.label }}</span>
+            <strong class="context-strip-value">{{ item.value }}</strong>
+        </div>
+        {%- endfor -%}
+    </section>
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro coverage_badges(coverage=None, confidence=None) -%}
+    {%- set coverage_items = coverage.get('items') if coverage and coverage.get('items') else [] -%}
+    {%- if coverage_items or confidence -%}
+    <section class="coverage-badges">
+        {%- if confidence -%}
+        <span class="coverage-badge tone-{{ confidence.tone or 'neutral' }}">
+            {{ confidence.label }}
+            {%- if confidence.note %}<small>{{ confidence.note }}</small>{% endif -%}
+        </span>
+        {%- endif -%}
+        {%- for item in coverage_items -%}
+        <span class="coverage-badge tone-{{ item.tone or 'neutral' }}">
+            {{ item.label }}: <strong>{{ item.display or item.value }}</strong>
+        </span>
+        {%- endfor -%}
+    </section>
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro takeaway_banner(takeaway=None) -%}
+    {%- if takeaway and takeaway.text -%}
+    <section class="takeaway-banner tone-{{ takeaway.tone or 'neutral' }}">
+        <div>
+            <p class="takeaway-label">Key Takeaway</p>
+            <p class="takeaway-text">{{ takeaway.text }}</p>
+        </div>
+        {%- if takeaway.why_it_matters -%}
+        <div class="takeaway-why">
+            <span>Why it matters</span>
+            <p>{{ takeaway.why_it_matters }}</p>
+        </div>
+        {%- endif -%}
+    </section>
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro risk_flag_list(flags=None, title='Watchouts') -%}
+    {%- if flags -%}
+    <section class="risk-flag-list">
+        <h3>{{ title }}</h3>
+        <ul>
+            {%- for flag in flags -%}
+            <li>{{ flag }}</li>
+            {%- endfor -%}
+        </ul>
+    </section>
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro chart_panel_header(title, note=None) -%}
+    <div class="chart-panel-header">
+        <div>
+            <h3>{{ title }}</h3>
+            {%- if note %}<p>{{ note }}</p>{% endif -%}
+        </div>
+    </div>
+{%- endmacro %}
+
+{% macro table_empty_state(title, body) -%}
+    <div class="table-empty-state">
+        <strong>{{ title }}</strong>
+        <p>{{ body }}</p>
+    </div>
+{%- endmacro %}
+
+{% macro method_note_footer(meta=None, note=None) -%}
+    <footer class="method-note-footer">
+        {%- if meta and meta.as_of_date -%}
+        <span>As of {{ fmt_date_mdy(meta.as_of_date) }}</span>
+        {%- endif -%}
+        {%- if meta and meta.methodology_version -%}
+        <span>Methodology {{ meta.methodology_version }}</span>
+        {%- endif -%}
+        {%- if note -%}
+        <span>{{ note }}</span>
+        {%- endif -%}
+    </footer>
+{%- endmacro %}
+
+{% macro section_nav(items) -%}
+    {%- if items -%}
+    <nav class="section-nav" aria-label="Page sections">
+        {%- for item in items -%}
+        <a href="#{{ item.id }}">{{ item.label }}</a>
+        {%- endfor -%}
+    </nav>
+    {%- endif -%}
+{%- endmacro %}

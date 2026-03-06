@@ -48,6 +48,7 @@ from services.metrics import (
     build_chart_field_catalog,
     build_methodology_payload,
     compute_benchmarking_analysis,
+    compute_benchmark_confidence_analysis,
     compute_bridge_aggregate,
     compute_bridge_view,
     compute_data_quality,
@@ -57,8 +58,10 @@ from services.metrics import (
     compute_deal_track_record,
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
+    compute_fee_drag_analysis,
     compute_fund_liquidity_analysis,
     compute_ic_memo_payload,
+    compute_liquidity_forecast_analysis,
     compute_lead_partner_scorecard,
     compute_loss_and_distribution,
     compute_loss_concentration_heatmap,
@@ -66,8 +69,10 @@ from services.metrics import (
     compute_lp_due_diligence_memo,
     compute_lp_liquidity_quality_analysis,
     compute_manager_consistency_analysis,
+    compute_nav_at_risk_analysis,
     compute_portfolio_analytics,
     compute_public_market_comparison_analysis,
+    compute_reporting_quality_analysis,
     compute_realized_unrealized_exposure,
     compute_stress_lab_analysis,
     compute_underwrite_outcome_analysis,
@@ -163,6 +168,14 @@ ANALYSIS_PAGES = {
         "title": "LP Liquidity Quality",
         "description": "Current DPI/TVPI/RVPI, tail NAV concentration, and aged unrealized exposure quality checks.",
     },
+    "liquidity-forecast": {
+        "title": "Liquidity Forecast",
+        "description": "Deterministic 4-quarter pacing view for calls, distributions, reserve coverage, and projected DPI range.",
+    },
+    "nav-at-risk": {
+        "title": "NAV at Risk",
+        "description": "Tail-risk concentration across aged unrealized positions, stale marks, and below-plan holdings.",
+    },
     "manager-consistency": {
         "title": "Manager Consistency",
         "description": "Fund-by-fund quartile consistency, realized share, and dispersion across manager history.",
@@ -170,6 +183,18 @@ ANALYSIS_PAGES = {
     "public-market-comparison": {
         "title": "Public Market Comparison",
         "description": "KS PME and Direct Alpha using uploaded fund cash flows and benchmark index series.",
+    },
+    "benchmark-confidence": {
+        "title": "Benchmark Confidence",
+        "description": "Exact vs wildcard benchmark matching, quartile completeness, and PME benchmark depth by fund.",
+    },
+    "reporting-quality": {
+        "title": "Reporting Quality",
+        "description": "Data completeness, mark freshness, upload issue severity, and LP diligence readiness by fund.",
+    },
+    "fee-drag": {
+        "title": "Fee Drag",
+        "description": "Gross-to-net compression, implied fee drag, and fee transparency coverage by fund.",
     },
     "lp-due-diligence-memo": {
         "title": "LP Due Diligence Memo",
@@ -692,6 +717,42 @@ def _scale_analysis_payload(page, payload, scale):
             row["nav"] = _scale_money(row.get("nav"), scale)
         return
 
+    if page == "liquidity-forecast":
+        summary = payload.get("forecast_summary") or {}
+        summary["estimated_12m_net_cashflow"] = _scale_money(summary.get("estimated_12m_net_cashflow"), scale)
+        for key in ("capital_call_series", "distribution_series"):
+            for row in payload.get(key) or []:
+                row["amount"] = _scale_money(row.get("amount"), scale)
+        for row in payload.get("nav_burnoff_series") or []:
+            row["nav"] = _scale_money(row.get("nav"), scale)
+        for row in payload.get("fund_rows") or []:
+            for key in ("estimated_12m_net_cashflow", "projected_call_total", "projected_distribution_total", "projected_nav_end"):
+                row[key] = _scale_money(row.get(key), scale)
+        return
+
+    if page == "nav-at-risk":
+        summary = payload.get("summary") or {}
+        summary["total_nav"] = _scale_money(summary.get("total_nav"), scale)
+        for row in payload.get("aging_buckets") or []:
+            row["nav"] = _scale_money(row.get("nav"), scale)
+        for key in ("deal_rows", "fund_rows"):
+            for row in payload.get(key) or []:
+                if "unrealized_value" in row:
+                    row["unrealized_value"] = _scale_money(row.get("unrealized_value"), scale)
+                if "nav" in row:
+                    row["nav"] = _scale_money(row.get("nav"), scale)
+        for key in ("by_sector", "by_vintage"):
+            for row in (payload.get("concentration") or {}).get(key) or []:
+                row["nav"] = _scale_money(row.get("nav"), scale)
+        return
+
+    if page == "reporting-quality":
+        freshness = payload.get("freshness") or {}
+        freshness["stale_mark_nav_pct"] = freshness.get("stale_mark_nav_pct")
+        for row in payload.get("fund_rows") or []:
+            row["stale_mark_nav"] = _scale_money(row.get("stale_mark_nav"), scale)
+        return
+
     if page == "public-market-comparison":
         for row in payload.get("fund_rows") or []:
             row["nav_used"] = _scale_money(row.get("nav_used"), scale)
@@ -700,11 +761,27 @@ def _scale_analysis_payload(page, payload, scale):
             row["future_value"] = _scale_money(row.get("future_value"), scale)
         return
 
+    if page == "fee-drag":
+        bridge = payload.get("fee_bridge") or {}
+        bridge["implied_value_drag"] = _scale_money(bridge.get("implied_value_drag"), scale)
+        for row in payload.get("expense_breakdown") or []:
+            row["amount"] = _scale_money(row.get("amount"), scale)
+        for row in payload.get("fund_rows") or []:
+            row["implied_value_drag"] = _scale_money(row.get("implied_value_drag"), scale)
+        return
+
+    if page == "benchmark-confidence":
+        return
+
     if page == "lp-due-diligence-memo":
         for row in payload.get("fund_metadata") or []:
             row["fund_size"] = _scale_money(row.get("fund_size"), scale)
+        _scale_analysis_payload("reporting-quality", payload.get("reporting_quality") or {}, scale)
         _scale_analysis_payload("lp-liquidity-quality", payload.get("liquidity_quality") or {}, scale)
+        _scale_analysis_payload("liquidity-forecast", payload.get("liquidity_forecast") or {}, scale)
+        _scale_analysis_payload("nav-at-risk", payload.get("nav_at_risk") or {}, scale)
         _scale_analysis_payload("public-market-comparison", payload.get("public_market_comparison") or {}, scale)
+        _scale_analysis_payload("fee-drag", payload.get("fee_drag") or {}, scale)
         return
 
     if page == "vca-ebitda":
@@ -2382,6 +2459,19 @@ def _empty_dashboard_context():
         "deal_metrics": {},
         "deals": [],
         "data_quality": {"total_deals": 0, "complete_deals": 0, "bridge_ready": 0, "warnings": []},
+        "takeaway": {
+            "text": "Load deal, quarter, and benchmark data to turn the dashboard into an LP-ready briefing surface.",
+            "tone": "neutral",
+            "why_it_matters": "The dashboard is strongest when current scope, benchmark coverage, and reporting quality are all available.",
+        },
+        "coverage": {"items": []},
+        "confidence": {
+            "level": "low",
+            "label": "Low Confidence",
+            "tone": "risk",
+            "note": "No portfolio data is currently loaded.",
+        },
+        "risk_flags": [],
         "fund_summary_rows": [],
         "funds": [],
         "statuses": [],
@@ -2545,6 +2635,17 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
         "gross_moic": portfolio["returns"]["gross_moic"]["avg"],
         "gross_irr": portfolio["returns"]["gross_irr"]["wavg"],
     }
+    risk_flags = []
+    if filtered_deals and not benchmark_asset_class:
+        risk_flags.append("No benchmark asset class is selected, so peer comparisons are not visible on the dashboard.")
+    if quality["warnings"]:
+        risk_flags.append(f"{len(quality['warnings'])} data-quality warning(s) are present in the current filter set.")
+    capital_loss_pct = risk["loss_ratios"].get("capital_pct")
+    if capital_loss_pct is not None and capital_loss_pct > 30:
+        risk_flags.append("Capital loss concentration remains elevated in the current scope.")
+
+    bridge_ready_pct = (quality["bridge_ready"] / quality["total_deals"]) if quality["total_deals"] else None
+    complete_deal_pct = (quality["complete_deals"] / quality["total_deals"]) if quality["total_deals"] else None
 
     return {
         "kpis": kpis,
@@ -2566,6 +2667,44 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
         "lead_partner_scorecard": lead_partner_scorecard,
         "deal_metrics": metrics_by_id,
         "data_quality": quality,
+        "takeaway": {
+            "text": (
+                "Use the dashboard as the opening briefing page: it should tell you whether the current portfolio is compounding cleanly, "
+                "where value creation is coming from, and whether the underlying data is strong enough to trust the signal."
+            ),
+            "tone": "warning" if risk_flags else "positive",
+            "why_it_matters": "This is the fastest way to assess portfolio health before drilling into benchmarking, liquidity, or individual deal pages.",
+        },
+        "coverage": {
+            "items": [
+                {"label": "Funds", "value": len(fund_summary_rows), "display": len(fund_summary_rows), "tone": "neutral"},
+                {
+                    "label": "Bridge Ready",
+                    "value": bridge_ready_pct,
+                    "display": f"{bridge_ready_pct * 100:.1f}%" if bridge_ready_pct is not None else "—",
+                    "tone": "positive" if bridge_ready_pct is not None and bridge_ready_pct >= 0.6 else "warning",
+                },
+                {
+                    "label": "Complete Deals",
+                    "value": complete_deal_pct,
+                    "display": f"{complete_deal_pct * 100:.1f}%" if complete_deal_pct is not None else "—",
+                    "tone": "positive" if complete_deal_pct is not None and complete_deal_pct >= 0.75 else "warning",
+                },
+                {
+                    "label": "Benchmark",
+                    "value": benchmark_asset_class or "No Benchmark",
+                    "display": benchmark_asset_class or "No Benchmark",
+                    "tone": "positive" if benchmark_asset_class else "warning",
+                },
+            ]
+        },
+        "confidence": {
+            "level": "high" if not risk_flags and filtered_deals else ("medium" if filtered_deals else "low"),
+            "label": "High Confidence" if not risk_flags and filtered_deals else ("Moderate Confidence" if filtered_deals else "Low Confidence"),
+            "tone": "positive" if not risk_flags and filtered_deals else ("warning" if filtered_deals else "risk"),
+            "note": "Confidence blends reporting completeness, bridge coverage, and current benchmark context.",
+        },
+        "risk_flags": risk_flags,
         "fund_summary_rows": fund_summary_rows,
     }
 
@@ -2646,6 +2785,20 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
             team_id=team_id,
             as_of_date=resolve_analysis_as_of_date(filtered_deals),
         )
+    if page == "liquidity-forecast":
+        return compute_liquidity_forecast_analysis(
+            filtered_deals,
+            team_id=team_id,
+            firm_id=firm_id,
+            as_of_date=resolve_analysis_as_of_date(filtered_deals),
+        )
+    if page == "nav-at-risk":
+        return compute_nav_at_risk_analysis(
+            filtered_deals,
+            firm_id=firm_id,
+            metrics_by_id=metrics_by_id,
+            as_of_date=resolve_analysis_as_of_date(filtered_deals),
+        )
     if page == "manager-consistency":
         return compute_manager_consistency_analysis(
             filtered_deals,
@@ -2661,6 +2814,31 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
             team_id=team_id,
             firm_id=firm_id,
             benchmark_asset_class=benchmark_asset_class,
+            as_of_date=resolve_analysis_as_of_date(filtered_deals),
+        )
+    if page == "benchmark-confidence":
+        return compute_benchmark_confidence_analysis(
+            filtered_deals,
+            team_id=team_id,
+            firm_id=firm_id,
+            benchmark_asset_class=benchmark_asset_class,
+            as_of_date=resolve_analysis_as_of_date(filtered_deals),
+        )
+    if page == "reporting-quality":
+        return compute_reporting_quality_analysis(
+            filtered_deals,
+            team_id=team_id,
+            firm_id=firm_id,
+            benchmark_asset_class=benchmark_asset_class,
+            metrics_by_id=metrics_by_id,
+            as_of_date=resolve_analysis_as_of_date(filtered_deals),
+        )
+    if page == "fee-drag":
+        return compute_fee_drag_analysis(
+            filtered_deals,
+            team_id=team_id,
+            firm_id=firm_id,
+            metrics_by_id=metrics_by_id,
             as_of_date=resolve_analysis_as_of_date(filtered_deals),
         )
     if page == "lp-due-diligence-memo":
@@ -3237,6 +3415,10 @@ def dashboard():
             security_types=filter_ctx["security_types"],
             deal_types=filter_ctx["deal_types"],
             entry_channels=filter_ctx["entry_channels"],
+            takeaway=payload["takeaway"],
+            coverage=payload["coverage"],
+            confidence=payload["confidence"],
+            risk_flags=payload["risk_flags"],
             current_fund=filter_ctx["current_fund"],
             current_status=filter_ctx["current_status"],
             current_sector=filter_ctx["current_sector"],
@@ -3288,6 +3470,10 @@ def dashboard():
             security_types=filter_ctx["security_types"],
             deal_types=filter_ctx["deal_types"],
             entry_channels=filter_ctx["entry_channels"],
+            takeaway=payload["takeaway"],
+            coverage=payload["coverage"],
+            confidence=payload["confidence"],
+            risk_flags=payload["risk_flags"],
             current_fund=filter_ctx["current_fund"],
             current_status=filter_ctx["current_status"],
             current_sector=filter_ctx["current_sector"],
@@ -3338,6 +3524,10 @@ def dashboard_series_api():
             "loss_concentration_heatmap": payload["loss_concentration_heatmap"],
             "exit_type_performance": payload["exit_type_performance"],
             "lead_partner_scorecard": payload["lead_partner_scorecard"],
+            "takeaway": payload["takeaway"],
+            "coverage": payload["coverage"],
+            "confidence": payload["confidence"],
+            "risk_flags": payload["risk_flags"],
         }
     )
 
@@ -3393,10 +3583,20 @@ def analysis_page(page):
         template_name = "analysis_benchmarking.html"
     elif page == "lp-liquidity-quality":
         template_name = "analysis_lp_liquidity_quality.html"
+    elif page == "liquidity-forecast":
+        template_name = "analysis_liquidity_forecast.html"
+    elif page == "nav-at-risk":
+        template_name = "analysis_nav_at_risk.html"
     elif page == "manager-consistency":
         template_name = "analysis_manager_consistency.html"
     elif page == "public-market-comparison":
         template_name = "analysis_public_market_comparison.html"
+    elif page == "benchmark-confidence":
+        template_name = "analysis_benchmark_confidence.html"
+    elif page == "reporting-quality":
+        template_name = "analysis_reporting_quality.html"
+    elif page == "fee-drag":
+        template_name = "analysis_fee_drag.html"
     elif page == "lp-due-diligence-memo":
         template_name = "analysis_lp_due_diligence_memo.html"
 

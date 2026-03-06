@@ -68,6 +68,8 @@ def test_dashboard_page(client):
     response = client.get("/dashboard")
     assert response.status_code == 200
     assert b"Portfolio Dashboard" in response.data
+    assert b"Key Takeaway" in response.data
+    assert b"Executive" in response.data
     assert b'id="bridge-lever-table-body"' in response.data
     assert b"Capital Value Loss Ratio" in response.data
     assert b"Download 4 Analysis PDFs" in response.data
@@ -168,8 +170,12 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
 
     analysis_labels = [
         "LP Liquidity Quality",
+        "Liquidity Forecast",
+        "NAV at Risk",
         "Manager Consistency",
         "Public Market Comparison",
+        "Benchmark Confidence",
+        "Reporting Quality",
         "LP Due Diligence Memo",
         "Fund Liquidity",
         "Underwrite vs Outcome",
@@ -177,6 +183,7 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
         "Exit Readiness",
         "Stress Lab",
         "Deal Trajectory",
+        "Fee Drag",
         "Chart Builder",
     ]
     for label in analysis_labels:
@@ -1570,8 +1577,13 @@ def test_analysis_pages_render(client):
         "stress-lab": b"Concentration Stress Lab",
         "deal-trajectory": b"Deal Trajectory",
         "lp-liquidity-quality": b"LP Liquidity Quality",
+        "liquidity-forecast": b"Liquidity Forecast",
+        "nav-at-risk": b"NAV at Risk",
         "manager-consistency": b"Manager Consistency",
         "public-market-comparison": b"Public Market Comparison",
+        "benchmark-confidence": b"Benchmark Confidence",
+        "reporting-quality": b"Reporting Quality",
+        "fee-drag": b"Fee Drag",
         "lp-due-diligence-memo": b"LP Due Diligence Memo",
         "vca-ebitda": b"Value Creation Analysis - by EBITDA",
         "vca-revenue": b"Value Creation Analysis - by Revenue",
@@ -1622,8 +1634,13 @@ def test_analysis_api_series_schema(client):
         "stress-lab",
         "deal-trajectory",
         "lp-liquidity-quality",
+        "liquidity-forecast",
+        "nav-at-risk",
         "manager-consistency",
         "public-market-comparison",
+        "benchmark-confidence",
+        "reporting-quality",
+        "fee-drag",
         "lp-due-diligence-memo",
         "vca-ebitda",
         "vca-revenue",

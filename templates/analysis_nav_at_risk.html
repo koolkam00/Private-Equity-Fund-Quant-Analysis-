@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp, fmt_multiple, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Translate unrealized portfolio risk into LP language by showing where current NAV is concentrated, stale, aged, or below plan.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "nav-risk-kpis", "label": "Summary"},
+    {"id": "nav-risk-deals", "label": "Deal Ladder"},
+    {"id": "nav-risk-funds", "label": "Fund View"},
+]) }}
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in sectors %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Vintage</span>
+                <select name="vintage">
+                    <option value="">All Vintages</option>
+                    {% for y in vintages %}<option value="{{ y }}" {% if current_vintage == y|string %}selected{% endif %}>{{ y }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_sector or current_vintage %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="nav-risk-kpis">
+    <div class="kpi-card"><span>Total NAV</span><strong>{{ fmt_currency_symbol(analysis.summary.total_nav) }}</strong></div>
+    <div class="kpi-card"><span>Top-10 NAV %</span><strong>{{ fmt_pct_1dp(analysis.summary.top_10_nav_pct) }}</strong></div>
+    <div class="kpi-card"><span>Aged NAV %</span><strong>{{ fmt_pct_1dp(analysis.summary.aged_nav_pct) }}</strong></div>
+    <div class="kpi-card"><span>Stale NAV %</span><strong>{{ fmt_pct_1dp(analysis.summary.stale_nav_pct) }}</strong></div>
+    <div class="kpi-card"><span>Below Plan NAV %</span><strong>{{ fmt_pct_1dp(analysis.summary.below_plan_nav_pct) }}</strong></div>
+    <div class="kpi-card"><span>Unrealized Deals</span><strong>{{ analysis.meta.deal_count }}</strong></div>
+</div>
+
+<div class="panel analysis-secondary">
+    <h3>Aging Buckets</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Bucket</th>
+                <th class="num">Deals</th>
+                <th class="num">NAV</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.aging_buckets %}
+            <tr>
+                <td>{{ row.label }}</td>
+                <td class="num">{{ row.count }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.nav) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel" id="nav-risk-deals">
+    <h3>Deal NAV Ladder</h3>
+    <table class="data-table compact sticky-head">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th class="num">Vintage</th>
+                <th class="num">NAV</th>
+                <th class="num">Hold Years</th>
+                <th>Latest Mark</th>
+                <th class="num">Staleness</th>
+                <th class="num">MOIC</th>
+                <th class="num">Target MOIC</th>
+                <th>Flags</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.deal_rows %}
+            <tr>
+                <td>{{ row.company_name }}</td>
+                <td>{{ row.fund_number }}</td>
+                <td>{{ row.sector }}</td>
+                <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.unrealized_value) }}</td>
+                <td class="num">{{ "%.1f"|format(row.hold_years) if row.hold_years is not none else "—" }}</td>
+                <td>{{ fmt_date_mdy(row.latest_mark_date) }}</td>
+                <td class="num">{{ "%.0f d"|format(row.staleness_days) if row.staleness_days is not none else "—" }}</td>
+                <td class="num">{{ fmt_multiple(row.current_moic) }}</td>
+                <td class="num">{{ fmt_multiple(row.target_moic) }}</td>
+                <td>
+                    {% if row.below_plan and row.multiple_compression %}
+                    Below Plan, Multiple Compression
+                    {% elif row.below_plan %}
+                    Below Plan
+                    {% elif row.multiple_compression %}
+                    Multiple Compression
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11" class="num">No unrealized deal rows are available in the current scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel analysis-secondary" id="nav-risk-funds">
+    <h3>Fund Concentration View</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th class="num">NAV</th>
+                <th class="num">Aged NAV %</th>
+                <th class="num">Stale NAV %</th>
+                <th class="num">Below Plan NAV %</th>
+                <th class="num">Deals</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.nav) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.aged_nav_pct) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.stale_nav_pct) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.below_plan_nav_pct) }}</td>
+                <td class="num">{{ row.deal_count }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="num">No fund concentration rows are available.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{{ method_note_footer(analysis.meta, "NAV at risk is based on unrealized exposure, quarter-mark freshness, hold age, and underwrite gap signals.") }}
+{% endblock %}

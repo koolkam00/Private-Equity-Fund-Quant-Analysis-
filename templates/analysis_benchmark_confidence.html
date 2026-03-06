@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_pct_1dp, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Separate robust benchmark comparisons from weak or wildcard matches before leaning on quartile conclusions.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "benchmark-confidence-kpis", "label": "Coverage"},
+    {"id": "benchmark-confidence-funds", "label": "Fund Matches"},
+    {"id": "benchmark-confidence-gaps", "label": "Gaps"},
+]) }}
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_benchmark_asset_class %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="benchmark-confidence-kpis">
+    <div class="kpi-card"><span>Exact Match %</span><strong>{{ fmt_pct_1dp(analysis.summary.exact_match_pct) }}</strong></div>
+    <div class="kpi-card"><span>Wildcard Match %</span><strong>{{ fmt_pct_1dp(analysis.summary.wildcard_match_pct) }}</strong></div>
+    <div class="kpi-card"><span>No Match %</span><strong>{{ fmt_pct_1dp(analysis.summary.no_match_pct) }}</strong></div>
+    <div class="kpi-card"><span>Partial Metrics</span><strong>{{ analysis.summary.metrics_with_partial_coverage }}</strong></div>
+    <div class="kpi-card"><span>Funds With Full Quartiles</span><strong>{{ analysis.summary.funds_with_complete_quartile_coverage }}</strong></div>
+    <div class="kpi-card"><span>Funds With PME Series</span><strong>{{ analysis.summary.funds_with_complete_pme_series }}</strong></div>
+</div>
+
+<div class="panel" id="benchmark-confidence-funds">
+    <h3>Fund Benchmark Match Quality</h3>
+    <table class="data-table compact sticky-head">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th class="num">Vintage</th>
+                <th>Strategy</th>
+                <th>Region</th>
+                <th>Size Bucket</th>
+                <th class="num">Exact</th>
+                <th class="num">Wildcard</th>
+                <th class="num">No Match</th>
+                <th class="num">Partial Metrics</th>
+                <th>Match Quality</th>
+                <th>PME Coverage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                <td>{{ row.strategy or "—" }}</td>
+                <td>{{ row.region_focus or "—" }}</td>
+                <td>{{ row.size_bucket or "—" }}</td>
+                <td class="num">{{ row.exact_match_count }}</td>
+                <td class="num">{{ row.wildcard_match_count }}</td>
+                <td class="num">{{ row.no_match_count }}</td>
+                <td class="num">{{ row.partial_coverage_count }}</td>
+                <td>{{ row.match_quality }}</td>
+                <td>{{ row.pme_series_coverage or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11" class="num">No benchmark confidence rows are available in the current scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel analysis-secondary" id="benchmark-confidence-gaps">
+    <h3>Benchmark Gaps</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th>Metric</th>
+                <th>Match Quality</th>
+                <th>Quartile Coverage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.benchmark_gaps %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td>{{ row.metric }}</td>
+                <td>{{ row.match_quality }}</td>
+                <td>{{ row.quartile_coverage }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="num">No benchmark gaps are present in the current scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{{ method_note_footer(analysis.meta, "Exact dimensional matches should carry more weight than wildcard matches when interpreting quartile placement.") }}
+{% endblock %}

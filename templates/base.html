@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-{% from "_macros.html" import csrf_field with context %}
+{% from "_macros.html" import csrf_field, context_strip, section_nav, fmt_date_mdy with context %}
 
 <head>
     <meta charset="UTF-8">
@@ -36,6 +36,7 @@
         {% endif %}
         <nav class="nav">
             {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
+            <div class="nav-section">Workflow</div>
             <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}"><i
                     class="bi bi-grid-1x2"></i> Dashboard</a>
             <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
@@ -57,12 +58,18 @@
             <div class="nav-section">Analysis</div>
             <a href="{{ url_for('analysis_page', page='lp-liquidity-quality') }}" class="nav-item nav-sub {% if active_analysis == 'lp-liquidity-quality' %}active{% endif %}"><i
                     class="bi bi-droplet-half"></i> LP Liquidity Quality</a>
+            <a href="{{ url_for('analysis_page', page='liquidity-forecast') }}" class="nav-item nav-sub {% if active_analysis == 'liquidity-forecast' %}active{% endif %}"><i
+                    class="bi bi-hourglass-top"></i> Liquidity Forecast</a>
+            <a href="{{ url_for('analysis_page', page='nav-at-risk') }}" class="nav-item nav-sub {% if active_analysis == 'nav-at-risk' %}active{% endif %}"><i
+                    class="bi bi-exclamation-diamond"></i> NAV at Risk</a>
             <a href="{{ url_for('analysis_page', page='manager-consistency') }}" class="nav-item nav-sub {% if active_analysis == 'manager-consistency' %}active{% endif %}"><i
                     class="bi bi-diagram-3"></i> Manager Consistency</a>
             <a href="{{ url_for('analysis_page', page='public-market-comparison') }}" class="nav-item nav-sub {% if active_analysis == 'public-market-comparison' %}active{% endif %}"><i
                     class="bi bi-graph-up"></i> Public Market Comparison</a>
-            <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i
-                    class="bi bi-file-earmark-text"></i> LP Due Diligence Memo</a>
+            <a href="{{ url_for('analysis_page', page='benchmark-confidence') }}" class="nav-item nav-sub {% if active_analysis == 'benchmark-confidence' %}active{% endif %}"><i
+                    class="bi bi-shield-lock"></i> Benchmark Confidence</a>
+            <a href="{{ url_for('analysis_page', page='reporting-quality') }}" class="nav-item nav-sub {% if active_analysis == 'reporting-quality' %}active{% endif %}"><i
+                    class="bi bi-clipboard2-pulse"></i> Reporting Quality</a>
             <a href="{{ url_for('analysis_page', page='fund-liquidity') }}" class="nav-item nav-sub {% if active_analysis == 'fund-liquidity' %}active{% endif %}"><i
                     class="bi bi-graph-up-arrow"></i> Fund Liquidity</a>
             <a href="{{ url_for('analysis_page', page='underwrite-outcome') }}" class="nav-item nav-sub {% if active_analysis == 'underwrite-outcome' %}active{% endif %}"><i
@@ -75,8 +82,13 @@
                     class="bi bi-activity"></i> Stress Lab</a>
             <a href="{{ url_for('analysis_page', page='deal-trajectory') }}" class="nav-item nav-sub {% if active_analysis == 'deal-trajectory' %}active{% endif %}"><i
                     class="bi bi-bezier2"></i> Deal Trajectory</a>
+            <a href="{{ url_for('analysis_page', page='fee-drag') }}" class="nav-item nav-sub {% if active_analysis == 'fee-drag' %}active{% endif %}"><i
+                    class="bi bi-cash-stack"></i> Fee Drag</a>
             <a href="{{ url_for('analysis_page', page='chart-builder') }}" class="nav-item nav-sub {% if active_analysis == 'chart-builder' %}active{% endif %}"><i
                     class="bi bi-bar-chart-line"></i> Chart Builder</a>
+            <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i
+                    class="bi bi-file-earmark-text"></i> LP Due Diligence Memo</a>
+            <div class="nav-section">Admin</div>
             <a href="{{ url_for('methodology') }}" class="nav-item {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
             <a href="{{ url_for('firms') }}" class="nav-item {% if request.endpoint == 'firms' %}active{% endif %}"><i
@@ -91,10 +103,14 @@
         <header class="page-header">
             <div>
                 <h1>{% block page_title %}{% endblock %}</h1>
-                <p class="subtitle">Dynamic value creation decomposition from deal-level operating data</p>
+                <p class="subtitle">{% block page_subtitle %}Institutional diligence workflow for fund benchmarking, liquidity, value creation, and reporting quality.{% endblock %}</p>
             </div>
             <div class="header-actions">
                 {% if current_user.is_authenticated %}
+                <div class="density-toggle" aria-label="Page density">
+                    <button type="button" class="density-btn" data-density="executive">Executive</button>
+                    <button type="button" class="density-btn" data-density="analyst">Analyst</button>
+                </div>
                 <button
                     type="button"
                     class="btn-upload btn-secondary firm-picker-trigger"
@@ -132,6 +148,19 @@
         </section>
         {% endif %}
         {% endwith %}
+
+        {% if current_user.is_authenticated and display_as_of_date is defined %}
+        {{ context_strip([
+            {"label": "Active Firm", "value": app_active_firm.name if app_active_firm else "No firm selected"},
+            {"label": "As Of", "value": fmt_date_mdy(display_as_of_date) if display_as_of_date else none},
+            {"label": "Fund Filter", "value": current_fund if current_fund else "All Funds"},
+            {"label": "Benchmark", "value": current_benchmark_asset_class if current_benchmark_asset_class else "No Benchmark"},
+            {"label": "Currency", "value": app_currency_code if app_currency_code else "USD"},
+            {"label": "Data Freshness", "value": fmt_date_mdy(display_as_of_date) if display_as_of_date else none},
+        ], extra_class='app-context-rail') }}
+        {% endif %}
+
+        {% block page_nav %}{% endblock %}
 
         {% block content %}{% endblock %}
     </main>

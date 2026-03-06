@@ -18,6 +18,7 @@ from models import (
 )
 from services.metrics import (
     build_methodology_payload,
+    compute_benchmark_confidence_analysis,
     compute_bridge_aggregate,
     compute_bridge_view,
     compute_deals_rollup_details,
@@ -28,13 +29,17 @@ from services.metrics import (
     compute_data_quality,
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
+    compute_fee_drag_analysis,
     compute_fund_liquidity_analysis,
+    compute_liquidity_forecast_analysis,
     compute_lp_due_diligence_memo,
     compute_lp_liquidity_quality_analysis,
     compute_loss_and_distribution,
     compute_manager_consistency_analysis,
+    compute_nav_at_risk_analysis,
     compute_portfolio_analytics,
     compute_public_market_comparison_analysis,
+    compute_reporting_quality_analysis,
     compute_stress_lab_analysis,
     compute_underwrite_outcome_analysis,
     compute_valuation_quality_analysis,
@@ -1497,7 +1502,184 @@ def test_lp_due_diligence_memo_combines_sections(app_context):
     db.session.commit()
 
     out = compute_lp_due_diligence_memo([deal], team_id=deal.team_id, firm_id=deal.firm_id)
-    assert out["meta"]["methodology_version"] == "lp-ddq-v1"
+    assert out["meta"]["methodology_version"] == "lp-ddq-v2"
     assert "liquidity_quality" in out
+    assert "reporting_quality" in out
+    assert "benchmark_confidence" in out
+    assert "fee_drag" in out
     assert "manager_consistency" in out
     assert "public_market_comparison" in out
+
+
+def test_reporting_quality_analysis_flags_decision_readiness(app_context):
+    team = Team(name="Reporting Team", slug="reporting-team")
+    firm = Firm(name="Reporting Firm", slug="reporting-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Reporting Co",
+        fund_number="Fund RQ",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Unrealized",
+        investment_date=date(2021, 1, 1),
+        equity_invested=100,
+        realized_value=20,
+        unrealized_value=120,
+        net_irr=0.14,
+        net_moic=1.5,
+        net_dpi=0.4,
+    )
+    db.session.add_all(
+        [
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund RQ", vintage_year=2021, strategy="Buyout", benchmark_peer_group="BUYOUT_IDX"),
+            FundQuarterSnapshot(fund_number="Fund RQ", team_id=team.id, firm_id=firm.id, quarter_end=date(2025, 12, 31), paid_in_capital=100, distributed_capital=40, nav=120),
+            FundCashflow(team_id=team.id, firm_id=firm.id, fund_number="Fund RQ", event_date=date(2021, 1, 15), event_type="Capital Call", amount=-100, nav_after_event=100, currency_code="USD"),
+            PublicMarketIndexLevel(team_id=team.id, benchmark_code="BUYOUT_IDX", level_date=date(2021, 1, 15), level=1000, currency_code="USD", source="Fixture"),
+            PublicMarketIndexLevel(team_id=team.id, benchmark_code="BUYOUT_IDX", level_date=date(2025, 12, 31), level=1450, currency_code="USD", source="Fixture"),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="median", value=0.12),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="lower_quartile", value=0.08),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="upper_quartile", value=0.16),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="median", value=1.4),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="lower_quartile", value=1.1),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="upper_quartile", value=1.7),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="median", value=0.7),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="lower_quartile", value=0.5),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="upper_quartile", value=0.9),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_reporting_quality_analysis([deal], team_id=team.id, firm_id=firm.id, benchmark_asset_class="Buyout")
+    assert out["coverage_summary"]["fund_count"] == 1
+    assert out["fund_rows"][0]["fund_number"] == "Fund RQ"
+    assert out["fund_rows"][0]["decision_ready"] is True
+
+
+def test_nav_at_risk_analysis_computes_tail_exposure(app_context):
+    team = Team(name="Tail Risk Team", slug="tail-risk-team")
+    firm = Firm(name="Tail Risk Firm", slug="tail-risk-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Tail Co",
+        fund_number="Fund Tail",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Unrealized",
+        investment_date=date(2017, 1, 1),
+        equity_invested=100,
+        realized_value=0,
+        unrealized_value=140,
+        entry_ebitda=20,
+        exit_ebitda=18,
+        entry_enterprise_value=200,
+        exit_enterprise_value=150,
+    )
+    db.session.add_all(
+        [
+            DealQuarterSnapshot(team_id=team.id, firm_id=firm.id, deal_id=deal.id, quarter_end=date(2025, 3, 31), enterprise_value=150, equity_value=140),
+            DealUnderwriteBaseline(team_id=team.id, firm_id=firm.id, deal_id=deal.id, target_moic=2.0, target_irr=0.2),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_nav_at_risk_analysis([deal], firm_id=firm.id)
+    assert out["summary"]["total_nav"] == 140
+    assert out["deal_rows"][0]["company_name"] == "Tail Co"
+    assert out["fund_rows"][0]["fund_number"] == "Fund Tail"
+
+
+def test_benchmark_confidence_analysis_distinguishes_match_quality(app_context):
+    team = Team(name="Benchmark Confidence Team", slug="benchmark-confidence-team")
+    firm = Firm(name="Benchmark Confidence Firm", slug="benchmark-confidence-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Bench Co",
+        fund_number="Fund Bench",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2021, 1, 1),
+        equity_invested=100,
+        realized_value=170,
+        unrealized_value=0,
+    )
+    db.session.add(FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Bench", vintage_year=2021, strategy="Buyout", region_focus="North America"))
+    db.session.add_all(
+        [
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="median", value=0.15, strategy="Buyout", region="North America"),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="lower_quartile", value=0.10, strategy="Buyout", region="North America"),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="upper_quartile", value=0.20, strategy="Buyout", region="North America"),
+            BenchmarkPoint(team_id=team.id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="median", value=1.6),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_benchmark_confidence_analysis([deal], team_id=team.id, firm_id=firm.id, benchmark_asset_class="Buyout")
+    assert out["meta"]["fund_count"] == 1
+    assert out["fund_rows"][0]["fund_number"] == "Fund Bench"
+    assert out["fund_rows"][0]["match_quality"] in {"mixed", "wildcard", "exact"}
+    assert len(out["benchmark_gaps"]) >= 1
+
+
+def test_liquidity_forecast_analysis_projects_four_quarters(app_context):
+    team = Team(name="Forecast Team", slug="forecast-team")
+    firm = Firm(name="Forecast Firm", slug="forecast-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Forecast Co",
+        fund_number="Fund Forecast",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Unrealized",
+        investment_date=date(2022, 1, 1),
+        equity_invested=100,
+        realized_value=10,
+        unrealized_value=90,
+    )
+    db.session.add_all(
+        [
+            FundQuarterSnapshot(fund_number="Fund Forecast", team_id=team.id, firm_id=firm.id, quarter_end=date(2025, 12, 31), paid_in_capital=100, distributed_capital=20, nav=90, unfunded_commitment=40),
+            FundCashflow(team_id=team.id, firm_id=firm.id, fund_number="Fund Forecast", event_date=date(2025, 1, 15), event_type="Capital Call", amount=-20, nav_after_event=80, currency_code="USD"),
+            FundCashflow(team_id=team.id, firm_id=firm.id, fund_number="Fund Forecast", event_date=date(2025, 6, 30), event_type="Distribution", amount=10, nav_after_event=85, currency_code="USD"),
+            FundCashflow(team_id=team.id, firm_id=firm.id, fund_number="Fund Forecast", event_date=date(2025, 9, 30), event_type="Distribution", amount=15, nav_after_event=90, currency_code="USD"),
+        ]
+    )
+    db.session.commit()
+
+    out = compute_liquidity_forecast_analysis([deal], team_id=team.id, firm_id=firm.id)
+    assert out["meta"]["forecast_horizon_quarters"] == 4
+    assert len(out["fund_rows"]) == 1
+    assert len(out["capital_call_series"]) == 4
+
+
+def test_fee_drag_analysis_uses_gross_to_net_gap(app_context):
+    team = Team(name="Fee Team", slug="fee-team")
+    firm = Firm(name="Fee Firm", slug="fee-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    deal = _add_db_deal(
+        company_name="Fee Co",
+        fund_number="Fund Fee",
+        team_id=team.id,
+        firm_id=firm.id,
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2025, 1, 1),
+        equity_invested=100,
+        realized_value=190,
+        unrealized_value=0,
+        net_irr=0.17,
+        net_moic=1.5,
+        net_dpi=1.2,
+        irr=0.23,
+    )
+    db.session.commit()
+
+    out = compute_fee_drag_analysis([deal], team_id=team.id, firm_id=firm.id)
+    assert out["meta"]["fund_count"] == 1
+    assert out["summary"]["gross_to_net_moic_delta"] is not None
+    assert out["fund_rows"][0]["fund_number"] == "Fund Fee"

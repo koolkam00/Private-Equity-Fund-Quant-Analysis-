@@ -1,7 +1,15 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}PME and Direct Alpha only deserve weight when the cash-flow history and benchmark-date coverage are actually complete.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "pme-kpis", "label": "KPIs"},
+    {"id": "pme-funds", "label": "Fund PME"},
+    {"id": "pme-benchmarks", "label": "Benchmark Series"},
+]) }}
+{% endblock %}
 
 {% block content %}
 <div class="panel panel-tight filter-panel">
@@ -43,14 +51,18 @@
     <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
 </div>
 
-<div class="kpi-grid">
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="pme-kpis">
     <div class="kpi-card"><span>Complete Coverage</span><strong>{{ analysis.coverage.funds_with_complete_coverage }}</strong></div>
     <div class="kpi-card"><span>Partial Coverage</span><strong>{{ analysis.coverage.funds_with_partial_coverage }}</strong></div>
     <div class="kpi-card"><span>No Coverage</span><strong>{{ analysis.coverage.funds_with_no_coverage }}</strong></div>
     <div class="kpi-card"><span>Funds</span><strong>{{ analysis.meta.fund_count }}</strong></div>
 </div>
 
-<div class="panel">
+<div class="panel" id="pme-funds">
     <h3>Fund PME Comparison</h3>
     <table class="data-table compact">
         <thead>
@@ -80,7 +92,7 @@
     </table>
 </div>
 
-<div class="panel">
+<div class="panel analysis-secondary" id="pme-benchmarks">
     <h3>Benchmark Series Coverage</h3>
     <table class="data-table compact">
         <thead>
@@ -107,4 +119,5 @@
         </tbody>
     </table>
 </div>
+{{ method_note_footer(analysis.meta, "Previous-available benchmark levels are used where an event date falls on a market holiday or missing index date.") }}
 {% endblock %}

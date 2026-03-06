@@ -9,6 +9,7 @@ let dashboardExitTypeChart = null;
 let icMemoCharts = [];
 let dealsRollupDetailsPayload = null;
 let firmPickerState = null;
+const DENSITY_STORAGE_KEY = 'peqa-density-mode';
 
 const DRIVER_LABELS = {
     revenue: 'Revenue Growth',
@@ -34,6 +35,37 @@ function jsonHeaders(extra = {}) {
     const csrfToken = getCsrfToken();
     if (csrfToken) headers['X-CSRFToken'] = csrfToken;
     return headers;
+}
+
+function applyDensityMode(mode) {
+    const normalized = mode === 'executive' ? 'executive' : 'analyst';
+    document.body.dataset.density = normalized;
+    document.querySelectorAll('.density-btn').forEach((button) => {
+        button.classList.toggle('active', button.dataset.density === normalized);
+    });
+    try {
+        window.localStorage.setItem(DENSITY_STORAGE_KEY, normalized);
+    } catch (_error) {
+        // Ignore localStorage failures; density falls back to analyst mode.
+    }
+}
+
+function initDensityToggle() {
+    const buttons = Array.from(document.querySelectorAll('.density-btn'));
+    if (!buttons.length) return;
+
+    let storedMode = 'analyst';
+    try {
+        const value = window.localStorage.getItem(DENSITY_STORAGE_KEY);
+        if (value) storedMode = value;
+    } catch (_error) {
+        storedMode = 'analyst';
+    }
+    applyDensityMode(storedMode);
+
+    buttons.forEach((button) => {
+        button.addEventListener('click', () => applyDensityMode(button.dataset.density));
+    });
 }
 
 function getCurrencyMeta() {
@@ -2777,6 +2809,7 @@ function initFirmPicker() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    initDensityToggle();
     attachTableSorting();
     attachDropZone();
     attachFlashDismiss();

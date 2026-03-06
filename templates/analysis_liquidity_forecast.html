@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}A deterministic pacing view for the next four quarters based on recent fund cash-flow cadence and quarter history.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "forecast-kpis", "label": "Summary"},
+    {"id": "forecast-funds", "label": "Funds"},
+    {"id": "forecast-flags", "label": "Reserve Flags"},
+]) }}
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_status %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="forecast-kpis">
+    <div class="kpi-card"><span>12M Net Cash Flow</span><strong>{{ fmt_currency_symbol(analysis.forecast_summary.estimated_12m_net_cashflow) }}</strong></div>
+    <div class="kpi-card"><span>Projected DPI Low</span><strong>{{ fmt_multiple(analysis.forecast_summary.projected_dpi_low) }}</strong></div>
+    <div class="kpi-card"><span>Projected DPI High</span><strong>{{ fmt_multiple(analysis.forecast_summary.projected_dpi_high) }}</strong></div>
+    <div class="kpi-card"><span>Negative Outlook Funds</span><strong>{{ analysis.forecast_summary.negative_outlook_count }}</strong></div>
+    <div class="kpi-card"><span>Reserve Flags</span><strong>{{ analysis.forecast_summary.reserve_flag_count }}</strong></div>
+    <div class="kpi-card"><span>Forecast Horizon</span><strong>{{ analysis.meta.forecast_horizon_quarters }}Q</strong></div>
+</div>
+
+<div class="panel" id="forecast-funds">
+    <h3>Fund Forecast Table</h3>
+    <table class="data-table compact sticky-head">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th>Latest Quarter</th>
+                <th>Confidence</th>
+                <th class="num">Projected Calls</th>
+                <th class="num">Projected Distributions</th>
+                <th class="num">12M Net Cash Flow</th>
+                <th class="num">Projected DPI</th>
+                <th class="num">Projected NAV End</th>
+                <th class="num">Reserve Coverage (Qtrs)</th>
+                <th>Outlook</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td>{{ fmt_date_mdy(row.latest_quarter_end) }}</td>
+                <td>{{ row.confidence.label }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.projected_call_total) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.projected_distribution_total) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.estimated_12m_net_cashflow) }}</td>
+                <td class="num">{{ fmt_multiple(row.projected_dpi) }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.projected_nav_end) }}</td>
+                <td class="num">{{ "%.1f"|format(row.reserve_coverage_quarters) if row.reserve_coverage_quarters is not none else "—" }}</td>
+                <td>{{ "Negative" if row.negative_outlook else "Supportive" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="num">No fund cash-flow history is available to build the forecast.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel analysis-secondary" id="forecast-flags">
+    <h3>Reserve Coverage Flags</h3>
+    <ul class="tiny">
+        {% for flag in analysis.reserve_flags %}
+        <li>{{ flag }}</li>
+        {% else %}
+        <li>No reserve coverage flags are present in the current scope.</li>
+        {% endfor %}
+    </ul>
+</div>
+
+{{ method_note_footer(analysis.meta, "This forecast is deterministic and directional. It is not intended to replace manager guidance or formal capital planning.") }}
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_pct_1dp, fmt_date_mdy, fmt_currency_symbol, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Confirm the dataset is decision-ready before trusting any benchmark, PME, or liquidity conclusion downstream.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "reporting-kpis", "label": "Coverage"},
+    {"id": "reporting-funds", "label": "Fund Matrix"},
+    {"id": "reporting-issues", "label": "Issues"},
+]) }}
+{% endblock %}
+
+{% block content %}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Benchmark Asset Class</span>
+                <select name="benchmark_asset_class">
+                    <option value="">No Benchmark</option>
+                    {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply Filters</button>
+            {% if current_fund or current_status or current_benchmark_asset_class %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="reporting-kpis">
+    <div class="kpi-card"><span>Decision-Ready Funds</span><strong>{{ analysis.coverage_summary.decision_ready_count }}</strong></div>
+    <div class="kpi-card"><span>Decision-Ready %</span><strong>{{ fmt_pct_1dp(analysis.coverage_summary.decision_ready_pct) }}</strong></div>
+    <div class="kpi-card"><span>Avg Severity</span><strong>{{ "%.1f"|format(analysis.coverage_summary.avg_severity_score) if analysis.coverage_summary.avg_severity_score is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Avg Staleness</span><strong>{{ "%.0f d"|format(analysis.freshness.avg_staleness_days) if analysis.freshness.avg_staleness_days is not none else "—" }}</strong></div>
+    <div class="kpi-card"><span>Stale Mark NAV %</span><strong>{{ fmt_pct_1dp(analysis.freshness.stale_mark_nav_pct) }}</strong></div>
+    <div class="kpi-card"><span>Funds With Stale Marks</span><strong>{{ analysis.freshness.funds_with_stale_marks }}</strong></div>
+</div>
+
+<div class="panel analysis-secondary">
+    <h3>Coverage Summary</h3>
+    <table class="compact-table">
+        <tr><td>Funds in Scope</td><td class="num">{{ analysis.coverage_summary.fund_count }}</td></tr>
+        <tr><td>Missing Metadata</td><td class="num">{{ analysis.missingness.missing_metadata }}</td></tr>
+        <tr><td>Missing Fund Quarters</td><td class="num">{{ analysis.missingness.missing_fund_quarters }}</td></tr>
+        <tr><td>Missing Fund Cash Flows</td><td class="num">{{ analysis.missingness.missing_fund_cashflows }}</td></tr>
+        <tr><td>Missing Net Metrics</td><td class="num">{{ analysis.missingness.missing_net_metrics }}</td></tr>
+    </table>
+</div>
+
+<div class="panel" id="reporting-funds">
+    <h3>Fund Readiness Matrix</h3>
+    <table class="data-table compact sticky-head">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th>Latest Quarter</th>
+                <th class="num">Quarter Rows</th>
+                <th class="num">Cash Flow Rows</th>
+                <th>Benchmark Ready</th>
+                <th>PME Ready</th>
+                <th>Net Metrics</th>
+                <th class="num">Stale Mark Count</th>
+                <th class="num">Stale NAV</th>
+                <th class="num">Severity</th>
+                <th>Decision-Ready</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td>{{ row.fund_number }}</td>
+                <td>{{ fmt_date_mdy(row.latest_quarter_end) }}</td>
+                <td class="num">{{ row.fund_quarter_count }}</td>
+                <td class="num">{{ row.fund_cashflow_count }}</td>
+                <td>{{ "Yes" if row.benchmark_ready else "No" }}</td>
+                <td>{{ "Yes" if row.pme_ready else "No" }}</td>
+                <td>{{ "Complete" if row.net_metrics_complete else "Gap" }}</td>
+                <td class="num">{{ row.stale_mark_count }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.stale_mark_nav) }}</td>
+                <td class="num">{{ "%.1f"|format(row.severity_score) }}</td>
+                <td>{{ "Yes" if row.decision_ready else "No" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11" class="num">No reporting-quality rows are available for the current scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel analysis-secondary" id="reporting-issues">
+    <h3>Recent Upload Issues</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Upload Batch</th>
+                <th class="num">Row</th>
+                <th>Severity</th>
+                <th>Issue</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.issue_rows %}
+            <tr>
+                <td>{{ row.company_name or "—" }}</td>
+                <td>{{ row.upload_batch or "—" }}</td>
+                <td class="num">{{ row.row_number if row.row_number is not none else "—" }}</td>
+                <td>{{ row.severity or "warning" }}</td>
+                <td>{{ row.message }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="num">No recent upload issues were found for the active scope.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{{ method_note_footer(analysis.meta, "Decision-ready status combines metadata, fund quarters, cash-flow coverage, benchmark readiness, and mark freshness.") }}
+{% endblock %}

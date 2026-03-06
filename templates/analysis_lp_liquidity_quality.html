@@ -1,7 +1,15 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy, fmt_date_monyy with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy, fmt_date_monyy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Current liquidity quality matters more than headline TVPI when an LP is judging whether distributions are durable or still mostly mark-driven.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "liquidity-kpis", "label": "KPIs"},
+    {"id": "liquidity-milestones", "label": "Milestones"},
+    {"id": "liquidity-table", "label": "Fund Table"},
+]) }}
+{% endblock %}
 
 {% block content %}
 <div class="panel panel-tight filter-panel">
@@ -57,7 +65,11 @@
     <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
 </div>
 
-<div class="kpi-grid">
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="liquidity-kpis">
     <div class="kpi-card"><span>DPI</span><strong>{{ fmt_multiple(analysis.kpis.dpi_current) }}</strong></div>
     <div class="kpi-card"><span>TVPI</span><strong>{{ fmt_multiple(analysis.kpis.tvpi_current) }}</strong></div>
     <div class="kpi-card"><span>RVPI</span><strong>{{ fmt_multiple(analysis.kpis.rvpi_current) }}</strong></div>
@@ -66,7 +78,7 @@
     <div class="kpi-card"><span>Aged Unrealized Count</span><strong>{{ analysis.kpis.aged_unrealized_count }}</strong></div>
 </div>
 
-<div class="panel two-col">
+<div class="panel two-col analysis-secondary" id="liquidity-milestones">
     <div>
         <h3>DPI Milestones</h3>
         <table class="compact-table">
@@ -87,7 +99,7 @@
     </div>
 </div>
 
-<div class="panel">
+<div class="panel" id="liquidity-table">
     <h3>Fund Liquidity Quality Table</h3>
     <table class="data-table compact">
         <thead>
@@ -120,4 +132,5 @@
         </tbody>
     </table>
 </div>
+{{ method_note_footer(analysis.meta, "Liquidity quality is derived from current DPI, RVPI, aging, and quarter-level fund data.") }}
 {% endblock %}

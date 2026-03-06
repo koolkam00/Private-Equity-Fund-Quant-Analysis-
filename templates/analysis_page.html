@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy, fmt_date_mdy with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_monyy, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
 
 {% block content %}
 <div class="panel panel-tight filter-panel">
@@ -67,6 +68,10 @@
     <p class="subtitle">{{ page_meta.description }}</p>
     <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
 </div>
+
+{{ takeaway_banner(analysis.takeaway if analysis is mapping else none) }}
+{{ coverage_badges(analysis.coverage if analysis is mapping else none, analysis.confidence if analysis is mapping else none) }}
+{{ risk_flag_list(analysis.risk_flags if analysis is mapping else none) }}
 
 {% if page_key == 'fund-liquidity' %}
 <div class="kpi-grid">
@@ -631,4 +636,5 @@
 </div>
 {% endif %}
 
+{{ method_note_footer(analysis.meta if analysis is mapping else none) }}
 {% endblock %}

@@ -1,7 +1,15 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_multiple, fmt_pct_1dp, fmt_date_mdy with context %}
+{% from "_macros.html" import fmt_multiple, fmt_pct_1dp, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Consistency matters because LP underwriting depends on repeatable outcomes across funds, not a single standout vintage.{% endblock %}
+{% block page_nav %}
+{{ section_nav([
+    {"id": "manager-kpis", "label": "KPIs"},
+    {"id": "manager-summary", "label": "Managers"},
+    {"id": "manager-funds", "label": "Funds"},
+]) }}
+{% endblock %}
 
 {% block content %}
 <div class="panel panel-tight filter-panel">
@@ -50,7 +58,11 @@
     <p class="tiny">As of {{ fmt_date_mdy(display_as_of_date) }}</p>
 </div>
 
-<div class="kpi-grid">
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+<div class="kpi-grid" id="manager-kpis">
     <div class="kpi-card"><span>Managers</span><strong>{{ analysis.kpis.manager_count }}</strong></div>
     <div class="kpi-card"><span>Funds</span><strong>{{ analysis.kpis.fund_count }}</strong></div>
     <div class="kpi-card"><span>Top-Half Rate</span><strong>{{ fmt_pct_1dp(analysis.kpis.top_half_rate) }}</strong></div>
@@ -59,7 +71,7 @@
     <div class="kpi-card"><span>Any Benchmark Coverage</span><strong>{{ fmt_pct_1dp(analysis.benchmark_coverage.any_coverage_pct) }}</strong></div>
 </div>
 
-<div class="panel">
+<div class="panel" id="manager-summary">
     <h3>Manager Consistency Summary</h3>
     <table class="data-table compact">
         <thead>
@@ -95,7 +107,7 @@
     </table>
 </div>
 
-<div class="panel">
+<div class="panel analysis-secondary" id="manager-funds">
     <h3>Fund Quartile History</h3>
     <table class="data-table compact">
         <thead>
@@ -128,4 +140,5 @@
         </tbody>
     </table>
 </div>
+{{ method_note_footer(analysis.meta, "Manager consistency uses fund-level quartiles, realized share, and dispersion across the current scope.") }}
 {% endblock %}
