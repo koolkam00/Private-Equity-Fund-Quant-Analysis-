@@ -3,6 +3,8 @@ services:
     name: pe-portfolio-lab
     runtime: python
     plan: starter
+    branch: claude/pe-fund-excel-upload-OFPlS
+    autoDeployTrigger: commit
     buildCommand: pip install -r requirements.txt
     preDeployCommand: python -m flask --app app db-upgrade
     startCommand: gunicorn wsgi:app
