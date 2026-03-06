@@ -319,6 +319,21 @@ def _normalize_displayed_vca_percentages(row):
     return row
 
 
+def _clear_summary_value_creation_fields(row):
+    for key in (
+        "vc_revenue_growth_pct",
+        "vc_multiple_pct",
+        "vc_debt_pct",
+        "vc_total_pct",
+        "vc_revenue_growth_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+        "vc_total_dollar",
+    ):
+        row[key] = None
+    return row
+
+
 def _blank_vca_row(row_kind="detail", platform=None):
     row = {key: None for key in COLUMN_KEYS}
     row["platform"] = platform
@@ -576,7 +591,7 @@ def build_vca_summary_rows(deal_rows):
             ]
             row[key] = _weighted_average(weighted_pairs)
 
-        output.append(_normalize_displayed_vca_percentages(row))
+        output.append(_clear_summary_value_creation_fields(row))
 
     return output
 

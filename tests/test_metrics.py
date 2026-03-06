@@ -102,6 +102,17 @@ def _assert_vca_pct_components_sum_to_one(row, growth_key):
     assert abs(row["vc_total_pct"] - 1.0) < 1e-9
 
 
+def _assert_vca_summary_value_creation_fields_are_blank(row, growth_pct_key, growth_dollar_key):
+    assert row[growth_pct_key] is None
+    assert row["vc_multiple_pct"] is None
+    assert row["vc_debt_pct"] is None
+    assert row["vc_total_pct"] is None
+    assert row[growth_dollar_key] is None
+    assert row["vc_multiple_dollar"] is None
+    assert row["vc_debt_dollar"] is None
+    assert row["vc_total_dollar"] is None
+
+
 def test_safe_helpers():
     assert safe_divide(10, 5) == 2
     assert safe_divide(10, 0) is None
@@ -1081,7 +1092,9 @@ def test_vca_ebitda_subtotals_totals_and_summary_rows():
     assert abs(summary["Median"]["fund_total_cost"] - 200.0) < 1e-9
     assert abs(summary["Weighted Average"]["gross_moic"] - 1.25) < 1e-9
     for row in summary.values():
-        _assert_vca_pct_components_sum_to_one(row, "vc_ebitda_growth_pct")
+        _assert_vca_summary_value_creation_fields_are_blank(
+            row, "vc_ebitda_growth_pct", "vc_ebitda_growth_dollar"
+        )
 
 
 def test_vca_revenue_displayed_pct_columns_total_to_one():
@@ -1135,7 +1148,9 @@ def test_vca_revenue_displayed_pct_columns_total_to_one():
     summary = {row["platform"]: row for row in payload["fund_blocks"][0]["summary_rows"]}
     assert set(summary.keys()) == {"Average", "Median", "Weighted Average"}
     for row in summary.values():
-        _assert_vca_pct_components_sum_to_one(row, "vc_revenue_growth_pct")
+        _assert_vca_summary_value_creation_fields_are_blank(
+            row, "vc_revenue_growth_pct", "vc_revenue_growth_dollar"
+        )
 
 def _add_db_deal(**kwargs):
     defaults = {
