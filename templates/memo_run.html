@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% block title %}Memo Run {{ memo_run.id }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}Memo Run #{{ memo_run.id }}{% endblock %}
+{% block page_subtitle %}Review grounded section drafts, rerun sections, approve the memo, or export the final artifact.{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="upload-actions">
+        <a href="{{ url_for('memo_studio') }}" class="btn-upload btn-secondary">Back to Memo Studio</a>
+        <button type="button" class="btn-upload" id="memo-run-refresh-btn" data-run-id="{{ memo_run.id }}">Refresh</button>
+        <button type="button" class="btn-upload btn-secondary" id="memo-run-approve-btn" data-run-id="{{ memo_run.id }}">Approve Memo</button>
+        <button type="button" class="btn-upload btn-secondary" id="memo-run-export-btn" data-run-id="{{ memo_run.id }}" data-format="markdown">Export Markdown</button>
+        <button type="button" class="btn-upload btn-secondary" id="memo-run-export-html-btn" data-run-id="{{ memo_run.id }}" data-format="html">Export HTML</button>
+    </div>
+    <p><strong>Status:</strong> <span id="memo-run-status">{{ memo_run.status }}</span> | <strong>Stage:</strong> <span id="memo-run-stage">{{ memo_run.progress_stage }}</span></p>
+    <p class="tiny">Benchmark: {{ memo_run.benchmark_asset_class or "None" }} | Style Profile: {{ memo_run.style_profile_id }}</p>
+    <div id="memo-run-alerts" class="warn-box" {% if not memo_run.missing_data and not memo_run.conflicts %}hidden{% endif %}>
+        <p><strong>Missing Data / Conflicts</strong></p>
+        {% for item in memo_run.missing_data %}
+        <p class="tiny">{{ item.message }}</p>
+        {% endfor %}
+        {% for item in memo_run.conflicts %}
+        <p class="tiny">{{ item.message }}</p>
+        {% endfor %}
+    </div>
+</section>
+
+<div id="memo-run-sections">
+    {% for section in memo_sections %}
+    <section class="panel memo-section-card" data-section-key="{{ section.section_key }}">
+        <div class="upload-actions">
+            <h3>{{ section.title }}</h3>
+            <button type="button" class="btn-upload btn-secondary memo-rerun-section-btn" data-run-id="{{ memo_run.id }}" data-section-key="{{ section.section_key }}">Rerun Section</button>
+        </div>
+        <p class="tiny"><strong>Status:</strong> {{ section.status }} | <strong>Review:</strong> {{ section.review_status }}</p>
+        <div class="warn-box">
+            <p><strong>Validation</strong></p>
+            <p class="tiny">{{ section.validation.summary if section.validation else "Pending validation." }}</p>
+            {% for item in section.validation.unsupported_claims if section.validation %}
+            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
+            {% endfor %}
+            {% for item in section.validation.numeric_mismatches if section.validation %}
+            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
+            {% endfor %}
+        </div>
+        <pre style="white-space: pre-wrap;">{{ section.draft_text or "Draft pending." }}</pre>
+        {% if section.citations %}
+        <p><strong>Citations</strong></p>
+        <ul>
+            {% for citation in section.citations %}
+            <li>{{ citation.label }}{% if citation.page_start %} (p. {{ citation.page_start }}){% endif %}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </section>
+    {% endfor %}
+</div>
+
+<section class="panel">
+    <h3>Final Memo</h3>
+    <pre id="memo-run-final-markdown" style="white-space: pre-wrap;">{{ memo_run.final_markdown or "" }}</pre>
+</section>
+
+<script id="memo-run-payload" type="application/json">
+    {{ {"runId": memo_run.id}|tojson }}
+</script>
+{% endblock %}

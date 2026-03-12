@@ -2812,6 +2812,252 @@ function initFirmPicker() {
     });
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json') ? await response.json() : null;
+    if (!response.ok) {
+        const message = payload?.message || payload?.error || `Request failed (${response.status})`;
+        throw new Error(message);
+    }
+    return payload;
+}
+
+function bindMemoUploadForm(formId, endpoint) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        try {
+            await fetchJson(endpoint, {
+                method: 'POST',
+                body: formData,
+                headers: jsonHeaders(),
+            });
+            window.location.reload();
+        } catch (error) {
+            window.alert(error.message);
+        }
+    });
+}
+
+function initMemoStudio() {
+    bindMemoUploadForm('memo-style-upload-form', '/api/memos/documents');
+    bindMemoUploadForm('memo-source-upload-form', '/api/memos/documents');
+
+    const styleProfileForm = document.getElementById('memo-style-profile-form');
+    if (styleProfileForm) {
+        styleProfileForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(styleProfileForm);
+            try {
+                await fetchJson('/api/memos/style-profiles/rebuild', {
+                    method: 'POST',
+                    body: formData,
+                    headers: jsonHeaders(),
+                });
+                window.location.reload();
+            } catch (error) {
+                window.alert(error.message);
+            }
+        });
+    }
+
+    const memoRunForm = document.getElementById('memo-run-form');
+    if (memoRunForm) {
+        memoRunForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const documentSelect = document.getElementById('memo-document-select');
+            const documentIds = documentSelect
+                ? Array.from(documentSelect.selectedOptions).map((option) => Number(option.value)).filter(Number.isInteger)
+                : [];
+            const payload = {
+                style_profile_id: memoRunForm.elements.style_profile_id.value,
+                benchmark_asset_class: memoRunForm.elements.benchmark_asset_class.value,
+                user_notes: memoRunForm.elements.user_notes.value,
+                document_ids: documentIds,
+                memo_type: 'fund_investment',
+                filters: {},
+            };
+            try {
+                const response = await fetchJson('/api/memos/runs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...jsonHeaders(),
+                    },
+                    body: JSON.stringify(payload),
+                });
+                window.location.href = `/memos/runs/${response.id}`;
+            } catch (error) {
+                window.alert(error.message);
+            }
+        });
+    }
+}
+
+function renderMemoRunSections(sections) {
+    const container = document.getElementById('memo-run-sections');
+    if (!container) return;
+    container.innerHTML = sections.map((section) => {
+        const validation = section.validation || {};
+        const citations = Array.isArray(section.citations) ? section.citations : [];
+        const unsupported = Array.isArray(validation.unsupported_claims) ? validation.unsupported_claims : [];
+        const mismatches = Array.isArray(validation.numeric_mismatches) ? validation.numeric_mismatches : [];
+        const citationList = citations.map((citation) => {
+            const pageLabel = citation.page_start ? ` (p. ${escapeHtml(citation.page_start)})` : '';
+            return `<li>${escapeHtml(citation.label || citation.id || 'Citation')}${pageLabel}</li>`;
+        }).join('');
+        const unsupportedHtml = unsupported.map((item) => `<p class="tiny">${escapeHtml(item.reason || '')}: ${escapeHtml(item.claim_text || '')}</p>`).join('');
+        const mismatchHtml = mismatches.map((item) => `<p class="tiny">${escapeHtml(item.reason || '')}: ${escapeHtml(item.claim_text || '')}</p>`).join('');
+        return `
+            <section class="panel memo-section-card" data-section-key="${escapeHtml(section.section_key)}">
+                <div class="upload-actions">
+                    <h3>${escapeHtml(section.title || section.section_key)}</h3>
+                    <button type="button" class="btn-upload btn-secondary memo-rerun-section-btn" data-run-id="${escapeHtml(section.run_id || '')}" data-section-key="${escapeHtml(section.section_key)}">Rerun Section</button>
+                </div>
+                <p class="tiny"><strong>Status:</strong> ${escapeHtml(section.status || 'pending')} | <strong>Review:</strong> ${escapeHtml(section.review_status || 'pending')}</p>
+                <div class="warn-box">
+                    <p><strong>Validation</strong></p>
+                    <p class="tiny">${escapeHtml(validation.summary || 'Pending validation.')}</p>
+                    ${unsupportedHtml}
+                    ${mismatchHtml}
+                </div>
+                <pre style="white-space: pre-wrap;">${escapeHtml(section.draft_text || 'Draft pending.')}</pre>
+                ${citationList ? `<p><strong>Citations</strong></p><ul>${citationList}</ul>` : ''}
+            </section>
+        `;
+    }).join('');
+}
+
+function downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function initMemoRun() {
+    const payload = getJsonScriptPayload('memo-run-payload');
+    if (!payload || !payload.runId) return;
+    const runId = Number(payload.runId);
+    const statusEl = document.getElementById('memo-run-status');
+    const stageEl = document.getElementById('memo-run-stage');
+    const finalMarkdownEl = document.getElementById('memo-run-final-markdown');
+    const alertsEl = document.getElementById('memo-run-alerts');
+
+    async function refreshRun() {
+        const [run, sectionsPayload] = await Promise.all([
+            fetchJson(`/api/memos/runs/${runId}`, { headers: jsonHeaders() }),
+            fetchJson(`/api/memos/runs/${runId}/sections`, { headers: jsonHeaders() }),
+        ]);
+        if (statusEl) statusEl.textContent = run.status || '';
+        if (stageEl) stageEl.textContent = run.progress_stage || '';
+        if (finalMarkdownEl) finalMarkdownEl.textContent = run.final_markdown || '';
+        if (alertsEl) {
+            const items = [...(run.missing_data || []), ...(run.conflicts || [])];
+            alertsEl.hidden = items.length === 0;
+            alertsEl.innerHTML = items.length
+                ? `<p><strong>Missing Data / Conflicts</strong></p>${items.map((item) => `<p class="tiny">${escapeHtml(item.message || '')}</p>`).join('')}`
+                : '';
+        }
+        const sections = (sectionsPayload?.items || []).map((section) => ({ ...section, run_id: runId }));
+        renderMemoRunSections(sections);
+        bindMemoRunSectionButtons(runId);
+        if (run.status === 'queued' || run.status === 'running') {
+            window.setTimeout(() => {
+                refreshRun().catch((error) => console.error(error));
+            }, 3000);
+        }
+    }
+
+    function bindMemoRunSectionButtons(activeRunId) {
+        document.querySelectorAll('.memo-rerun-section-btn').forEach((button) => {
+            if (button.dataset.bound === 'true') return;
+            button.dataset.bound = 'true';
+            button.addEventListener('click', async () => {
+                try {
+                    await fetchJson(`/api/memos/runs/${activeRunId}/rerun-section`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...jsonHeaders(),
+                        },
+                        body: JSON.stringify({ section_key: button.dataset.sectionKey }),
+                    });
+                    refreshRun();
+                } catch (error) {
+                    window.alert(error.message);
+                }
+            });
+        });
+    }
+
+    const refreshBtn = document.getElementById('memo-run-refresh-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            refreshRun().catch((error) => window.alert(error.message));
+        });
+    }
+
+    const approveBtn = document.getElementById('memo-run-approve-btn');
+    if (approveBtn) {
+        approveBtn.addEventListener('click', async () => {
+            try {
+                await fetchJson(`/api/memos/runs/${runId}/approve`, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                });
+                refreshRun();
+            } catch (error) {
+                window.alert(error.message);
+            }
+        });
+    }
+
+    const exportButtons = [
+        document.getElementById('memo-run-export-btn'),
+        document.getElementById('memo-run-export-html-btn'),
+    ].filter(Boolean);
+    exportButtons.forEach((button) => {
+        button.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`/api/memos/runs/${runId}/export?format=${encodeURIComponent(button.dataset.format || 'markdown')}`, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                });
+                if (!response.ok) {
+                    throw new Error(`Export failed (${response.status})`);
+                }
+                const blob = await response.blob();
+                const extension = button.dataset.format === 'html' ? 'html' : 'md';
+                downloadBlob(`investment_memo_${runId}.${extension}`, blob);
+            } catch (error) {
+                window.alert(error.message);
+            }
+        });
+    });
+
+    bindMemoRunSectionButtons(runId);
+    if ((statusEl?.textContent || '').trim() === 'queued' || (statusEl?.textContent || '').trim() === 'running') {
+        refreshRun().catch((error) => console.error(error));
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initDensityToggle();
     attachTableSorting();
@@ -2842,4 +3088,6 @@ document.addEventListener('DOMContentLoaded', () => {
     bindMethodologyAnchors();
     initChartBuilder();
     initFirmPicker();
+    initMemoStudio();
+    initMemoRun();
 });

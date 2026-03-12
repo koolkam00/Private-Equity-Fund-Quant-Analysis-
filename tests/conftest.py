@@ -15,7 +15,7 @@ from app import app, db
 from models import Firm, Team, TeamFirmAccess, TeamMembership, User
 
 
-app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, MEMO_INLINE_JOBS=True)
 
 @pytest.fixture
 def anonymous_client():

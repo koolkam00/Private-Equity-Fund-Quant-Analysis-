@@ -1,0 +1,166 @@
+from datetime import date
+from io import BytesIO
+
+from models import (
+    BenchmarkPoint,
+    Deal,
+    FundCashflow,
+    FundMetadata,
+    FundQuarterSnapshot,
+    MemoGenerationRun,
+    PublicMarketIndexLevel,
+    TeamFirmAccess,
+    TeamMembership,
+    db,
+)
+
+
+def _seed_generation_data():
+    membership = TeamMembership.query.first()
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).first()
+    deal = Deal(
+        company_name="MemoCo",
+        fund_number="Fund Memo",
+        team_id=membership.team_id,
+        firm_id=access.firm_id,
+        status="Unrealized",
+        investment_date=date(2021, 1, 1),
+        equity_invested=100,
+        realized_value=20,
+        unrealized_value=120,
+        net_irr=0.14,
+        net_moic=1.5,
+        net_dpi=0.4,
+    )
+    db.session.add(deal)
+    db.session.flush()
+    db.session.add_all(
+        [
+            FundMetadata(
+                team_id=membership.team_id,
+                firm_id=access.firm_id,
+                fund_number="Fund Memo",
+                vintage_year=2021,
+                strategy="Buyout",
+                manager_name="Memo Manager",
+                benchmark_peer_group="BUYOUT_IDX",
+            ),
+            FundQuarterSnapshot(
+                fund_number="Fund Memo",
+                team_id=membership.team_id,
+                firm_id=access.firm_id,
+                quarter_end=date(2025, 12, 31),
+                paid_in_capital=100,
+                distributed_capital=40,
+                nav=120,
+            ),
+            FundCashflow(
+                team_id=membership.team_id,
+                firm_id=access.firm_id,
+                fund_number="Fund Memo",
+                event_date=date(2021, 1, 15),
+                event_type="Capital Call",
+                amount=-100,
+                nav_after_event=100,
+                currency_code="USD",
+            ),
+            PublicMarketIndexLevel(
+                team_id=membership.team_id,
+                benchmark_code="BUYOUT_IDX",
+                level_date=date(2021, 1, 15),
+                level=1000,
+                currency_code="USD",
+                source="Fixture",
+            ),
+            PublicMarketIndexLevel(
+                team_id=membership.team_id,
+                benchmark_code="BUYOUT_IDX",
+                level_date=date(2025, 12, 31),
+                level=1450,
+                currency_code="USD",
+                source="Fixture",
+            ),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="lower_quartile", value=0.08),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="median", value=0.12),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_irr", quartile="upper_quartile", value=0.16),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="lower_quartile", value=1.1),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="median", value=1.4),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_moic", quartile="upper_quartile", value=1.7),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="lower_quartile", value=0.5),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="median", value=0.7),
+            BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2021, metric="net_dpi", quartile="upper_quartile", value=0.9),
+        ]
+    )
+    db.session.commit()
+
+
+def test_memo_generation_run_end_to_end(client):
+    _seed_generation_data()
+
+    prior_memo = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (
+                BytesIO(
+                    b"Executive Summary\n\nWe recommend proceeding with diligence.\n\n"
+                    b"Recommendation\n\nWe recommend approval after closing the remaining diligence points."
+                ),
+                "prior_memo.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert prior_memo.status_code == 201
+
+    style_profile = client.post("/api/memos/style-profiles/rebuild", json={"name": "Memo Style"})
+    assert style_profile.status_code == 201
+    style_profile_id = style_profile.get_json()["id"]
+
+    source_doc = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "ddq",
+            "file": (
+                BytesIO(
+                    b"Fund Overview\n\nFund Memo targets North America buyout opportunities.\n\n"
+                    b"Risks\n\nOperational diligence is still underway."
+                ),
+                "ddq.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert source_doc.status_code == 201
+    source_doc_id = source_doc.get_json()["id"]
+
+    run_response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": style_profile_id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [source_doc_id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+    assert run_response.status_code == 201
+    run_payload = run_response.get_json()
+    assert run_payload["status"] == "review_required"
+
+    run = MemoGenerationRun.query.get(run_payload["id"])
+    assert run is not None
+    assert run.final_markdown
+
+    sections_response = client.get(f"/api/memos/runs/{run.id}/sections")
+    assert sections_response.status_code == 200
+    sections_payload = sections_response.get_json()
+    assert len(sections_payload["items"]) >= 1
+
+    approve_response = client.post(f"/api/memos/runs/{run.id}/approve")
+    assert approve_response.status_code == 200
+    assert approve_response.get_json()["status"] == "approved"
+
+    export_response = client.post(f"/api/memos/runs/{run.id}/export?format=markdown")
+    assert export_response.status_code == 200
+    assert export_response.mimetype == "text/markdown"

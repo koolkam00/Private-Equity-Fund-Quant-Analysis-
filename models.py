@@ -389,6 +389,213 @@ class TeamInvite(db.Model):
         return f"<TeamInvite team={self.team_id} email={self.email}>"
 
 
+class MemoDocument(db.Model):
+    __tablename__ = "memo_documents"
+    __table_args__ = (
+        Index("ix_memo_documents_team_role_status", "team_id", "document_role", "status"),
+        Index("ix_memo_documents_firm_status", "firm_id", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    document_role = db.Column(db.String(64), nullable=False, index=True)
+    file_name = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(128), nullable=False)
+    storage_key = db.Column(db.String(500), nullable=False, unique=True)
+    sha256 = db.Column(db.String(64), nullable=False, index=True)
+    page_count = db.Column(db.Integer, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="uploaded", index=True)
+    extraction_status = db.Column(db.String(32), nullable=False, default="pending", index=True)
+    error_text = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoDocument id={self.id} role={self.document_role} status={self.status}>"
+
+
+class MemoDocumentChunk(db.Model):
+    __tablename__ = "memo_document_chunks"
+    __table_args__ = (
+        Index("ix_memo_document_chunks_doc_chunk", "document_id", "chunk_index"),
+        Index("ix_memo_document_chunks_team_firm_section", "team_id", "firm_id", "section_key"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    document_id = db.Column(db.Integer, ForeignKey("memo_documents.id"), nullable=False, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
+    chunk_index = db.Column(db.Integer, nullable=False)
+    section_key = db.Column(db.String(128), nullable=True, index=True)
+    page_start = db.Column(db.Integer, nullable=True)
+    page_end = db.Column(db.Integer, nullable=True)
+    text = db.Column(db.Text, nullable=False)
+    text_delexicalized = db.Column(db.Text, nullable=True)
+    embedding_json = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="ready", index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoDocumentChunk document_id={self.document_id} chunk_index={self.chunk_index}>"
+
+
+class MemoStyleProfile(db.Model):
+    __tablename__ = "memo_style_profiles"
+    __table_args__ = (
+        Index("ix_memo_style_profiles_team_user_status", "team_id", "created_by_user_id", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(32), nullable=False, default="pending", index=True)
+    profile_json = db.Column(db.Text, nullable=True)
+    source_document_count = db.Column(db.Integer, nullable=False, default=0)
+    approved_exemplar_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoStyleProfile id={self.id} name={self.name} status={self.status}>"
+
+
+class MemoStyleExemplar(db.Model):
+    __tablename__ = "memo_style_exemplars"
+    __table_args__ = (
+        Index("ix_memo_style_exemplars_profile_section_rank", "style_profile_id", "section_key", "rank"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    style_profile_id = db.Column(db.Integer, ForeignKey("memo_style_profiles.id"), nullable=False, index=True)
+    document_id = db.Column(db.Integer, ForeignKey("memo_documents.id"), nullable=False, index=True)
+    section_key = db.Column(db.String(128), nullable=False, index=True)
+    heading_text = db.Column(db.String(255), nullable=True)
+    text_raw = db.Column(db.Text, nullable=False)
+    text_delexicalized = db.Column(db.Text, nullable=True)
+    embedding_json = db.Column(db.Text, nullable=True)
+    rank = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(32), nullable=False, default="ready", index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoStyleExemplar profile_id={self.style_profile_id} section={self.section_key}>"
+
+
+class MemoGenerationRun(db.Model):
+    __tablename__ = "memo_generation_runs"
+    __table_args__ = (
+        Index("ix_memo_generation_runs_team_firm_status", "team_id", "firm_id", "status"),
+        Index("ix_memo_generation_runs_user_status", "created_by_user_id", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    style_profile_id = db.Column(db.Integer, ForeignKey("memo_style_profiles.id"), nullable=False, index=True)
+    memo_type = db.Column(db.String(64), nullable=False, default="fund_investment")
+    filters_json = db.Column(db.Text, nullable=True)
+    benchmark_asset_class = db.Column(db.String(128), nullable=True)
+    document_ids_json = db.Column(db.Text, nullable=True)
+    user_notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="queued", index=True)
+    progress_stage = db.Column(db.String(64), nullable=False, default="created")
+    outline_json = db.Column(db.Text, nullable=True)
+    evidence_json = db.Column(db.Text, nullable=True)
+    final_markdown = db.Column(db.Text, nullable=True)
+    final_html = db.Column(db.Text, nullable=True)
+    missing_data_json = db.Column(db.Text, nullable=True)
+    conflicts_json = db.Column(db.Text, nullable=True)
+    open_questions_json = db.Column(db.Text, nullable=True)
+    export_status = db.Column(db.String(32), nullable=False, default="not_requested")
+    approved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoGenerationRun id={self.id} status={self.status} stage={self.progress_stage}>"
+
+
+class MemoGenerationSection(db.Model):
+    __tablename__ = "memo_generation_sections"
+    __table_args__ = (
+        Index("ix_memo_generation_sections_run_order", "run_id", "section_order"),
+        UniqueConstraint("run_id", "section_key", name="uq_memo_generation_sections_run_key"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_id = db.Column(db.Integer, ForeignKey("memo_generation_runs.id"), nullable=False, index=True)
+    section_key = db.Column(db.String(128), nullable=False, index=True)
+    section_order = db.Column(db.Integer, nullable=False, default=0)
+    title = db.Column(db.String(255), nullable=False)
+    objective = db.Column(db.Text, nullable=True)
+    required_evidence_json = db.Column(db.Text, nullable=True)
+    draft_json = db.Column(db.Text, nullable=True)
+    draft_text = db.Column(db.Text, nullable=True)
+    validation_json = db.Column(db.Text, nullable=True)
+    review_status = db.Column(db.String(32), nullable=False, default="pending")
+    status = db.Column(db.String(32), nullable=False, default="pending", index=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoGenerationSection run_id={self.run_id} key={self.section_key} status={self.status}>"
+
+
+class MemoGenerationClaim(db.Model):
+    __tablename__ = "memo_generation_claims"
+    __table_args__ = (
+        Index("ix_memo_generation_claims_run_section", "run_id", "section_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_id = db.Column(db.Integer, ForeignKey("memo_generation_runs.id"), nullable=False, index=True)
+    section_id = db.Column(db.Integer, ForeignKey("memo_generation_sections.id"), nullable=False, index=True)
+    claim_type = db.Column(db.String(32), nullable=False)
+    claim_text = db.Column(db.Text, nullable=False)
+    provenance_type = db.Column(db.String(32), nullable=True)
+    provenance_id = db.Column(db.String(255), nullable=True)
+    citation_json = db.Column(db.Text, nullable=True)
+    validation_status = db.Column(db.String(32), nullable=False, default="pending")
+    mismatch_reason = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="pending", index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoGenerationClaim run_id={self.run_id} section_id={self.section_id} type={self.claim_type}>"
+
+
+class MemoJob(db.Model):
+    __tablename__ = "memo_jobs"
+    __table_args__ = (
+        Index("ix_memo_jobs_status_type_created", "status", "job_type", "created_at"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    run_id = db.Column(db.Integer, ForeignKey("memo_generation_runs.id"), nullable=True, index=True)
+    job_type = db.Column(db.String(64), nullable=False, index=True)
+    status = db.Column(db.String(32), nullable=False, default="queued", index=True)
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    lease_expires_at = db.Column(db.DateTime, nullable=True)
+    payload_json = db.Column(db.Text, nullable=True)
+    error_text = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoJob id={self.id} type={self.job_type} status={self.status}>"
+
+
 def _column_exists(inspector, table_name, column_name):
     return any(c["name"] == column_name for c in inspector.get_columns(table_name))
 
@@ -464,6 +671,14 @@ def ensure_schema_updates():
     TeamMembership.__table__.create(bind=engine, checkfirst=True)
     TeamFirmAccess.__table__.create(bind=engine, checkfirst=True)
     TeamInvite.__table__.create(bind=engine, checkfirst=True)
+    MemoDocument.__table__.create(bind=engine, checkfirst=True)
+    MemoDocumentChunk.__table__.create(bind=engine, checkfirst=True)
+    MemoStyleProfile.__table__.create(bind=engine, checkfirst=True)
+    MemoStyleExemplar.__table__.create(bind=engine, checkfirst=True)
+    MemoGenerationRun.__table__.create(bind=engine, checkfirst=True)
+    MemoGenerationSection.__table__.create(bind=engine, checkfirst=True)
+    MemoGenerationClaim.__table__.create(bind=engine, checkfirst=True)
+    MemoJob.__table__.create(bind=engine, checkfirst=True)
     BenchmarkPoint.__table__.create(bind=engine, checkfirst=True)
     ChartBuilderTemplate.__table__.create(bind=engine, checkfirst=True)
     DealCashflowEvent.__table__.create(bind=engine, checkfirst=True)
@@ -618,8 +833,108 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_benchmark_points_vintage_year", "benchmark_points", "vintage_year")
     _ensure_index(engine, "ix_public_market_index_levels_benchmark_code", "public_market_index_levels", "benchmark_code")
     _ensure_index(engine, "ix_public_market_index_levels_level_date", "public_market_index_levels", "level_date")
+    _ensure_index(engine, "ix_memo_documents_team_id", "memo_documents", "team_id")
+    _ensure_index(engine, "ix_memo_documents_firm_id", "memo_documents", "firm_id")
+    _ensure_index(engine, "ix_memo_documents_created_by_user_id", "memo_documents", "created_by_user_id")
+    _ensure_index(engine, "ix_memo_documents_document_role", "memo_documents", "document_role")
+    _ensure_index(engine, "ix_memo_documents_status", "memo_documents", "status")
+    _ensure_index(engine, "ix_memo_documents_extraction_status", "memo_documents", "extraction_status")
+    _ensure_index(engine, "ix_memo_documents_sha256", "memo_documents", "sha256")
+    _ensure_index(engine, "ix_memo_document_chunks_document_id", "memo_document_chunks", "document_id")
+    _ensure_index(engine, "ix_memo_document_chunks_team_id", "memo_document_chunks", "team_id")
+    _ensure_index(engine, "ix_memo_document_chunks_firm_id", "memo_document_chunks", "firm_id")
+    _ensure_index(engine, "ix_memo_document_chunks_section_key", "memo_document_chunks", "section_key")
+    _ensure_index(engine, "ix_memo_document_chunks_status", "memo_document_chunks", "status")
+    _ensure_index(engine, "ix_memo_style_profiles_team_id", "memo_style_profiles", "team_id")
+    _ensure_index(engine, "ix_memo_style_profiles_created_by_user_id", "memo_style_profiles", "created_by_user_id")
+    _ensure_index(engine, "ix_memo_style_profiles_status", "memo_style_profiles", "status")
+    _ensure_index(engine, "ix_memo_style_exemplars_style_profile_id", "memo_style_exemplars", "style_profile_id")
+    _ensure_index(engine, "ix_memo_style_exemplars_document_id", "memo_style_exemplars", "document_id")
+    _ensure_index(engine, "ix_memo_style_exemplars_section_key", "memo_style_exemplars", "section_key")
+    _ensure_index(engine, "ix_memo_style_exemplars_status", "memo_style_exemplars", "status")
+    _ensure_index(engine, "ix_memo_generation_runs_team_id", "memo_generation_runs", "team_id")
+    _ensure_index(engine, "ix_memo_generation_runs_firm_id", "memo_generation_runs", "firm_id")
+    _ensure_index(engine, "ix_memo_generation_runs_created_by_user_id", "memo_generation_runs", "created_by_user_id")
+    _ensure_index(engine, "ix_memo_generation_runs_style_profile_id", "memo_generation_runs", "style_profile_id")
+    _ensure_index(engine, "ix_memo_generation_runs_status", "memo_generation_runs", "status")
+    _ensure_index(engine, "ix_memo_generation_sections_run_id", "memo_generation_sections", "run_id")
+    _ensure_index(engine, "ix_memo_generation_sections_section_key", "memo_generation_sections", "section_key")
+    _ensure_index(engine, "ix_memo_generation_sections_status", "memo_generation_sections", "status")
+    _ensure_index(engine, "ix_memo_generation_claims_run_id", "memo_generation_claims", "run_id")
+    _ensure_index(engine, "ix_memo_generation_claims_section_id", "memo_generation_claims", "section_id")
+    _ensure_index(engine, "ix_memo_generation_claims_status", "memo_generation_claims", "status")
+    _ensure_index(engine, "ix_memo_jobs_team_id", "memo_jobs", "team_id")
+    _ensure_index(engine, "ix_memo_jobs_run_id", "memo_jobs", "run_id")
+    _ensure_index(engine, "ix_memo_jobs_job_type", "memo_jobs", "job_type")
+    _ensure_index(engine, "ix_memo_jobs_status", "memo_jobs", "status")
     _ensure_index_columns(engine, "ix_fund_metadata_firm_fund", "fund_metadata", ["firm_id", "fund_number"])
     _ensure_index_columns(engine, "ix_fund_cashflows_firm_fund_event", "fund_cashflows", ["firm_id", "fund_number", "event_date"])
+    _ensure_index_columns(
+        engine,
+        "ix_memo_documents_team_role_status",
+        "memo_documents",
+        ["team_id", "document_role", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_documents_firm_status",
+        "memo_documents",
+        ["firm_id", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_document_chunks_doc_chunk",
+        "memo_document_chunks",
+        ["document_id", "chunk_index"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_document_chunks_team_firm_section",
+        "memo_document_chunks",
+        ["team_id", "firm_id", "section_key"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_style_profiles_team_user_status",
+        "memo_style_profiles",
+        ["team_id", "created_by_user_id", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_style_exemplars_profile_section_rank",
+        "memo_style_exemplars",
+        ["style_profile_id", "section_key", "rank"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_generation_runs_team_firm_status",
+        "memo_generation_runs",
+        ["team_id", "firm_id", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_generation_runs_user_status",
+        "memo_generation_runs",
+        ["created_by_user_id", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_generation_sections_run_order",
+        "memo_generation_sections",
+        ["run_id", "section_order"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_generation_claims_run_section",
+        "memo_generation_claims",
+        ["run_id", "section_id"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_jobs_status_type_created",
+        "memo_jobs",
+        ["status", "job_type", "created_at"],
+    )
     _ensure_index_columns(
         engine,
         "ix_public_market_index_levels_code_date",

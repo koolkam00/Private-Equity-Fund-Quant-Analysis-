@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% block title %}AI Investment Memos — PE Portfolio Lab{% endblock %}
+{% block page_title %}AI Investment Memos{% endblock %}
+{% block page_subtitle %}Learn your memo style from prior memos, ingest diligence documents, and generate reviewable investment memos grounded in app outputs and source materials.{% endblock %}
+
+{% block content %}
+<div class="upload-grid">
+    <section class="panel">
+        <div class="upload-actions">
+            <a href="{{ url_for('memo_style_library') }}" class="btn-upload {% if active_tab == 'style' %}btn-secondary{% endif %}">Style Library</a>
+            <a href="{{ url_for('memo_source_library') }}" class="btn-upload {% if active_tab == 'sources' %}btn-secondary{% endif %}">Source Library</a>
+            <a href="{{ url_for('memo_studio') }}" class="btn-upload {% if active_tab == 'generate' %}btn-secondary{% endif %}">Generate Memo</a>
+        </div>
+        <p class="tiny">The memo engine uses your uploaded memo exemplars plus current app analytics for quantitative grounding.</p>
+    </section>
+
+    <section class="panel">
+        <h3>Upload Prior Memo</h3>
+        <form id="memo-style-upload-form" enctype="multipart/form-data">
+            {{ csrf_field() }}
+            <input type="hidden" name="document_role" value="prior_memo">
+            <label class="drop-zone">
+                <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
+                <span class="drop-title">Drop or select a prior memo</span>
+                <span class="file-name"></span>
+            </label>
+            <button type="submit" class="btn-upload">Upload Prior Memo</button>
+        </form>
+        <form id="memo-style-profile-form" class="inline-form" style="margin-top: 1rem;">
+            {{ csrf_field() }}
+            <input type="text" name="name" placeholder="Style profile name" value="My Memo Style">
+            <button type="submit" class="btn-upload btn-secondary">Rebuild Style Profile</button>
+        </form>
+        {% if memo_style_profiles %}
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>Profile</th>
+                    <th>Status</th>
+                    <th class="num">Source Docs</th>
+                    <th class="num">Exemplars</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for profile in memo_style_profiles %}
+                <tr>
+                    <td>{{ profile.name }}</td>
+                    <td>{{ profile.status }}</td>
+                    <td class="num">{{ profile.source_document_count }}</td>
+                    <td class="num">{{ profile.approved_exemplar_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="tiny">No style profiles built yet.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <h3>Upload Diligence Source</h3>
+        <form id="memo-source-upload-form" enctype="multipart/form-data">
+            {{ csrf_field() }}
+            <div class="upload-actions">
+                <select name="document_role">
+                    <option value="ddq">DDQ</option>
+                    <option value="ppm">PPM</option>
+                    <option value="overview_deck">Overview Deck</option>
+                    <option value="supporting_material">Supporting Material</option>
+                </select>
+            </div>
+            <label class="drop-zone">
+                <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
+                <span class="drop-title">Drop or select a diligence document</span>
+                <span class="file-name"></span>
+            </label>
+            <button type="submit" class="btn-upload">Upload Source Document</button>
+        </form>
+        {% if memo_documents %}
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Extraction</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for document in memo_documents %}
+                <tr>
+                    <td>{{ document.file_name }}</td>
+                    <td>{{ document.document_role }}</td>
+                    <td>{{ document.status }}</td>
+                    <td>{{ document.extraction_status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="tiny">No memo documents uploaded yet.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <h3>Generate Memo</h3>
+        <form id="memo-run-form">
+            {{ csrf_field() }}
+            <div class="upload-actions">
+                <select name="style_profile_id" required>
+                    <option value="">Select style profile</option>
+                    {% for profile in memo_style_profiles %}
+                    <option value="{{ profile.id }}">{{ profile.name }} ({{ profile.status }})</option>
+                    {% endfor %}
+                </select>
+                <select name="benchmark_asset_class">
+                    <option value="">Benchmark</option>
+                    {% for asset_class in benchmark_asset_classes %}
+                    <option value="{{ asset_class }}">{{ asset_class }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <label class="tiny" for="memo-document-select">Source Documents</label>
+            <select id="memo-document-select" name="document_ids" multiple style="min-height: 10rem;">
+                {% for document in memo_documents %}
+                {% if document.document_role not in ['prior_memo', 'approved_generated_memo'] %}
+                <option value="{{ document.id }}">{{ document.file_name }} [{{ document.document_role }}]</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <textarea name="user_notes" rows="4" placeholder="Optional notes or diligence angle for the memo"></textarea>
+            <button type="submit" class="btn-upload">Generate Memo</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h3>Recent Memo Runs</h3>
+        {% if memo_runs %}
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Status</th>
+                    <th>Stage</th>
+                    <th>Benchmark</th>
+                    <th>Open</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in memo_runs %}
+                <tr>
+                    <td>#{{ run.id }}</td>
+                    <td>{{ run.status }}</td>
+                    <td>{{ run.progress_stage }}</td>
+                    <td>{{ run.benchmark_asset_class or "—" }}</td>
+                    <td><a href="{{ url_for('memo_run_page', run_id=run.id) }}" class="btn-upload btn-secondary btn-sm">Review</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <h3>No memo runs yet</h3>
+            <p>Upload source materials and generate your first memo.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

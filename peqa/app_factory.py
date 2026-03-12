@@ -79,6 +79,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     os.makedirs(os.path.join(app.root_path, "instance"), exist_ok=True)
+    if app.config.get("MEMO_STORAGE_BACKEND") == "local":
+        os.makedirs(app.config["MEMO_STORAGE_LOCAL_ROOT"], exist_ok=True)
 
     _configure_login_manager()
     db.init_app(app)

@@ -55,6 +55,8 @@
                     class="bi bi-file-earmark-zip"></i> Download 4 Analysis PDFs</a>
             <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
                     class="bi bi-cloud-upload"></i> Upload Deals</a>
+            <a href="{{ url_for('memo_studio') }}" class="nav-item {% if request.endpoint in ['memo_studio', 'memo_style_library', 'memo_source_library', 'memo_run_page'] %}active{% endif %}"><i
+                    class="bi bi-file-earmark-text"></i> AI Investment Memos</a>
             <div class="nav-section">Analysis</div>
             <a href="{{ url_for('analysis_page', page='lp-liquidity-quality') }}" class="nav-item nav-sub {% if active_analysis == 'lp-liquidity-quality' %}active{% endif %}"><i
                     class="bi bi-droplet-half"></i> LP Liquidity Quality</a>

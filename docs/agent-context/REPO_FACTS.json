@@ -1,0 +1,130 @@
+{
+  "repo_purpose": "Flask application for private-equity portfolio analytics, LP diligence analysis, Excel-based data ingestion, and PDF export.",
+  "repo_shape": "single_app_repo_with_partial_refactor",
+  "languages": [
+    "Python",
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "YAML",
+    "Markdown"
+  ],
+  "frameworks": [
+    "Flask",
+    "Flask-SQLAlchemy",
+    "Flask-Login",
+    "Flask-WTF",
+    "Flask-Migrate",
+    "Flask-Limiter",
+    "Jinja2",
+    "Chart.js"
+  ],
+  "package_managers": [
+    "pip"
+  ],
+  "entrypoints": [
+    {
+      "path": "wsgi.py",
+      "callable": "app",
+      "role": "production_wsgi_entrypoint"
+    },
+    {
+      "path": "app.py",
+      "callable": "app",
+      "role": "flask_cli_and_test_entrypoint"
+    },
+    {
+      "path": "peqa/app_factory.py",
+      "callable": "create_app",
+      "role": "application_factory"
+    }
+  ],
+  "core_directories": [
+    "services/",
+    "services/metrics/",
+    "peqa/",
+    "templates/",
+    "static/",
+    "tests/",
+    "migrations/"
+  ],
+  "main_commands": [
+    "python3 -m pip install -r requirements.txt",
+    "python3 -m flask --app app db-upgrade",
+    "python3 -m flask --app app bootstrap-admin",
+    "python3 -m flask --app app run",
+    "gunicorn wsgi:app"
+  ],
+  "test_commands": [
+    "pytest -q"
+  ],
+  "build_commands": [
+    "pip install -r requirements.txt"
+  ],
+  "run_commands": [
+    "python3 -m flask --app app run",
+    "gunicorn wsgi:app"
+  ],
+  "deployment_files": [
+    "render.yaml",
+    "wsgi.py",
+    "migrations/alembic.ini",
+    "migrations/env.py",
+    "migrations/versions/4a62775748c8_baseline_schema.py"
+  ],
+  "key_env_vars": [
+    "FLASK_ENV",
+    "SECRET_KEY",
+    "DATABASE_URL",
+    "SQLALCHEMY_DATABASE_URI",
+    "BOOTSTRAP_ADMIN_EMAIL",
+    "BOOTSTRAP_ADMIN_PASSWORD",
+    "BOOTSTRAP_TEAM_NAME",
+    "PORT"
+  ],
+  "external_services": [
+    "Frankfurter FX API (ECB-backed rates)",
+    "Render web service",
+    "Render Postgres",
+    "Google Fonts CDN",
+    "jsDelivr Bootstrap Icons CDN",
+    "jsDelivr Chart.js CDN"
+  ],
+  "databases": [
+    "SQLite default at instance/deals.db",
+    "PostgreSQL via DATABASE_URL / SQLALCHEMY_DATABASE_URI"
+  ],
+  "queues": [],
+  "caches": [],
+  "core_modules": [
+    "legacy_app.py",
+    "peqa/app_factory.py",
+    "models.py",
+    "services/deal_parser.py",
+    "services/benchmark_parser.py",
+    "services/metrics/deal.py",
+    "services/metrics/portfolio.py",
+    "services/metrics/analysis.py",
+    "services/metrics/lp.py",
+    "services/metrics/chart_builder.py",
+    "peqa/services/context.py",
+    "peqa/services/filtering.py"
+  ],
+  "risk_areas": [
+    "shared-firm cleanup paths are not fully team-scoped",
+    "upload FX metadata uses current date instead of workbook as-of date",
+    "route registration is duplicated through AppBinder and blueprints",
+    "rate limiting uses in-memory storage",
+    "request-time analytics and chart builder aggregate in Python without caching",
+    "existing markdown docs are partially stale",
+    "status normalization logic is duplicated across modules"
+  ],
+  "open_questions": [
+    "Are firms intended to be globally shared across teams or effectively team-owned?",
+    "Should FX conversion use workbook as-of dates or current/upload timestamps?",
+    "Should public market benchmark rows be team-scoped only or also firm-scoped?",
+    "Is the peqa/ package meant to replace legacy_app.py completely?",
+    "What dataset size and performance envelope is the app expected to support?",
+    "Is in-memory rate limiting acceptable for the intended deployment topology?"
+  ]
+}

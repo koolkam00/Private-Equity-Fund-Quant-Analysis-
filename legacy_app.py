@@ -31,6 +31,12 @@ from models import (
     FundCashflow,
     FundMetadata,
     FundQuarterSnapshot,
+    MemoDocument,
+    MemoGenerationClaim,
+    MemoGenerationRun,
+    MemoGenerationSection,
+    MemoJob,
+    MemoStyleProfile,
     PublicMarketIndexLevel,
     Team,
     TeamFirmAccess,
@@ -41,6 +47,11 @@ from models import (
     db,
     ensure_schema_updates,
 )
+from peqa.services.memos import enqueue_job, rebuild_style_profile
+from peqa.services.memos.jobs import run_inline_job
+from peqa.services.memos.storage import build_storage_key, get_document_storage
+from peqa.services.memos.style_profiles import list_style_exemplars
+from peqa.services.memos.worker import run_memo_worker
 from services.benchmark_parser import parse_benchmarks
 from services.deal_parser import parse_deals
 from services.fx_rates import resolve_rate_to_usd
@@ -251,6 +262,19 @@ ROUTE_BLUEPRINTS = {
     "download_track_record_pdf": "reports",
     "live_ic_pdf_pack": "reports",
     "download_ic_pdf_pack": "reports",
+    "memo_studio": "memos",
+    "memo_style_library": "memos",
+    "memo_source_library": "memos",
+    "memo_run_page": "memos",
+    "memo_documents_api": "memos",
+    "memo_style_profiles_api": "memos",
+    "memo_style_profile_rebuild_api": "memos",
+    "memo_runs_api": "memos",
+    "memo_run_api": "memos",
+    "memo_run_sections_api": "memos",
+    "memo_run_rerun_section_api": "memos",
+    "memo_run_approve_api": "memos",
+    "memo_run_export_api": "memos",
 }
 
 
@@ -1195,10 +1219,10 @@ def _run_db_migrations():
     user_tables = {name for name in table_names if name != "alembic_version"}
 
     if user_tables and "alembic_version" not in table_names:
-        logger.info("Detected legacy non-versioned schema; normalizing and stamping baseline revision.")
+        logger.info("Detected legacy non-versioned schema; normalizing and stamping current head revision.")
         db.create_all()
         ensure_schema_updates()
-        migrate_stamp(revision=ALEMBIC_BASELINE_REVISION)
+        migrate_stamp(revision="head")
     migrate_upgrade()
 
 
@@ -4408,6 +4432,567 @@ def download_ic_pdf_pack():
         as_attachment=True,
         download_name=bundle_name,
         mimetype="application/zip",
+    )
+
+
+MEMO_DOCUMENT_ROLES = {
+    "prior_memo",
+    "ddq",
+    "ppm",
+    "overview_deck",
+    "supporting_material",
+    "approved_generated_memo",
+}
+MEMO_STYLE_ROLES = {"prior_memo", "approved_generated_memo"}
+
+
+def _memo_payload():
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        return payload
+    return request.form
+
+
+def _memo_parse_document_ids(raw_value):
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, list):
+        values = raw_value
+    else:
+        text_value = str(raw_value).strip()
+        if not text_value:
+            return []
+        try:
+            decoded = json.loads(text_value)
+            if isinstance(decoded, list):
+                values = decoded
+            else:
+                values = [part.strip() for part in text_value.split(",")]
+        except (TypeError, ValueError):
+            values = [part.strip() for part in text_value.split(",")]
+    out = []
+    for value in values:
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return sorted({value for value in out if value > 0})
+
+
+def _memo_allowed_file(filename):
+    return os.path.splitext(filename or "")[1].lower() in app.config["MEMO_ALLOWED_EXTENSIONS"]
+
+
+def _memo_firm_scope(membership, requested_firm_id=None, allow_null=False):
+    accessible_ids = {firm.id for firm in _accessible_firms_for_team(membership.team_id)}
+    if requested_firm_id in (None, "", "null"):
+        active_firm = _resolve_active_firm_for_team()
+        if active_firm is not None and active_firm.id in accessible_ids:
+            return active_firm.id
+        return None if allow_null else abort(400)
+    try:
+        firm_id = int(requested_firm_id)
+    except (TypeError, ValueError):
+        abort(400)
+    if firm_id not in accessible_ids:
+        abort(403)
+    return firm_id
+
+
+def _memo_document_query(membership):
+    return MemoDocument.query.filter(MemoDocument.team_id == membership.team_id)
+
+
+def _memo_style_profile_query(membership):
+    return MemoStyleProfile.query.filter(
+        MemoStyleProfile.team_id == membership.team_id,
+        MemoStyleProfile.created_by_user_id == current_user.id,
+    )
+
+
+def _memo_run_query(membership):
+    return MemoGenerationRun.query.filter(MemoGenerationRun.team_id == membership.team_id)
+
+
+def _memo_document_or_404(membership, document_id):
+    row = _memo_document_query(membership).filter(MemoDocument.id == document_id).first()
+    if row is None:
+        abort(404)
+    if row.document_role in MEMO_STYLE_ROLES and row.created_by_user_id != current_user.id:
+        abort(403)
+    return row
+
+
+def _memo_style_profile_or_404(membership, profile_id):
+    row = _memo_style_profile_query(membership).filter(MemoStyleProfile.id == profile_id).first()
+    if row is None:
+        abort(404)
+    return row
+
+
+def _memo_run_or_404(membership, run_id):
+    row = _memo_run_query(membership).filter(MemoGenerationRun.id == run_id).first()
+    if row is None:
+        abort(404)
+    return row
+
+
+def _memo_parse_json(value, default):
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _memo_serialize_document(row):
+    return {
+        "id": row.id,
+        "team_id": row.team_id,
+        "firm_id": row.firm_id,
+        "created_by_user_id": row.created_by_user_id,
+        "document_role": row.document_role,
+        "file_name": row.file_name,
+        "mime_type": row.mime_type,
+        "status": row.status,
+        "extraction_status": row.extraction_status,
+        "page_count": row.page_count,
+        "error_text": row.error_text,
+        "metadata": _memo_parse_json(row.metadata_json, {}),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _memo_serialize_style_profile(row):
+    return {
+        "id": row.id,
+        "team_id": row.team_id,
+        "created_by_user_id": row.created_by_user_id,
+        "name": row.name,
+        "status": row.status,
+        "profile": _memo_parse_json(row.profile_json, {}),
+        "source_document_count": row.source_document_count,
+        "approved_exemplar_count": row.approved_exemplar_count,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _memo_serialize_section(row):
+    draft = _memo_parse_json(row.draft_json, {})
+    validation = _memo_parse_json(row.validation_json, {})
+    return {
+        "id": row.id,
+        "section_key": row.section_key,
+        "section_order": row.section_order,
+        "title": row.title,
+        "objective": row.objective,
+        "draft_text": row.draft_text,
+        "draft": draft,
+        "citations": draft.get("citations") or [],
+        "claims": draft.get("claims") or [],
+        "validation": validation,
+        "review_status": row.review_status,
+        "status": row.status,
+    }
+
+
+def _memo_serialize_run(row):
+    section_rows = (
+        MemoGenerationSection.query.filter_by(run_id=row.id)
+        .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
+        .all()
+    )
+    return {
+        "id": row.id,
+        "team_id": row.team_id,
+        "firm_id": row.firm_id,
+        "created_by_user_id": row.created_by_user_id,
+        "style_profile_id": row.style_profile_id,
+        "memo_type": row.memo_type,
+        "status": row.status,
+        "progress_stage": row.progress_stage,
+        "benchmark_asset_class": row.benchmark_asset_class,
+        "filters": _memo_parse_json(row.filters_json, {}),
+        "document_ids": _memo_parse_json(row.document_ids_json, []),
+        "outline": _memo_parse_json(row.outline_json, {}),
+        "final_markdown": row.final_markdown,
+        "final_html": row.final_html,
+        "missing_data": _memo_parse_json(row.missing_data_json, []),
+        "conflicts": _memo_parse_json(row.conflicts_json, []),
+        "open_questions": _memo_parse_json(row.open_questions_json, []),
+        "export_status": row.export_status,
+        "approved_at": row.approved_at.isoformat() if row.approved_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "section_summaries": [
+            {
+                "id": section.id,
+                "section_key": section.section_key,
+                "title": section.title,
+                "status": section.status,
+                "review_status": section.review_status,
+            }
+            for section in section_rows
+        ],
+    }
+
+
+def _memo_create_approved_exemplar(run):
+    if not run.final_markdown:
+        return None
+    storage = get_document_storage()
+    filename = f"investment_memo_run_{run.id}.md"
+    storage_key = build_storage_key(
+        "approved-memos",
+        str(run.team_id),
+        str(run.created_by_user_id),
+        f"{secrets.token_hex(8)}-{filename}",
+    )
+    storage.put(run.final_markdown.encode("utf-8"), storage_key)
+    document = MemoDocument(
+        team_id=run.team_id,
+        firm_id=run.firm_id,
+        created_by_user_id=run.created_by_user_id,
+        document_role="approved_generated_memo",
+        file_name=filename,
+        mime_type="text/markdown",
+        storage_key=storage_key,
+        sha256=hashlib.sha256(run.final_markdown.encode("utf-8")).hexdigest(),
+        status="uploaded",
+        extraction_status="pending",
+    )
+    db.session.add(document)
+    db.session.commit()
+    enqueue_job(run.team_id, "extract_document", {"document_id": document.id})
+    enqueue_job(run.team_id, "rebuild_style_profile", {"style_profile_id": run.style_profile_id})
+    return document
+
+
+@app.cli.command("memo-worker")
+@click.option("--poll-interval", type=float, default=2.0, show_default=True, help="Seconds to sleep between queue polls.")
+@with_appcontext
+def memo_worker_command(poll_interval):
+    """Run the memo generation background worker."""
+    run_memo_worker(poll_interval=poll_interval)
+
+
+@app.route("/memos")
+@login_required
+def memo_studio():
+    membership = _require_team_scope()
+    active_tab = "generate"
+    documents = (
+        _memo_document_query(membership)
+        .filter(
+            or_(
+                MemoDocument.document_role.notin_(sorted(MEMO_STYLE_ROLES)),
+                MemoDocument.created_by_user_id == current_user.id,
+            )
+        )
+        .order_by(MemoDocument.created_at.desc(), MemoDocument.id.desc())
+        .limit(50)
+        .all()
+    )
+    profiles = _memo_style_profile_query(membership).order_by(MemoStyleProfile.updated_at.desc(), MemoStyleProfile.id.desc()).all()
+    runs = _memo_run_query(membership).order_by(MemoGenerationRun.created_at.desc(), MemoGenerationRun.id.desc()).limit(25).all()
+    benchmark_asset_classes = _benchmark_asset_classes_for_team(membership.team_id)
+    return render_template(
+        "memo_studio.html",
+        active_tab=active_tab,
+        memo_documents=[_memo_serialize_document(row) for row in documents],
+        memo_style_profiles=[_memo_serialize_style_profile(row) for row in profiles],
+        memo_runs=[_memo_serialize_run(row) for row in runs],
+        benchmark_asset_classes=benchmark_asset_classes,
+    )
+
+
+@app.route("/memos/style-library")
+@login_required
+def memo_style_library():
+    membership = _require_team_scope()
+    documents = (
+        _memo_document_query(membership)
+        .filter(
+            MemoDocument.created_by_user_id == current_user.id,
+            MemoDocument.document_role.in_(sorted(MEMO_STYLE_ROLES)),
+        )
+        .order_by(MemoDocument.created_at.desc(), MemoDocument.id.desc())
+        .all()
+    )
+    profiles = _memo_style_profile_query(membership).order_by(MemoStyleProfile.updated_at.desc(), MemoStyleProfile.id.desc()).all()
+    return render_template(
+        "memo_studio.html",
+        active_tab="style",
+        memo_documents=[_memo_serialize_document(row) for row in documents],
+        memo_style_profiles=[_memo_serialize_style_profile(row) for row in profiles],
+        memo_runs=[],
+        benchmark_asset_classes=_benchmark_asset_classes_for_team(membership.team_id),
+    )
+
+
+@app.route("/memos/source-library")
+@login_required
+def memo_source_library():
+    membership = _require_team_scope()
+    documents = (
+        _memo_document_query(membership)
+        .filter(MemoDocument.document_role.notin_(sorted(MEMO_STYLE_ROLES)))
+        .order_by(MemoDocument.created_at.desc(), MemoDocument.id.desc())
+        .all()
+    )
+    return render_template(
+        "memo_studio.html",
+        active_tab="sources",
+        memo_documents=[_memo_serialize_document(row) for row in documents],
+        memo_style_profiles=[],
+        memo_runs=[],
+        benchmark_asset_classes=_benchmark_asset_classes_for_team(membership.team_id),
+    )
+
+
+@app.route("/memos/runs/<int:run_id>")
+@login_required
+def memo_run_page(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    sections = (
+        MemoGenerationSection.query.filter_by(run_id=run.id)
+        .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
+        .all()
+    )
+    return render_template(
+        "memo_run.html",
+        memo_run=_memo_serialize_run(run),
+        memo_sections=[_memo_serialize_section(section) for section in sections],
+    )
+
+
+@app.route("/api/memos/documents", methods=["GET", "POST"])
+@login_required
+def memo_documents_api():
+    membership = _require_team_scope()
+    if request.method == "GET":
+        role = (request.args.get("role") or "").strip().lower()
+        query = _memo_document_query(membership)
+        if role:
+            query = query.filter(MemoDocument.document_role == role)
+            if role in MEMO_STYLE_ROLES:
+                query = query.filter(MemoDocument.created_by_user_id == current_user.id)
+        rows = query.order_by(MemoDocument.created_at.desc(), MemoDocument.id.desc()).all()
+        return jsonify({"items": [_memo_serialize_document(row) for row in rows]})
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "file_required"}), 400
+    if not _memo_allowed_file(upload.filename):
+        return jsonify({"error": "unsupported_file_type"}), 400
+
+    payload = _memo_payload()
+    document_role = (payload.get("document_role") or "supporting_material").strip().lower()
+    if document_role not in MEMO_DOCUMENT_ROLES:
+        return jsonify({"error": "invalid_document_role"}), 400
+
+    file_bytes = upload.read()
+    max_bytes = int(app.config["MEMO_MAX_DOCUMENT_MB"]) * 1024 * 1024
+    if len(file_bytes) > max_bytes:
+        return jsonify({"error": "file_too_large", "message": f"Maximum file size is {app.config['MEMO_MAX_DOCUMENT_MB']} MB."}), 400
+
+    firm_id = _memo_firm_scope(membership, payload.get("firm_id"), allow_null=document_role in MEMO_STYLE_ROLES)
+    filename = secure_filename(upload.filename)
+    storage = get_document_storage()
+    storage_key = build_storage_key("memo-documents", str(membership.team_id), str(current_user.id), f"{secrets.token_hex(8)}-{filename}")
+    storage.put(file_bytes, storage_key)
+
+    document = MemoDocument(
+        team_id=membership.team_id,
+        firm_id=firm_id,
+        created_by_user_id=current_user.id,
+        document_role=document_role,
+        file_name=filename,
+        mime_type=upload.mimetype or "application/octet-stream",
+        storage_key=storage_key,
+        sha256=hashlib.sha256(file_bytes).hexdigest(),
+        status="uploaded",
+        extraction_status="pending",
+    )
+    db.session.add(document)
+    db.session.commit()
+    enqueue_job(membership.team_id, "extract_document", {"document_id": document.id})
+    document = _memo_document_or_404(membership, document.id)
+    return jsonify(_memo_serialize_document(document)), 201
+
+
+@app.route("/api/memos/style-profiles", methods=["GET"])
+@login_required
+def memo_style_profiles_api():
+    membership = _require_team_scope()
+    rows = _memo_style_profile_query(membership).order_by(MemoStyleProfile.updated_at.desc(), MemoStyleProfile.id.desc()).all()
+    payload = []
+    for row in rows:
+        item = _memo_serialize_style_profile(row)
+        item["exemplars"] = list_style_exemplars(row.id)
+        payload.append(item)
+    return jsonify({"items": payload})
+
+
+@app.route("/api/memos/style-profiles/rebuild", methods=["POST"])
+@login_required
+def memo_style_profile_rebuild_api():
+    membership = _require_team_scope()
+    payload = _memo_payload()
+    document_ids = _memo_parse_document_ids(payload.get("document_ids"))
+    profile_id = payload.get("style_profile_id")
+    profile_name = (payload.get("name") or "My Memo Style").strip()
+    if profile_id:
+        profile = _memo_style_profile_or_404(membership, int(profile_id))
+        if profile_name:
+            profile.name = profile_name
+    else:
+        profile = MemoStyleProfile(
+            team_id=membership.team_id,
+            created_by_user_id=current_user.id,
+            name=profile_name,
+            status="pending",
+        )
+        db.session.add(profile)
+        db.session.commit()
+    db.session.add(profile)
+    db.session.commit()
+    enqueue_job(
+        membership.team_id,
+        "rebuild_style_profile",
+        {"style_profile_id": profile.id, "document_ids": document_ids},
+    )
+    profile = _memo_style_profile_or_404(membership, profile.id)
+    data = _memo_serialize_style_profile(profile)
+    data["exemplars"] = list_style_exemplars(profile.id)
+    return jsonify(data), 201 if not profile_id else 200
+
+
+@app.route("/api/memos/runs", methods=["GET", "POST"])
+@login_required
+def memo_runs_api():
+    membership = _require_team_scope()
+    if request.method == "GET":
+        rows = _memo_run_query(membership).order_by(MemoGenerationRun.created_at.desc(), MemoGenerationRun.id.desc()).all()
+        return jsonify({"items": [_memo_serialize_run(row) for row in rows]})
+
+    payload = _memo_payload()
+    style_profile_id = payload.get("style_profile_id")
+    if style_profile_id in (None, ""):
+        return jsonify({"error": "style_profile_id_required"}), 400
+    style_profile = _memo_style_profile_or_404(membership, int(style_profile_id))
+    document_ids = _memo_parse_document_ids(payload.get("document_ids"))
+    firm_id = _memo_firm_scope(membership, payload.get("firm_id"), allow_null=False)
+    raw_filters = payload.get("filters")
+    filters = raw_filters if isinstance(raw_filters, dict) else _memo_parse_json(raw_filters, {})
+    benchmark_asset_class = (payload.get("benchmark_asset_class") or session.get("selected_benchmark_asset_class") or "").strip()
+
+    run = MemoGenerationRun(
+        team_id=membership.team_id,
+        firm_id=firm_id,
+        created_by_user_id=current_user.id,
+        style_profile_id=style_profile.id,
+        memo_type=(payload.get("memo_type") or "fund_investment").strip(),
+        filters_json=json.dumps(filters, sort_keys=True),
+        benchmark_asset_class=benchmark_asset_class,
+        document_ids_json=json.dumps(document_ids),
+        user_notes=(payload.get("user_notes") or "").strip() or None,
+        status="queued",
+        progress_stage="queued",
+    )
+    db.session.add(run)
+    db.session.commit()
+    enqueue_job(membership.team_id, "generate_memo_run", {"run_id": run.id}, run_id=run.id)
+    return jsonify(_memo_serialize_run(run)), 201
+
+
+@app.route("/api/memos/runs/<int:run_id>", methods=["GET"])
+@login_required
+def memo_run_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    return jsonify(_memo_serialize_run(run))
+
+
+@app.route("/api/memos/runs/<int:run_id>/sections", methods=["GET"])
+@login_required
+def memo_run_sections_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    rows = (
+        MemoGenerationSection.query.filter_by(run_id=run.id)
+        .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
+        .all()
+    )
+    return jsonify({"items": [_memo_serialize_section(row) for row in rows]})
+
+
+@app.route("/api/memos/runs/<int:run_id>/rerun-section", methods=["POST"])
+@login_required
+def memo_run_rerun_section_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    payload = _memo_payload()
+    section_key = (payload.get("section_key") or "").strip()
+    if not section_key:
+        return jsonify({"error": "section_key_required"}), 400
+    enqueue_job(membership.team_id, "rerun_section", {"run_id": run.id, "section_key": section_key}, run_id=run.id)
+    run = _memo_run_or_404(membership, run_id)
+    return jsonify(_memo_serialize_run(run))
+
+
+@app.route("/api/memos/runs/<int:run_id>/approve", methods=["POST"])
+@login_required
+def memo_run_approve_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    rows = MemoGenerationSection.query.filter_by(run_id=run.id).all()
+    blocked_sections = [row.section_key for row in rows if row.status != "ready"]
+    if blocked_sections:
+        return jsonify({"error": "approval_blocked", "blocked_sections": blocked_sections}), 409
+
+    now = _utc_now_naive()
+    run.status = "approved"
+    run.progress_stage = "approved"
+    run.approved_at = now
+    for row in rows:
+        row.review_status = "approved"
+        row.status = "approved"
+        row.approved_at = now
+        db.session.add(row)
+    db.session.add(run)
+    db.session.commit()
+    _memo_create_approved_exemplar(run)
+    return jsonify(_memo_serialize_run(run))
+
+
+@app.route("/api/memos/runs/<int:run_id>/export", methods=["POST"])
+@login_required
+def memo_run_export_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    payload = _memo_payload()
+    export_format = (payload.get("format") or request.args.get("format") or "markdown").strip().lower()
+    if export_format not in {"markdown", "html"}:
+        return jsonify({"error": "unsupported_export_format"}), 400
+    enqueue_job(membership.team_id, "export_memo", {"run_id": run.id}, run_id=run.id)
+    run = _memo_run_or_404(membership, run.id)
+    if export_format == "html":
+        return send_file(
+            BytesIO((run.final_html or "").encode("utf-8")),
+            as_attachment=True,
+            download_name=f"investment_memo_{run.id}.html",
+            mimetype="text/html",
+        )
+    return send_file(
+        BytesIO((run.final_markdown or "").encode("utf-8")),
+        as_attachment=True,
+        download_name=f"investment_memo_{run.id}.md",
+        mimetype="text/markdown",
     )
 
 
