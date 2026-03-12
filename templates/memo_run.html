@@ -1,28 +1,73 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_field with context %}
-{% block title %}Memo Run {{ memo_run.id }} — PE Portfolio Lab{% endblock %}
-{% block page_title %}Memo Run #{{ memo_run.id }}{% endblock %}
-{% block page_subtitle %}Review grounded section drafts, rerun sections, approve the memo, or export the final artifact.{% endblock %}
+{% block title %}Investment Memo Run {{ memo_run.id }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}Investment Memo Run #{{ memo_run.id }}{% endblock %}
+{% block page_subtitle %}Review grounded section drafts, make surgical edits, rerun sections with AI, and approve the final memo once every section meets your standard.{% endblock %}
 
 {% block content %}
-<section class="panel">
-    <div class="upload-actions">
-        <a href="{{ url_for('memo_studio') }}" class="btn-upload btn-secondary">Back to Memo Studio</a>
-        <button type="button" class="btn-upload" id="memo-run-refresh-btn" data-run-id="{{ memo_run.id }}">Refresh</button>
-        <button type="button" class="btn-upload btn-secondary" id="memo-run-approve-btn" data-run-id="{{ memo_run.id }}">Approve Memo</button>
-        <button type="button" class="btn-upload btn-secondary" id="memo-run-export-btn" data-run-id="{{ memo_run.id }}" data-format="markdown">Export Markdown</button>
-        <button type="button" class="btn-upload btn-secondary" id="memo-run-export-html-btn" data-run-id="{{ memo_run.id }}" data-format="html">Export HTML</button>
-    </div>
-    <p><strong>Status:</strong> <span id="memo-run-status">{{ memo_run.status }}</span> | <strong>Stage:</strong> <span id="memo-run-stage">{{ memo_run.progress_stage }}</span></p>
-    <p class="tiny">Benchmark: {{ memo_run.benchmark_asset_class or "None" }} | Style Profile: {{ memo_run.style_profile_id }}</p>
-    <div style="margin: 0.75rem 0 0.5rem;">
-        <div style="height: 0.75rem; background: rgba(20, 35, 33, 0.10); border-radius: 999px; overflow: hidden;">
-            <div id="memo-run-progress-bar" style="width: 6%; height: 100%; background: linear-gradient(90deg, #1d7f67, #e9b44c); transition: width 0.35s ease;"></div>
+<section class="panel memo-run-summary-card">
+    <div class="memo-run-summary-head">
+        <div class="memo-run-summary-copy">
+            <a href="{{ url_for('memo_studio') }}" class="btn-link memo-back-link"><i class="bi bi-arrow-left"></i> Back to Memo Studio</a>
+            <div class="memo-run-title-row">
+                <div>
+                    <p class="memo-eyebrow">Review Workspace</p>
+                    <h2>Investment Memo Run #{{ memo_run.id }}</h2>
+                </div>
+                <span class="memo-status-pill tone-{{ memo_run.status_tone }}" id="memo-run-status-pill">{{ memo_run.status|replace("_", " ")|title }}</span>
+            </div>
+            <p class="memo-run-status-copy" id="memo-run-status-message" role="status" aria-live="polite">{{ memo_run.human_stage or memo_run.latest_job_label }}</p>
+        </div>
+
+        <div class="memo-run-summary-actions">
+            <button type="button" class="btn-upload" id="memo-run-approve-btn" data-run-id="{{ memo_run.id }}">Approve memo</button>
+            <button type="button" class="btn-upload btn-secondary" id="memo-run-export-btn" data-run-id="{{ memo_run.id }}" data-format="markdown">Export Markdown</button>
+            <button type="button" class="btn-upload btn-secondary" id="memo-run-export-html-btn" data-run-id="{{ memo_run.id }}" data-format="html">Export HTML</button>
+            <button type="button" class="btn-upload btn-filter-clear" id="memo-run-refresh-btn" data-run-id="{{ memo_run.id }}">Refresh</button>
         </div>
     </div>
-    <p class="tiny" id="memo-run-status-message">Preparing memo generation.</p>
-    <div id="memo-run-job-alert" class="warn-box" {% if not memo_run.latest_job or memo_run.latest_job.status != "failed" %}hidden{% endif %}></div>
-    <div id="memo-run-alerts" class="warn-box" {% if not memo_run.missing_data and not memo_run.conflicts %}hidden{% endif %}>
+
+    <div class="memo-progress-track" aria-hidden="true">
+        <div id="memo-run-progress-bar" class="memo-progress-fill" style="width: 6%;"></div>
+    </div>
+
+    <div class="memo-meta-strip">
+        <div class="memo-meta-item">
+            <span>Benchmark</span>
+            <strong id="memo-run-benchmark">{{ memo_run.benchmark_asset_class or "No benchmark selected" }}</strong>
+        </div>
+        <div class="memo-meta-item">
+            <span>Style profile</span>
+            <strong id="memo-run-style-profile-name">{{ memo_run.style_profile_name or "Unavailable" }}</strong>
+        </div>
+        <div class="memo-meta-item">
+            <span>Source documents</span>
+            <strong id="memo-run-source-count">{{ memo_run.source_document_count }}</strong>
+        </div>
+        <div class="memo-meta-item">
+            <span>Sections ready</span>
+            <strong id="memo-run-ready-count">{{ memo_run.ready_section_count }}</strong>
+        </div>
+        <div class="memo-meta-item">
+            <span>Sections reviewed</span>
+            <strong id="memo-run-reviewed-count">{{ memo_run.reviewed_section_count }}</strong>
+        </div>
+        <div class="memo-meta-item">
+            <span>Updated</span>
+            <strong id="memo-run-updated-at">{{ memo_run.updated_at or "—" }}</strong>
+        </div>
+    </div>
+
+    <div id="memo-run-job-alert" class="notice-card notice-card-info" role="status" aria-live="polite" {% if not memo_run.latest_job or memo_run.latest_job.status == "completed" %}hidden{% endif %}>
+        {% if memo_run.latest_job %}
+        <p><strong>{{ memo_run.latest_job_label }}</strong></p>
+        {% if memo_run.latest_job.error_text %}
+        <p class="tiny">{{ memo_run.latest_job.error_text }}</p>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <div id="memo-run-alerts" class="notice-card notice-card-warning" {% if not memo_run.missing_data and not memo_run.conflicts %}hidden{% endif %}>
         <p><strong>Missing Data / Conflicts</strong></p>
         {% for item in memo_run.missing_data %}
         <p class="tiny">{{ item.message }}</p>
@@ -33,43 +78,174 @@
     </div>
 </section>
 
-<div id="memo-run-sections">
-    {% for section in memo_sections %}
-    <section class="panel memo-section-card" data-section-key="{{ section.section_key }}">
-        <div class="upload-actions">
-            <h3>{{ section.title }}</h3>
-            <button type="button" class="btn-upload btn-secondary memo-rerun-section-btn" data-run-id="{{ memo_run.id }}" data-section-key="{{ section.section_key }}">Rerun Section</button>
+<div class="memo-run-layout">
+    <aside class="panel memo-section-nav-panel">
+        <div class="memo-sidebar-head">
+            <div>
+                <p class="memo-eyebrow">Section Navigator</p>
+                <h3>Draft sections</h3>
+            </div>
+            <span class="tiny">{{ memo_sections|length }} sections</span>
         </div>
-        <p class="tiny"><strong>Status:</strong> {{ section.status }} | <strong>Review:</strong> {{ section.review_status }}</p>
-        <div class="warn-box">
-            <p><strong>Validation</strong></p>
-            <p class="tiny">{{ section.validation.summary if section.validation else "Pending validation." }}</p>
-            {% for item in section.validation.unsupported_claims if section.validation %}
-            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
-            {% endfor %}
-            {% for item in section.validation.numeric_mismatches if section.validation %}
-            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
-            {% endfor %}
+        <nav id="memo-run-section-nav-list" class="memo-section-nav" aria-label="Memo sections">
+            {% if memo_sections %}
+                {% for section in memo_sections %}
+                <a href="#memo-section-{{ section.section_key }}" class="memo-section-nav-link{% if loop.first %} is-active{% endif %}" data-section-nav-link data-section-key="{{ section.section_key }}">
+                    <span class="memo-section-nav-index">{{ loop.index }}</span>
+                    <span class="memo-section-nav-copy">
+                        <strong>{{ section.title }}</strong>
+                        <span class="memo-section-nav-meta">
+                            <span class="memo-status-pill tone-{{ section.status_tone }}">{{ section.status|replace("_", " ")|title }}</span>
+                            <span class="memo-status-pill tone-{{ section.review_status_tone }}">{{ section.review_status|replace("_", " ")|title }}</span>
+                        </span>
+                    </span>
+                </a>
+                {% endfor %}
+            {% else %}
+            <div class="memo-empty-state">
+                <h3>Waiting for sections</h3>
+                <p>Section cards will appear here as the memo engine drafts them.</p>
+            </div>
+            {% endif %}
+        </nav>
+    </aside>
+
+    <div class="memo-run-main">
+        <div id="memo-run-sections">
+            {% if memo_sections %}
+                {% for section in memo_sections %}
+                {% set validation = section.validation or {} %}
+                <article class="panel memo-section-card memo-run-section" id="memo-section-{{ section.section_key }}" data-section-key="{{ section.section_key }}">
+                    <div class="memo-section-head">
+                        <div>
+                            <p class="memo-eyebrow">Section {{ loop.index }}</p>
+                            <h3>{{ section.title }}</h3>
+                            {% if section.objective %}
+                            <p class="tiny">{{ section.objective }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="memo-section-actions">
+                            <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-edit-btn" data-section-key="{{ section.section_key }}">Edit</button>
+                            <button type="button" class="btn-upload btn-secondary btn-sm memo-rerun-section-btn" data-run-id="{{ memo_run.id }}" data-section-key="{{ section.section_key }}">Rerun with AI</button>
+                            <button type="button" class="btn-upload btn-secondary btn-sm memo-section-review-btn" data-section-key="{{ section.section_key }}" {% if section.review_status in ["reviewed", "approved"] or section.status != "ready" %}disabled{% endif %}>
+                                {% if section.review_status in ["reviewed", "approved"] %}Reviewed{% else %}Mark reviewed{% endif %}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="memo-section-summary-row">
+                        <span class="memo-status-pill tone-{{ section.status_tone }}">{{ section.status|replace("_", " ")|title }}</span>
+                        <span class="memo-status-pill tone-{{ section.review_status_tone }}">{{ section.review_status|replace("_", " ")|title }}</span>
+                        <span class="tiny">{{ section.citation_count }} citations</span>
+                        <span class="tiny">{{ section.open_question_count }} open questions</span>
+                    </div>
+
+                    <div class="memo-section-copy" data-memo-section-copy>
+                        {% if section.draft_text %}
+                            {% for paragraph in section.draft_text.split('\n\n') %}
+                                {% if paragraph.strip() %}
+                                <p>{{ paragraph }}</p>
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                        <p class="tiny">Draft pending.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="memo-editor" data-memo-editor hidden>
+                        <label class="memo-field memo-field-full">
+                            <span>Section draft</span>
+                            <textarea class="analysis-input memo-textarea memo-editor-textarea" data-memo-editor-text>{{ section.draft_text or "" }}</textarea>
+                        </label>
+                        <label class="memo-field memo-field-full">
+                            <span>Reviewer notes</span>
+                            <textarea class="analysis-input memo-textarea memo-editor-notes" data-memo-editor-notes>{{ section.editor_notes or "" }}</textarea>
+                        </label>
+                        <p class="tiny">Manual edits are revalidated and will update the compiled memo when you save.</p>
+                        <div class="memo-editor-actions">
+                            <button type="button" class="btn-upload btn-sm memo-section-save-btn" data-section-key="{{ section.section_key }}">Save</button>
+                            <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-cancel-btn" data-section-key="{{ section.section_key }}">Cancel</button>
+                        </div>
+                    </div>
+
+                    <details class="memo-detail-block">
+                        <summary>Grounding checks</summary>
+                        <div class="memo-detail-content">
+                            <p class="tiny">{{ validation.summary if validation else "Pending validation." }}</p>
+                            {% for item in validation.unsupported_claims if validation %}
+                            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
+                            {% endfor %}
+                            {% for item in validation.numeric_mismatches if validation %}
+                            <p class="tiny">{{ item.reason }}: {{ item.claim_text }}</p>
+                            {% endfor %}
+                            {% for item in validation.citation_gaps if validation %}
+                            <p class="tiny">{{ item.reason }}: {{ item.paragraph_text }}</p>
+                            {% endfor %}
+                        </div>
+                    </details>
+
+                    <details class="memo-detail-block" {% if section.citations %}open{% endif %}>
+                        <summary>Citations</summary>
+                        <div class="memo-detail-content">
+                            {% if section.citations %}
+                            <ul class="memo-detail-list">
+                                {% for citation in section.citations %}
+                                <li>{{ citation.label }}{% if citation.page_start %} (p. {{ citation.page_start }}){% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <p class="tiny">No citations attached to this section yet.</p>
+                            {% endif %}
+                        </div>
+                    </details>
+
+                    <details class="memo-detail-block">
+                        <summary>Open questions</summary>
+                        <div class="memo-detail-content">
+                            {% if section.open_questions %}
+                            <ul class="memo-detail-list">
+                                {% for question in section.open_questions %}
+                                <li>{{ question.question or question.message or question }}</li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <p class="tiny">No open questions are attached to this section.</p>
+                            {% endif %}
+                        </div>
+                    </details>
+                </article>
+                {% endfor %}
+            {% else %}
+            <div class="memo-skeleton-stack" id="memo-run-skeletons">
+                <div class="memo-skeleton"></div>
+                <div class="memo-skeleton"></div>
+                <div class="memo-skeleton"></div>
+            </div>
+            {% endif %}
         </div>
-        <pre style="white-space: pre-wrap;">{{ section.draft_text or "Draft pending." }}</pre>
-        {% if section.citations %}
-        <p><strong>Citations</strong></p>
-        <ul>
-            {% for citation in section.citations %}
-            <li>{{ citation.label }}{% if citation.page_start %} (p. {{ citation.page_start }}){% endif %}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-    </section>
-    {% endfor %}
+
+        <section class="panel">
+            <div class="memo-sidebar-head">
+                <div>
+                    <p class="memo-eyebrow">Compiled Memo Preview</p>
+                    <h3>Current assembled draft</h3>
+                </div>
+            </div>
+            <div id="memo-run-final-preview" class="memo-document-surface">
+                {% if memo_run.final_html %}
+                {{ memo_run.final_html|safe }}
+                {% else %}
+                <div class="memo-empty-state">
+                    <h3>Preview pending</h3>
+                    <p>The compiled memo preview will appear once the first validated sections are assembled.</p>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
 </div>
 
-<section class="panel">
-    <h3>Final Memo</h3>
-    <pre id="memo-run-final-markdown" style="white-space: pre-wrap;">{{ memo_run.final_markdown or "" }}</pre>
-</section>
-
 <script id="memo-run-payload" type="application/json">
-    {{ {"runId": memo_run.id, "initialRun": memo_run}|tojson }}
+    {{ {"runId": memo_run.id, "initialRun": memo_run, "initialSections": memo_sections}|tojson }}
 </script>
 {% endblock %}

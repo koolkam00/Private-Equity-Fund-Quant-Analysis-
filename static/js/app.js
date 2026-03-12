@@ -2882,58 +2882,128 @@ function formatMemoActivitySummary(documents, profiles, runs) {
     }
     return {
         hasPending: pendingDocuments.length > 0 || pendingProfiles.length > 0 || activeRuns.length > 0,
+        tone: failedDocuments.length || failedProfiles.length || failedRuns.length ? 'warning' : 'info',
         html: messages.length ? `<p><strong>Memo Activity</strong></p>${messages.map((message) => `<p class="tiny">${escapeHtml(message)}</p>`).join('')}` : '',
     };
 }
 
+function memoStatusLabel(value) {
+    return String(value || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function memoStatusTone(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['ready', 'approved', 'review_required', 'reviewed'].includes(normalized)) return 'ready';
+    if (['failed', 'blocked', 'error'].includes(normalized)) return 'failed';
+    if (['queued', 'running', 'uploaded', 'processing', 'pending'].includes(normalized)) return 'processing';
+    return 'attention';
+}
+
+function memoFormatDateTime(value) {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+    }
+    return parsed.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function memoParagraphHtml(text, emptyText = 'Draft pending.') {
+    const paragraphs = String(text || '')
+        .split(/\n\s*\n/g)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean);
+    if (!paragraphs.length) {
+        return `<p class="tiny">${escapeHtml(emptyText)}</p>`;
+    }
+    return paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`).join('');
+}
+
 function computeMemoRunProgress(run, sections) {
-    const status = (run?.status || '').trim();
-    const stage = (run?.progress_stage || '').trim();
-    const latestJob = run?.latest_job || null;
+    const status = String(run?.status || '').trim().toLowerCase();
+    const stage = String(run?.progress_stage || '').trim().toLowerCase();
     const totalSections = Array.isArray(sections) ? sections.length : 0;
     const completedSections = Array.isArray(sections)
         ? sections.filter((section) => ['ready', 'approved'].includes(section.status)).length
         : 0;
 
     if (status === 'approved') {
-        return { percent: 100, message: 'Memo approved. Exports are ready.', jobAlert: '' };
+        return { percent: 100, message: run?.human_stage || 'Memo approved and ready for export.' };
     }
     if (status === 'review_required') {
-        return { percent: 100, message: 'Draft complete. Review the sections below before approval.', jobAlert: '' };
+        return { percent: 100, message: run?.human_stage || 'Draft complete. Review each section before approval.' };
     }
     if (status === 'failed') {
-        const detail = latestJob?.error_text ? ` ${latestJob.error_text}` : '';
-        return {
-            percent: 100,
-            message: `Memo generation failed.${detail}`,
-            jobAlert: latestJob?.error_text ? `<p><strong>Generation failed</strong></p><p class="tiny">${escapeHtml(latestJob.error_text)}</p>` : '',
-        };
+        return { percent: 100, message: run?.human_stage || 'This run did not complete.' };
     }
 
-    let percent = 8;
-    let message = 'Queued. The memo engine has accepted the job and is waiting to start.';
     if (stage === 'building_evidence') {
-        percent = 22;
-        message = 'Collecting source documents, app outputs, and diligence context.';
-    } else if (stage === 'drafting') {
-        percent = 45;
-        message = 'Drafting memo sections in your style.';
-    } else if (stage.startsWith('drafting:')) {
-        percent = totalSections > 0 ? Math.max(45, Math.min(92, 45 + Math.round((completedSections / totalSections) * 47))) : 62;
-        message = `Drafting ${stage.split(':')[1].replace(/_/g, ' ')}.`;
-    } else if (stage.startsWith('rerunning:')) {
-        percent = 70;
-        message = `Rerunning ${stage.split(':')[1].replace(/_/g, ' ')}.`;
+        return { percent: 24, message: run?.human_stage || 'Collecting app analytics, extracted facts, and document citations.' };
     }
-
-    let jobAlert = '';
-    if (latestJob?.status === 'queued') {
-        jobAlert = '<p><strong>Job queued</strong></p><p class="tiny">Background processing is waiting to claim this memo job.</p>';
-    } else if (latestJob?.status === 'running') {
-        jobAlert = '<p><strong>Job running</strong></p><p class="tiny">The memo engine is actively processing this run.</p>';
+    if (stage === 'drafting') {
+        return { percent: 46, message: run?.human_stage || 'Drafting sections in your style.' };
     }
+    if (stage.startsWith('drafting:')) {
+        const percent = totalSections > 0
+            ? Math.max(48, Math.min(94, 48 + Math.round((completedSections / totalSections) * 44)))
+            : 62;
+        return { percent, message: run?.human_stage || run?.latest_job_label || 'Drafting sections in your style.' };
+    }
+    if (stage.startsWith('rerunning:')) {
+        return { percent: 72, message: run?.human_stage || run?.latest_job_label || 'Rerunning the selected section.' };
+    }
+    return { percent: 8, message: run?.human_stage || run?.latest_job_label || 'Queued. The memo engine has accepted your request and is preparing the run.' };
+}
 
-    return { percent, message, jobAlert };
+function updateMemoMetric(metricKey, value) {
+    document.querySelectorAll(`[data-memo-metric="${metricKey}"]`).forEach((node) => {
+        node.textContent = String(value);
+    });
+}
+
+function setNoticeCardVariant(element, variant) {
+    if (!element) return;
+    element.classList.remove('notice-card-info', 'notice-card-success', 'notice-card-warning', 'notice-card-danger');
+    element.classList.add(`notice-card-${variant}`);
+}
+
+function renderStudioRunCards(runs) {
+    const container = document.getElementById('memo-sidebar-run-list');
+    if (!container) return;
+    const recentRuns = Array.isArray(runs) ? runs.slice(0, 6) : [];
+    if (!recentRuns.length) {
+        container.innerHTML = `
+            <div class="memo-empty-state">
+                <h3>No memo runs yet</h3>
+                <p>No memo runs yet. Once your style profile and source materials are ready, generate your first draft.</p>
+            </div>
+        `;
+        return;
+    }
+    container.innerHTML = recentRuns.map((run) => `
+        <article class="memo-run-card">
+            <div class="memo-run-card-head">
+                <div>
+                    <strong>#${escapeHtml(run.id)}</strong>
+                    <p class="tiny">${escapeHtml(run.style_profile_name || 'Style profile unavailable')}</p>
+                </div>
+                <span class="memo-status-pill tone-${escapeHtml(run.status_tone || memoStatusTone(run.status))}">${escapeHtml(memoStatusLabel(run.status))}</span>
+            </div>
+            <p class="tiny">${escapeHtml(run.latest_job_label || run.human_stage || 'Memo run created.')}</p>
+            <div class="memo-run-card-meta">
+                <span>${escapeHtml(run.benchmark_asset_class || 'No benchmark')}</span>
+                <span>${escapeHtml(run.source_document_count || 0)} docs</span>
+            </div>
+            <a href="/memos/runs/${encodeURIComponent(run.id)}" class="btn-upload btn-secondary btn-sm">Open run</a>
+        </article>
+    `).join('');
 }
 
 function bindMemoUploadForm(formId, endpoint) {
@@ -2960,18 +3030,144 @@ function bindMemoUploadForm(formId, endpoint) {
 }
 
 function initMemoStudio() {
-    let sawPendingStudioWork = false;
+    const runForm = document.getElementById('memo-run-form');
+    const styleProfileForm = document.getElementById('memo-style-profile-form');
+    const styleProfileBuilderIdInput = document.getElementById('memo-style-profile-builder-id');
+    const styleProfileNameInput = document.getElementById('memo-style-profile-name');
+    const styleProfileHiddenInput = document.getElementById('memo-run-style-profile-id');
+    const selectedStyleNameEl = document.getElementById('memo-selected-style-name');
+    const selectedStyleMetaEl = document.getElementById('memo-selected-style-meta');
+    const selectedDocCountEl = document.getElementById('memo-selected-doc-count');
+    const selectedDocMetaEl = document.getElementById('memo-selected-doc-meta');
+    const runSubmitButton = document.getElementById('memo-run-submit-btn');
+    const runSubmitFeedbackEl = document.getElementById('memo-run-submit-feedback');
+    const readinessStyleEl = document.getElementById('memo-readiness-style');
+    const readinessDocsEl = document.getElementById('memo-readiness-docs');
+    const readinessFirmEl = document.getElementById('memo-readiness-firm');
+    const documentSearchInput = document.getElementById('memo-document-search');
+    const documentFilterButtons = Array.from(document.querySelectorAll('[data-memo-doc-filter]'));
+    const documentCards = Array.from(document.querySelectorAll('[data-memo-document-card]'));
+    const profileCards = Array.from(document.querySelectorAll('[data-memo-profile-card]'));
     bindMemoUploadForm('memo-style-upload-form', '/api/memos/documents');
     bindMemoUploadForm('memo-source-upload-form', '/api/memos/documents');
 
-    const styleProfileForm = document.getElementById('memo-style-profile-form');
+    const state = {
+        sawPendingStudioWork: false,
+        selectedProfileId: styleProfileHiddenInput?.value || '',
+        selectedProfileName: '',
+        docFilter: 'all',
+    };
+
+    function setReadinessItem(element, isReady) {
+        if (!element) return;
+        element.classList.toggle('is-ready', Boolean(isReady));
+        const icon = element.querySelector('i');
+        if (!icon) return;
+        icon.className = `bi ${isReady ? 'bi-check-circle-fill' : 'bi-circle'}`;
+    }
+
+    function selectedSourceCheckboxes() {
+        return Array.from(document.querySelectorAll('.memo-source-checkbox'))
+            .filter((input) => input.checked && !input.disabled);
+    }
+
+    function applyDocumentFilters() {
+        if (!documentCards.length) return;
+        const searchValue = String(documentSearchInput?.value || '').trim().toLowerCase();
+        let visibleCount = 0;
+        documentCards.forEach((card) => {
+            const status = String(card.dataset.documentStatus || '').trim().toLowerCase();
+            const haystack = String(card.dataset.documentSearch || '').trim().toLowerCase();
+            const matchesSearch = !searchValue || haystack.includes(searchValue);
+            const matchesFilter = state.docFilter === 'all'
+                || (state.docFilter === 'ready' && status === 'ready')
+                || (state.docFilter === 'processing' && status === 'processing')
+                || (state.docFilter === 'attention' && status === 'failed');
+            const visible = matchesSearch && matchesFilter;
+            card.hidden = !visible;
+            if (visible) visibleCount += 1;
+        });
+
+        let emptyState = document.getElementById('memo-resource-filter-empty');
+        if (!visibleCount && documentCards.length) {
+            if (!emptyState) {
+                emptyState = document.createElement('div');
+                emptyState.id = 'memo-resource-filter-empty';
+                emptyState.className = 'memo-empty-state';
+                emptyState.innerHTML = '<h3>No matching documents</h3><p>Adjust the search or filter to see additional source materials.</p>';
+                document.getElementById('memo-resource-list')?.appendChild(emptyState);
+            }
+            emptyState.hidden = false;
+        } else if (emptyState) {
+            emptyState.hidden = true;
+        }
+    }
+
+    function updateSelectedDocumentsSummary() {
+        const selectedInputs = selectedSourceCheckboxes();
+        const selectedCount = selectedInputs.length;
+        documentCards.forEach((card) => {
+            const checkbox = card.querySelector('.memo-source-checkbox');
+            card.classList.toggle('is-selected', Boolean(checkbox?.checked));
+        });
+        if (selectedDocCountEl) {
+            selectedDocCountEl.textContent = `${selectedCount} document${selectedCount === 1 ? '' : 's'}`;
+        }
+        if (selectedDocMetaEl) {
+            selectedDocMetaEl.textContent = selectedCount
+                ? 'Ready source materials selected for this memo run.'
+                : 'Select one or more ready documents from Step 2.';
+        }
+    }
+
+    function updateGenerateReadiness() {
+        const hasSelectedProfile = Boolean(state.selectedProfileId);
+        const selectedInputs = selectedSourceCheckboxes();
+        const hasDocuments = selectedInputs.length > 0;
+        const hasActiveFirm = String(runForm?.dataset.hasActiveFirm || '').toLowerCase() === 'true';
+
+        setReadinessItem(readinessStyleEl, hasSelectedProfile);
+        setReadinessItem(readinessDocsEl, hasDocuments);
+        setReadinessItem(readinessFirmEl, hasActiveFirm);
+
+        if (runSubmitButton) {
+            runSubmitButton.disabled = !(hasSelectedProfile && hasDocuments && hasActiveFirm);
+        }
+    }
+
+    function selectProfileCard(card, options = {}) {
+        if (!card || String(card.dataset.profileStatus || '').toLowerCase() !== 'ready') return;
+        state.selectedProfileId = String(card.dataset.profileId || '').trim();
+        state.selectedProfileName = String(card.dataset.profileName || '').trim();
+        if (styleProfileHiddenInput) {
+            styleProfileHiddenInput.value = state.selectedProfileId;
+        }
+        profileCards.forEach((profileCard) => {
+            profileCard.classList.toggle('is-selected', profileCard === card);
+        });
+        if (selectedStyleNameEl) {
+            selectedStyleNameEl.textContent = state.selectedProfileName || 'No profile selected';
+        }
+        if (selectedStyleMetaEl) {
+            const statNodes = Array.from(card.querySelectorAll('.memo-choice-stats strong'));
+            const sourceCount = statNodes[0]?.textContent || '0';
+            const exemplarCount = statNodes[1]?.textContent || '0';
+            selectedStyleMetaEl.textContent = `${sourceCount} source memos · ${exemplarCount} section exemplars`;
+        }
+        updateGenerateReadiness();
+        if (options.scroll) {
+            document.getElementById('memo-step-generate')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
     if (styleProfileForm) {
         styleProfileForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const formData = new FormData(styleProfileForm);
             const submitButton = styleProfileForm.querySelector('button[type="submit"]');
             try {
-                setButtonBusy(submitButton, true, 'Building Style...');
+                const isRebuild = Boolean(formData.get('style_profile_id'));
+                setButtonBusy(submitButton, true, isRebuild ? 'Rebuilding...' : 'Building style...');
                 await fetchJson('/api/memos/style-profiles/rebuild', {
                     method: 'POST',
                     body: formData,
@@ -2986,30 +3182,80 @@ function initMemoStudio() {
         });
     }
 
-    const memoRunForm = document.getElementById('memo-run-form');
-    if (memoRunForm) {
-        const feedbackEl = document.getElementById('memo-run-submit-feedback');
-        const submitButton = document.getElementById('memo-run-submit-btn');
-        memoRunForm.addEventListener('submit', async (event) => {
+    document.querySelectorAll('.memo-style-rebuild-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            if (!styleProfileForm) return;
+            if (styleProfileBuilderIdInput) {
+                styleProfileBuilderIdInput.value = button.dataset.styleProfileId || '';
+            }
+            if (styleProfileNameInput) {
+                styleProfileNameInput.value = button.dataset.styleProfileName || styleProfileNameInput.value || 'My Memo Style';
+            }
+            styleProfileForm.requestSubmit();
+        });
+    });
+
+    profileCards.forEach((card) => {
+        const selectButton = card.querySelector('[data-memo-select-profile]');
+        if (selectButton) {
+            selectButton.addEventListener('click', () => {
+                selectProfileCard(card, { scroll: true });
+            });
+        }
+        if (String(card.dataset.profileStatus || '').toLowerCase() === 'ready') {
+            card.addEventListener('click', (event) => {
+                if (event.target.closest('button')) return;
+                selectProfileCard(card, { scroll: false });
+            });
+            card.addEventListener('keydown', (event) => {
+                if (!['Enter', ' '].includes(event.key)) return;
+                event.preventDefault();
+                selectProfileCard(card, { scroll: false });
+            });
+        }
+    });
+
+    document.querySelectorAll('.memo-source-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+            updateSelectedDocumentsSummary();
+            updateGenerateReadiness();
+        });
+    });
+
+    documentFilterButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            state.docFilter = button.dataset.memoDocFilter || 'all';
+            documentFilterButtons.forEach((pill) => pill.classList.toggle('is-active', pill === button));
+            applyDocumentFilters();
+        });
+    });
+
+    if (documentSearchInput) {
+        documentSearchInput.addEventListener('input', () => {
+            applyDocumentFilters();
+        });
+    }
+
+    if (runForm) {
+        runForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const documentSelect = document.getElementById('memo-document-select');
-            const documentIds = documentSelect
-                ? Array.from(documentSelect.selectedOptions).map((option) => Number(option.value)).filter(Number.isInteger)
-                : [];
+            const documentIds = selectedSourceCheckboxes()
+                .map((input) => Number(input.value))
+                .filter((value) => Number.isInteger(value) && value > 0);
             const payload = {
-                style_profile_id: memoRunForm.elements.style_profile_id.value,
-                benchmark_asset_class: memoRunForm.elements.benchmark_asset_class.value,
-                user_notes: memoRunForm.elements.user_notes.value,
+                style_profile_id: runForm.elements.style_profile_id.value,
+                benchmark_asset_class: runForm.elements.benchmark_asset_class.value,
+                user_notes: runForm.elements.user_notes.value,
                 document_ids: documentIds,
                 memo_type: 'fund_investment',
                 filters: {},
             };
             try {
-                if (feedbackEl) {
-                    feedbackEl.hidden = false;
-                    feedbackEl.textContent = 'Creating memo run and starting generation...';
+                if (runSubmitFeedbackEl) {
+                    runSubmitFeedbackEl.hidden = false;
+                    runSubmitFeedbackEl.textContent = 'Creating memo run and starting generation...';
                 }
-                setButtonBusy(submitButton, true, 'Starting...');
+                setButtonBusy(runSubmitButton, true, 'Starting...');
                 const response = await fetchJson('/api/memos/runs', {
                     method: 'POST',
                     headers: {
@@ -3018,84 +3264,225 @@ function initMemoStudio() {
                     },
                     body: JSON.stringify(payload),
                 });
-                if (feedbackEl) {
-                    feedbackEl.textContent = 'Memo run created. Opening live progress view...';
+                if (runSubmitFeedbackEl) {
+                    runSubmitFeedbackEl.textContent = 'Memo run created. Opening live progress view...';
                 }
                 window.location.href = `/memos/runs/${response.id}`;
             } catch (error) {
-                if (feedbackEl) {
-                    feedbackEl.hidden = false;
-                    feedbackEl.textContent = error.message;
+                if (runSubmitFeedbackEl) {
+                    runSubmitFeedbackEl.hidden = false;
+                    runSubmitFeedbackEl.textContent = error.message;
                 } else {
                     window.alert(error.message);
                 }
             } finally {
-                setButtonBusy(submitButton, false);
+                setButtonBusy(runSubmitButton, false);
             }
         });
     }
 
     const activityEl = document.getElementById('memo-studio-activity');
+    function applyStudioReadiness(documents, profiles, runs) {
+        const readyProfiles = profiles.filter((item) => item.status === 'ready').length;
+        const readyDocuments = documents.filter((item) => {
+            const role = String(item.document_role || '').trim().toLowerCase();
+            return !['prior_memo', 'approved_generated_memo'].includes(role)
+                && item.status === 'ready'
+                && item.extraction_status === 'ready';
+        }).length;
+        const activeRuns = runs.filter((item) => ['queued', 'running'].includes(item.status)).length;
+        updateMemoMetric('ready-profiles', readyProfiles);
+        updateMemoMetric('ready-documents', readyDocuments);
+        updateMemoMetric('active-runs', activeRuns);
+        renderStudioRunCards(runs);
+    }
+
     async function refreshStudioActivity() {
-        if (!activityEl) return;
+        if (!activityEl && !document.querySelector('[data-memo-metric]')) return;
         try {
             const [documentsPayload, profilesPayload, runsPayload] = await Promise.all([
                 fetchJson('/api/memos/documents', { headers: jsonHeaders() }),
                 fetchJson('/api/memos/style-profiles', { headers: jsonHeaders() }),
                 fetchJson('/api/memos/runs', { headers: jsonHeaders() }),
             ]);
+            const documents = documentsPayload?.items || [];
+            const profiles = profilesPayload?.items || [];
+            const runs = runsPayload?.items || [];
+            applyStudioReadiness(documents, profiles, runs);
             const summary = formatMemoActivitySummary(
-                documentsPayload?.items || [],
-                profilesPayload?.items || [],
-                runsPayload?.items || [],
+                documents,
+                profiles,
+                runs,
             );
-            activityEl.hidden = !summary.html;
-            activityEl.innerHTML = summary.html;
+            if (activityEl) {
+                activityEl.hidden = !summary.html;
+                activityEl.innerHTML = summary.html;
+                setNoticeCardVariant(activityEl, summary.tone);
+            }
             if (summary.hasPending) {
-                sawPendingStudioWork = true;
+                state.sawPendingStudioWork = true;
                 window.setTimeout(() => {
                     refreshStudioActivity().catch((error) => console.error(error));
                 }, 3000);
-            } else if (sawPendingStudioWork) {
+            } else if (state.sawPendingStudioWork) {
                 window.location.reload();
             }
         } catch (error) {
             console.error(error);
         }
     }
+
+    applyDocumentFilters();
+    updateSelectedDocumentsSummary();
+    updateGenerateReadiness();
+    if (!state.selectedProfileId) {
+        const readyCards = profileCards.filter((card) => String(card.dataset.profileStatus || '').toLowerCase() === 'ready');
+        if (readyCards.length === 1) {
+            selectProfileCard(readyCards[0], { scroll: false });
+        }
+    }
     refreshStudioActivity().catch((error) => console.error(error));
 }
 
-function renderMemoRunSections(sections) {
+function renderMemoSectionNav(sections) {
+    const container = document.getElementById('memo-run-section-nav-list');
+    if (!container) return;
+    if (!Array.isArray(sections) || !sections.length) {
+        container.innerHTML = `
+            <div class="memo-empty-state">
+                <h3>Waiting for sections</h3>
+                <p>Section cards will appear here as the memo engine drafts them.</p>
+            </div>
+        `;
+        return;
+    }
+    container.innerHTML = sections.map((section, index) => `
+        <a href="#memo-section-${escapeHtml(section.section_key)}" class="memo-section-nav-link${index === 0 ? ' is-active' : ''}" data-section-nav-link data-section-key="${escapeHtml(section.section_key)}">
+            <span class="memo-section-nav-index">${index + 1}</span>
+            <span class="memo-section-nav-copy">
+                <strong>${escapeHtml(section.title || memoStatusLabel(section.section_key))}</strong>
+                <span class="memo-section-nav-meta">
+                    <span class="memo-status-pill tone-${escapeHtml(section.status_tone || memoStatusTone(section.status))}">${escapeHtml(memoStatusLabel(section.status))}</span>
+                    <span class="memo-status-pill tone-${escapeHtml(section.review_status_tone || memoStatusTone(section.review_status))}">${escapeHtml(memoStatusLabel(section.review_status))}</span>
+                </span>
+            </span>
+        </a>
+    `).join('');
+}
+
+function renderMemoRunSections(sections, runId, runStatus) {
     const container = document.getElementById('memo-run-sections');
     if (!container) return;
-    container.innerHTML = sections.map((section) => {
+    if (!Array.isArray(sections) || !sections.length) {
+        if (['queued', 'running'].includes(String(runStatus || '').toLowerCase())) {
+            container.innerHTML = `
+                <div class="memo-skeleton-stack" id="memo-run-skeletons">
+                    <div class="memo-skeleton"></div>
+                    <div class="memo-skeleton"></div>
+                    <div class="memo-skeleton"></div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="memo-empty-state">
+                    <h3>No sections yet</h3>
+                    <p>Section cards will appear here once the memo engine begins drafting.</p>
+                </div>
+            `;
+        }
+        return;
+    }
+
+    container.innerHTML = sections.map((section, index) => {
         const validation = section.validation || {};
         const citations = Array.isArray(section.citations) ? section.citations : [];
-        const unsupported = Array.isArray(validation.unsupported_claims) ? validation.unsupported_claims : [];
-        const mismatches = Array.isArray(validation.numeric_mismatches) ? validation.numeric_mismatches : [];
-        const citationList = citations.map((citation) => {
-            const pageLabel = citation.page_start ? ` (p. ${escapeHtml(citation.page_start)})` : '';
-            return `<li>${escapeHtml(citation.label || citation.id || 'Citation')}${pageLabel}</li>`;
-        }).join('');
-        const unsupportedHtml = unsupported.map((item) => `<p class="tiny">${escapeHtml(item.reason || '')}: ${escapeHtml(item.claim_text || '')}</p>`).join('');
-        const mismatchHtml = mismatches.map((item) => `<p class="tiny">${escapeHtml(item.reason || '')}: ${escapeHtml(item.claim_text || '')}</p>`).join('');
+        const unsupportedClaims = Array.isArray(validation.unsupported_claims) ? validation.unsupported_claims : [];
+        const numericMismatches = Array.isArray(validation.numeric_mismatches) ? validation.numeric_mismatches : [];
+        const citationGaps = Array.isArray(validation.citation_gaps) ? validation.citation_gaps : [];
+        const openQuestions = Array.isArray(section.open_questions) ? section.open_questions : [];
+        const canReview = section.status === 'ready' && !['reviewed', 'approved'].includes(section.review_status);
+        const validationRows = []
+            .concat(unsupportedClaims.map((item) => `<p class="tiny">${escapeHtml(item.reason || 'Unsupported claim')}: ${escapeHtml(item.claim_text || '')}</p>`))
+            .concat(numericMismatches.map((item) => `<p class="tiny">${escapeHtml(item.reason || 'Numeric mismatch')}: ${escapeHtml(item.claim_text || '')}</p>`))
+            .concat(citationGaps.map((item) => `<p class="tiny">${escapeHtml(item.reason || 'Citation gap')}: ${escapeHtml(item.paragraph_text || '')}</p>`))
+            .join('');
+
         return `
-            <section class="panel memo-section-card" data-section-key="${escapeHtml(section.section_key)}">
-                <div class="upload-actions">
-                    <h3>${escapeHtml(section.title || section.section_key)}</h3>
-                    <button type="button" class="btn-upload btn-secondary memo-rerun-section-btn" data-run-id="${escapeHtml(section.run_id || '')}" data-section-key="${escapeHtml(section.section_key)}">Rerun Section</button>
+            <article class="panel memo-section-card memo-run-section" id="memo-section-${escapeHtml(section.section_key)}" data-section-key="${escapeHtml(section.section_key)}">
+                <div class="memo-section-head">
+                    <div>
+                        <p class="memo-eyebrow">Section ${index + 1}</p>
+                        <h3>${escapeHtml(section.title || memoStatusLabel(section.section_key))}</h3>
+                        ${section.objective ? `<p class="tiny">${escapeHtml(section.objective)}</p>` : ''}
+                    </div>
+                    <div class="memo-section-actions">
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-edit-btn" data-section-key="${escapeHtml(section.section_key)}">Edit</button>
+                        <button type="button" class="btn-upload btn-secondary btn-sm memo-rerun-section-btn" data-run-id="${escapeHtml(runId)}" data-section-key="${escapeHtml(section.section_key)}">Rerun with AI</button>
+                        <button type="button" class="btn-upload btn-secondary btn-sm memo-section-review-btn" data-section-key="${escapeHtml(section.section_key)}" ${canReview ? '' : 'disabled'}>
+                            ${['reviewed', 'approved'].includes(section.review_status) ? 'Reviewed' : 'Mark reviewed'}
+                        </button>
+                    </div>
                 </div>
-                <p class="tiny"><strong>Status:</strong> ${escapeHtml(section.status || 'pending')} | <strong>Review:</strong> ${escapeHtml(section.review_status || 'pending')}</p>
-                <div class="warn-box">
-                    <p><strong>Validation</strong></p>
-                    <p class="tiny">${escapeHtml(validation.summary || 'Pending validation.')}</p>
-                    ${unsupportedHtml}
-                    ${mismatchHtml}
+
+                <div class="memo-section-summary-row">
+                    <span class="memo-status-pill tone-${escapeHtml(section.status_tone || memoStatusTone(section.status))}">${escapeHtml(memoStatusLabel(section.status))}</span>
+                    <span class="memo-status-pill tone-${escapeHtml(section.review_status_tone || memoStatusTone(section.review_status))}">${escapeHtml(memoStatusLabel(section.review_status))}</span>
+                    <span class="tiny">${escapeHtml(section.citation_count || 0)} citations</span>
+                    <span class="tiny">${escapeHtml(section.open_question_count || 0)} open questions</span>
                 </div>
-                <pre style="white-space: pre-wrap;">${escapeHtml(section.draft_text || 'Draft pending.')}</pre>
-                ${citationList ? `<p><strong>Citations</strong></p><ul>${citationList}</ul>` : ''}
-            </section>
+
+                <div class="memo-section-copy" data-memo-section-copy>
+                    ${memoParagraphHtml(section.draft_text, 'Draft pending.')}
+                </div>
+
+                <div class="memo-editor" data-memo-editor hidden>
+                    <label class="memo-field memo-field-full">
+                        <span>Section draft</span>
+                        <textarea class="analysis-input memo-textarea memo-editor-textarea" data-memo-editor-text>${escapeHtml(section.draft_text || '')}</textarea>
+                    </label>
+                    <label class="memo-field memo-field-full">
+                        <span>Reviewer notes</span>
+                        <textarea class="analysis-input memo-textarea memo-editor-notes" data-memo-editor-notes>${escapeHtml(section.editor_notes || '')}</textarea>
+                    </label>
+                    <p class="tiny">Manual edits are revalidated and will update the compiled memo when you save.</p>
+                    <div class="memo-editor-actions">
+                        <button type="button" class="btn-upload btn-sm memo-section-save-btn" data-section-key="${escapeHtml(section.section_key)}">Save</button>
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-cancel-btn" data-section-key="${escapeHtml(section.section_key)}">Cancel</button>
+                    </div>
+                </div>
+
+                <details class="memo-detail-block">
+                    <summary>Grounding checks</summary>
+                    <div class="memo-detail-content">
+                        <p class="tiny">${escapeHtml(validation.summary || 'Pending validation.')}</p>
+                        ${validationRows || '<p class="tiny">No grounding issues are currently attached to this section.</p>'}
+                    </div>
+                </details>
+
+                <details class="memo-detail-block" ${citations.length ? 'open' : ''}>
+                    <summary>Citations</summary>
+                    <div class="memo-detail-content">
+                        ${citations.length ? `
+                            <ul class="memo-detail-list">
+                                ${citations.map((citation) => `
+                                    <li>${escapeHtml(citation.label || citation.id || 'Citation')}${citation.page_start ? ` (p. ${escapeHtml(citation.page_start)})` : ''}</li>
+                                `).join('')}
+                            </ul>
+                        ` : '<p class="tiny">No citations attached to this section yet.</p>'}
+                    </div>
+                </details>
+
+                <details class="memo-detail-block">
+                    <summary>Open questions</summary>
+                    <div class="memo-detail-content">
+                        ${openQuestions.length ? `
+                            <ul class="memo-detail-list">
+                                ${openQuestions.map((question) => `<li>${escapeHtml(question.question || question.message || question)}</li>`).join('')}
+                            </ul>
+                        ` : '<p class="tiny">No open questions are attached to this section.</p>'}
+                    </div>
+                </details>
+            </article>
         `;
     }).join('');
 }
@@ -3115,97 +3502,229 @@ function initMemoRun() {
     const payload = getJsonScriptPayload('memo-run-payload');
     if (!payload || !payload.runId) return;
     const runId = Number(payload.runId);
-    const statusEl = document.getElementById('memo-run-status');
-    const stageEl = document.getElementById('memo-run-stage');
-    const finalMarkdownEl = document.getElementById('memo-run-final-markdown');
+    let currentRun = payload.initialRun || {};
+    let currentSections = Array.isArray(payload.initialSections) ? payload.initialSections.slice() : [];
+    let pollTimer = null;
+    let pollPaused = false;
+
+    const statusPillEl = document.getElementById('memo-run-status-pill');
+    const finalPreviewEl = document.getElementById('memo-run-final-preview');
     const alertsEl = document.getElementById('memo-run-alerts');
     const progressBarEl = document.getElementById('memo-run-progress-bar');
     const statusMessageEl = document.getElementById('memo-run-status-message');
     const jobAlertEl = document.getElementById('memo-run-job-alert');
+    const benchmarkEl = document.getElementById('memo-run-benchmark');
+    const styleProfileNameEl = document.getElementById('memo-run-style-profile-name');
+    const sourceCountEl = document.getElementById('memo-run-source-count');
+    const readyCountEl = document.getElementById('memo-run-ready-count');
+    const reviewedCountEl = document.getElementById('memo-run-reviewed-count');
+    const updatedAtEl = document.getElementById('memo-run-updated-at');
+    const refreshBtn = document.getElementById('memo-run-refresh-btn');
+    const approveBtn = document.getElementById('memo-run-approve-btn');
+    const sectionsContainer = document.getElementById('memo-run-sections');
+    const exportButtons = [
+        document.getElementById('memo-run-export-btn'),
+        document.getElementById('memo-run-export-html-btn'),
+    ].filter(Boolean);
+
+    function hasOpenEditors() {
+        return Boolean(document.querySelector('.memo-editor:not([hidden])'));
+    }
+
+    function stopPolling() {
+        if (pollTimer) {
+            window.clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    function schedulePolling(delay = 3000) {
+        stopPolling();
+        if (pollPaused) return;
+        if (!['queued', 'running'].includes(String(currentRun.status || '').toLowerCase())) return;
+        pollTimer = window.setTimeout(() => {
+            refreshRun().catch((error) => console.error(error));
+        }, delay);
+    }
+
+    function updateRunAlerts(run) {
+        if (!alertsEl) return;
+        const items = []
+            .concat(Array.isArray(run.missing_data) ? run.missing_data : [])
+            .concat(Array.isArray(run.conflicts) ? run.conflicts : []);
+        alertsEl.hidden = items.length === 0;
+        if (!items.length) {
+            alertsEl.innerHTML = '';
+            return;
+        }
+        setNoticeCardVariant(alertsEl, 'warning');
+        alertsEl.innerHTML = `
+            <p><strong>Missing Data / Conflicts</strong></p>
+            ${items.map((item) => `<p class="tiny">${escapeHtml(item.message || '')}</p>`).join('')}
+        `;
+    }
+
+    function updateJobAlert(run) {
+        if (!jobAlertEl) return;
+        const latestJob = run.latest_job || null;
+        let html = '';
+        let variant = 'info';
+
+        if (String(run.status || '').toLowerCase() === 'failed') {
+            variant = 'danger';
+            html = `<p><strong>${escapeHtml(run.human_stage || 'This run did not complete.')}</strong></p>`;
+            if (latestJob?.error_text) {
+                html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
+            }
+        } else if (latestJob && latestJob.status === 'failed') {
+            variant = 'danger';
+            html = `<p><strong>${escapeHtml(run.latest_job_label || 'Background job failed.')}</strong></p>`;
+            if (latestJob.error_text) {
+                html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
+            }
+        } else if (latestJob && latestJob.status !== 'completed') {
+            variant = 'info';
+            html = `<p><strong>${escapeHtml(run.latest_job_label || 'Background processing')}</strong></p>`;
+            if (latestJob.error_text) {
+                html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
+            }
+        }
+
+        jobAlertEl.hidden = !html;
+        jobAlertEl.innerHTML = html;
+        if (html) {
+            setNoticeCardVariant(jobAlertEl, variant);
+        }
+    }
+
+    function updateFinalPreview(run) {
+        if (!finalPreviewEl) return;
+        if (run.final_html) {
+            finalPreviewEl.innerHTML = run.final_html;
+            return;
+        }
+        finalPreviewEl.innerHTML = `
+            <div class="memo-empty-state">
+                <h3>Preview pending</h3>
+                <p>The compiled memo preview will appear once the first validated sections are assembled.</p>
+            </div>
+        `;
+    }
+
+    function updateActiveSectionNav() {
+        const navLinks = Array.from(document.querySelectorAll('[data-section-nav-link]'));
+        const sections = Array.from(document.querySelectorAll('.memo-run-section'));
+        if (!navLinks.length || !sections.length) return;
+        let activeKey = sections[0].dataset.sectionKey;
+        sections.forEach((section) => {
+            if (section.getBoundingClientRect().top <= 180) {
+                activeKey = section.dataset.sectionKey;
+            }
+        });
+        navLinks.forEach((link) => {
+            link.classList.toggle('is-active', link.dataset.sectionKey === activeKey);
+        });
+    }
+
+    function updateRunSummary(run, sections) {
+        const progress = computeMemoRunProgress(run, sections);
+        if (statusPillEl) {
+            statusPillEl.textContent = memoStatusLabel(run.status);
+            statusPillEl.className = `memo-status-pill tone-${run.status_tone || memoStatusTone(run.status)}`;
+        }
+        if (statusMessageEl) {
+            statusMessageEl.textContent = progress.message;
+        }
+        if (progressBarEl) {
+            progressBarEl.style.width = `${progress.percent}%`;
+        }
+        if (benchmarkEl) benchmarkEl.textContent = run.benchmark_asset_class || 'No benchmark selected';
+        if (styleProfileNameEl) styleProfileNameEl.textContent = run.style_profile_name || 'Unavailable';
+        if (sourceCountEl) sourceCountEl.textContent = String(run.source_document_count || 0);
+        if (readyCountEl) readyCountEl.textContent = String(run.ready_section_count || 0);
+        if (reviewedCountEl) reviewedCountEl.textContent = String(run.reviewed_section_count || 0);
+        if (updatedAtEl) updatedAtEl.textContent = memoFormatDateTime(run.updated_at);
+
+        const sectionsReadyForApproval = Array.isArray(sections)
+            && sections.length > 0
+            && sections.every((section) => section.status === 'ready' && ['reviewed', 'approved'].includes(section.review_status));
+
+        if (approveBtn) {
+            if (String(run.status || '').toLowerCase() === 'approved') {
+                approveBtn.disabled = true;
+                approveBtn.textContent = 'Memo approved';
+            } else {
+                approveBtn.disabled = !sectionsReadyForApproval;
+                approveBtn.textContent = 'Approve memo';
+            }
+        }
+
+        exportButtons.forEach((button) => {
+            button.disabled = !run.final_markdown && !run.final_html;
+        });
+    }
+
+    function applyRunState() {
+        updateRunSummary(currentRun, currentSections);
+        updateRunAlerts(currentRun);
+        updateJobAlert(currentRun);
+        renderMemoSectionNav(currentSections);
+        renderMemoRunSections(currentSections, runId, currentRun.status);
+        updateFinalPreview(currentRun);
+        updateActiveSectionNav();
+        schedulePolling();
+    }
 
     async function refreshRun() {
         const [run, sectionsPayload] = await Promise.all([
             fetchJson(`/api/memos/runs/${runId}`, { headers: jsonHeaders() }),
             fetchJson(`/api/memos/runs/${runId}/sections`, { headers: jsonHeaders() }),
         ]);
-        if (statusEl) statusEl.textContent = run.status || '';
-        if (stageEl) stageEl.textContent = run.progress_stage || '';
-        if (finalMarkdownEl) finalMarkdownEl.textContent = run.final_markdown || '';
-        if (alertsEl) {
-            const items = [...(run.missing_data || []), ...(run.conflicts || [])];
-            alertsEl.hidden = items.length === 0;
-            alertsEl.innerHTML = items.length
-                ? `<p><strong>Missing Data / Conflicts</strong></p>${items.map((item) => `<p class="tiny">${escapeHtml(item.message || '')}</p>`).join('')}`
-                : '';
-        }
-        const sections = (sectionsPayload?.items || []).map((section) => ({ ...section, run_id: runId }));
-        const progress = computeMemoRunProgress(run, sections);
-        if (progressBarEl) progressBarEl.style.width = `${progress.percent}%`;
-        if (statusMessageEl) statusMessageEl.textContent = progress.message;
-        if (jobAlertEl) {
-            jobAlertEl.hidden = !progress.jobAlert;
-            jobAlertEl.innerHTML = progress.jobAlert;
-        }
-        renderMemoRunSections(sections);
-        bindMemoRunSectionButtons(runId);
-        if (run.status === 'queued' || run.status === 'running') {
-            window.setTimeout(() => {
-                refreshRun().catch((error) => console.error(error));
-            }, 3000);
-        }
+        currentRun = run;
+        currentSections = sectionsPayload?.items || [];
+        applyRunState();
     }
 
-    function bindMemoRunSectionButtons(activeRunId) {
-        document.querySelectorAll('.memo-rerun-section-btn').forEach((button) => {
-            if (button.dataset.bound === 'true') return;
-            button.dataset.bound = 'true';
-            button.addEventListener('click', async () => {
-                try {
-                    await fetchJson(`/api/memos/runs/${activeRunId}/rerun-section`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...jsonHeaders(),
-                        },
-                        body: JSON.stringify({ section_key: button.dataset.sectionKey }),
-                    });
-                    refreshRun();
-                } catch (error) {
-                    window.alert(error.message);
-                }
-            });
-        });
+    function updateSectionInState(sectionPayload) {
+        currentSections = currentSections.map((section) => (
+            section.section_key === sectionPayload.section_key ? sectionPayload : section
+        ));
     }
 
-    const refreshBtn = document.getElementById('memo-run-refresh-btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
             refreshRun().catch((error) => window.alert(error.message));
         });
     }
 
-    const approveBtn = document.getElementById('memo-run-approve-btn');
     if (approveBtn) {
         approveBtn.addEventListener('click', async () => {
             try {
-                await fetchJson(`/api/memos/runs/${runId}/approve`, {
+                setButtonBusy(approveBtn, true, 'Approving...');
+                currentRun = await fetchJson(`/api/memos/runs/${runId}/approve`, {
                     method: 'POST',
                     headers: jsonHeaders(),
                 });
-                refreshRun();
+                currentSections = currentSections.map((section) => ({
+                    ...section,
+                    status: 'approved',
+                    status_tone: memoStatusTone('approved'),
+                    review_status: 'approved',
+                    review_status_tone: memoStatusTone('approved'),
+                }));
+                applyRunState();
             } catch (error) {
                 window.alert(error.message);
+            } finally {
+                setButtonBusy(approveBtn, false);
             }
         });
     }
 
-    const exportButtons = [
-        document.getElementById('memo-run-export-btn'),
-        document.getElementById('memo-run-export-html-btn'),
-    ].filter(Boolean);
     exportButtons.forEach((button) => {
         button.addEventListener('click', async () => {
             try {
+                setButtonBusy(button, true, 'Exporting...');
                 const response = await fetch(`/api/memos/runs/${runId}/export?format=${encodeURIComponent(button.dataset.format || 'markdown')}`, {
                     method: 'POST',
                     headers: jsonHeaders(),
@@ -3218,21 +3737,148 @@ function initMemoRun() {
                 downloadBlob(`investment_memo_${runId}.${extension}`, blob);
             } catch (error) {
                 window.alert(error.message);
+            } finally {
+                setButtonBusy(button, false);
             }
         });
     });
 
-    bindMemoRunSectionButtons(runId);
-    if (payload.initialRun) {
-        const progress = computeMemoRunProgress(payload.initialRun, []);
-        if (progressBarEl) progressBarEl.style.width = `${progress.percent}%`;
-        if (statusMessageEl) statusMessageEl.textContent = progress.message;
-        if (jobAlertEl) {
-            jobAlertEl.hidden = !progress.jobAlert;
-            jobAlertEl.innerHTML = progress.jobAlert;
-        }
+    if (sectionsContainer) {
+        sectionsContainer.addEventListener('click', async (event) => {
+            const editButton = event.target.closest('.memo-section-edit-btn');
+            if (editButton) {
+                const sectionKey = editButton.dataset.sectionKey;
+                const card = document.getElementById(`memo-section-${sectionKey}`);
+                if (!card) return;
+                pollPaused = true;
+                card.classList.add('is-editing');
+                card.querySelector('[data-memo-section-copy]')?.setAttribute('hidden', 'hidden');
+                const editor = card.querySelector('[data-memo-editor]');
+                if (editor) editor.hidden = false;
+                card.querySelector('[data-memo-editor-text]')?.focus();
+                return;
+            }
+
+            const cancelButton = event.target.closest('.memo-section-cancel-btn');
+            if (cancelButton) {
+                const sectionKey = cancelButton.dataset.sectionKey;
+                const section = currentSections.find((item) => item.section_key === sectionKey);
+                const card = document.getElementById(`memo-section-${sectionKey}`);
+                if (!card || !section) return;
+                const textArea = card.querySelector('[data-memo-editor-text]');
+                const notesArea = card.querySelector('[data-memo-editor-notes]');
+                if (textArea) textArea.value = section.draft_text || '';
+                if (notesArea) notesArea.value = section.editor_notes || '';
+                card.classList.remove('is-editing');
+                card.querySelector('[data-memo-section-copy]')?.removeAttribute('hidden');
+                const editor = card.querySelector('[data-memo-editor]');
+                if (editor) editor.hidden = true;
+                pollPaused = hasOpenEditors();
+                schedulePolling();
+                return;
+            }
+
+            const saveButton = event.target.closest('.memo-section-save-btn');
+            if (saveButton) {
+                const sectionKey = saveButton.dataset.sectionKey;
+                const card = document.getElementById(`memo-section-${sectionKey}`);
+                if (!card) return;
+                const textArea = card.querySelector('[data-memo-editor-text]');
+                const notesArea = card.querySelector('[data-memo-editor-notes]');
+                try {
+                    setButtonBusy(saveButton, true, 'Saving...');
+                    const response = await fetchJson(`/api/memos/runs/${runId}/sections/${encodeURIComponent(sectionKey)}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...jsonHeaders(),
+                        },
+                        body: JSON.stringify({
+                            draft_text: textArea?.value || '',
+                            editor_notes: notesArea?.value || '',
+                        }),
+                    });
+                    currentRun = response.run;
+                    updateSectionInState(response.section);
+                    pollPaused = false;
+                    applyRunState();
+                } catch (error) {
+                    window.alert(error.message);
+                } finally {
+                    setButtonBusy(saveButton, false);
+                }
+                return;
+            }
+
+            const reviewButton = event.target.closest('.memo-section-review-btn');
+            if (reviewButton) {
+                const sectionKey = reviewButton.dataset.sectionKey;
+                try {
+                    setButtonBusy(reviewButton, true, 'Saving...');
+                    const response = await fetchJson(`/api/memos/runs/${runId}/sections/${encodeURIComponent(sectionKey)}/review`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...jsonHeaders(),
+                        },
+                        body: JSON.stringify({ review_status: 'reviewed' }),
+                    });
+                    currentRun = response.run;
+                    updateSectionInState(response.section);
+                    applyRunState();
+                } catch (error) {
+                    window.alert(error.message);
+                } finally {
+                    setButtonBusy(reviewButton, false);
+                }
+                return;
+            }
+
+            const rerunButton = event.target.closest('.memo-rerun-section-btn');
+            if (rerunButton) {
+                const sectionKey = rerunButton.dataset.sectionKey;
+                try {
+                    setButtonBusy(rerunButton, true, 'Queueing...');
+                    currentRun = await fetchJson(`/api/memos/runs/${runId}/rerun-section`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...jsonHeaders(),
+                        },
+                        body: JSON.stringify({ section_key: sectionKey }),
+                    });
+                    currentSections = currentSections.map((section) => (
+                        section.section_key === sectionKey
+                            ? {
+                                ...section,
+                                status: 'queued',
+                                status_tone: memoStatusTone('queued'),
+                                review_status: 'needs_review',
+                                review_status_tone: memoStatusTone('needs_review'),
+                                validation: {
+                                    ...(section.validation || {}),
+                                    summary: 'Section rerun queued. Updated content will appear once the memo engine finishes.',
+                                },
+                            }
+                            : section
+                    ));
+                    pollPaused = false;
+                    applyRunState();
+                    refreshRun().catch((error) => console.error(error));
+                } catch (error) {
+                    window.alert(error.message);
+                } finally {
+                    setButtonBusy(rerunButton, false);
+                }
+            }
+        });
     }
-    if ((statusEl?.textContent || '').trim() === 'queued' || (statusEl?.textContent || '').trim() === 'running') {
+
+    window.addEventListener('scroll', updateActiveSectionNav, { passive: true });
+    window.addEventListener('resize', updateActiveSectionNav);
+
+    applyRunState();
+    if (['queued', 'running'].includes(String(currentRun.status || '').toLowerCase())) {
         refreshRun().catch((error) => console.error(error));
     }
 }

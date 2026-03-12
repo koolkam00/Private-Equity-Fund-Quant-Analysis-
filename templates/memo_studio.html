@@ -1,38 +1,443 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_field with context %}
-{% block title %}AI Investment Memos — PE Portfolio Lab{% endblock %}
-{% block page_title %}AI Investment Memos{% endblock %}
-{% block page_subtitle %}Learn your memo style from prior memos, ingest diligence documents, and generate reviewable investment memos grounded in app outputs and source materials.{% endblock %}
+{% set page_name = "AI Memo Studio" if active_tab == "generate" else ("Style Library" if active_tab == "style" else "Source Library") %}
+{% block title %}{{ page_name }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_name }}{% endblock %}
+{% block page_subtitle %}
+{% if active_tab == "generate" %}
+Train the memo engine on your writing style, add the current diligence pack, and generate a review-ready investment memo grounded in app analytics and uploaded source materials.
+{% elif active_tab == "style" %}
+Manage the prior memos and reusable style profiles that teach the engine how you structure, tone, and reason through an investment memo.
+{% else %}
+Manage the DDQs, PPMs, decks, and supporting documents that ground each memo draft in source material and extracted evidence.
+{% endif %}
+{% endblock %}
+
+{% set counts = namespace(ready_profiles=0, ready_source_docs=0, active_runs=0, failed_runs=0, style_docs=0, source_docs=0) %}
+{% for profile in memo_style_profiles %}
+    {% if profile.status == "ready" %}
+        {% set counts.ready_profiles = counts.ready_profiles + 1 %}
+    {% endif %}
+{% endfor %}
+{% for document in memo_documents %}
+    {% if document.document_role in ["prior_memo", "approved_generated_memo"] %}
+        {% set counts.style_docs = counts.style_docs + 1 %}
+    {% else %}
+        {% set counts.source_docs = counts.source_docs + 1 %}
+        {% if document.status == "ready" and document.extraction_status == "ready" %}
+            {% set counts.ready_source_docs = counts.ready_source_docs + 1 %}
+        {% endif %}
+    {% endif %}
+{% endfor %}
+{% for run in memo_runs %}
+    {% if run.status in ["queued", "running"] %}
+        {% set counts.active_runs = counts.active_runs + 1 %}
+    {% endif %}
+    {% if run.status == "failed" %}
+        {% set counts.failed_runs = counts.failed_runs + 1 %}
+    {% endif %}
+{% endfor %}
 
 {% block content %}
+<div class="memo-tab-nav" role="navigation" aria-label="Memo workspace tabs">
+    <a href="{{ url_for('memo_style_library') }}" class="memo-tab-link {% if active_tab == 'style' %}is-active{% endif %}">
+        <span class="memo-tab-label">Style Library</span>
+        <span class="memo-tab-copy">Manage prior memos and style profiles</span>
+    </a>
+    <a href="{{ url_for('memo_source_library') }}" class="memo-tab-link {% if active_tab == 'sources' %}is-active{% endif %}">
+        <span class="memo-tab-label">Source Library</span>
+        <span class="memo-tab-copy">Add DDQs, PPMs, decks, and support files</span>
+    </a>
+    <a href="{{ url_for('memo_studio') }}" class="memo-tab-link {% if active_tab == 'generate' %}is-active{% endif %}">
+        <span class="memo-tab-label">Generate Memo</span>
+        <span class="memo-tab-copy">Select inputs and launch a draft</span>
+    </a>
+</div>
+
+{% if active_tab == "generate" %}
+<section class="memo-hero panel">
+    <div class="memo-hero-copy">
+        <p class="memo-eyebrow">AI Memo Workflow</p>
+        <h2>From prior memos to a review-ready draft in three steps</h2>
+        <p>
+            The memo engine uses your uploaded memo exemplars, current diligence materials, and the app's analytics output
+            to produce a draft that mirrors your writing style while staying grounded in evidence.
+        </p>
+        <div class="memo-stepper" aria-label="Memo workflow steps">
+            <a href="#memo-step-style" class="memo-stepper-chip">1. Learn your style</a>
+            <a href="#memo-step-sources" class="memo-stepper-chip">2. Add source materials</a>
+            <a href="#memo-step-generate" class="memo-stepper-chip">3. Generate and review</a>
+        </div>
+    </div>
+    <div class="memo-hero-metrics">
+        <div class="memo-hero-badge">
+            <span>Ready profiles</span>
+            <strong data-memo-metric="ready-profiles">{{ counts.ready_profiles }}</strong>
+        </div>
+        <div class="memo-hero-badge">
+            <span>Ready source docs</span>
+            <strong data-memo-metric="ready-documents">{{ counts.ready_source_docs }}</strong>
+        </div>
+        <div class="memo-hero-badge">
+            <span>Active memo runs</span>
+            <strong data-memo-metric="active-runs">{{ counts.active_runs }}</strong>
+        </div>
+    </div>
+</section>
+
+<div class="memo-layout">
+    <div class="memo-main">
+        <section class="panel memo-step-card" id="memo-step-style">
+            <div class="memo-step-head">
+                <div class="memo-step-label">
+                    <span class="memo-step-number">1</span>
+                    <div>
+                        <p class="memo-eyebrow">Learn Your Style</p>
+                        <h3>Upload representative memos and build a reusable style profile</h3>
+                    </div>
+                </div>
+                <p class="memo-step-helper">Upload at least 3 representative memos to teach the engine your structure, tone, and reasoning style.</p>
+            </div>
+
+            <div class="memo-step-body">
+                <div class="memo-form-stack">
+                    <form id="memo-style-upload-form" enctype="multipart/form-data" class="memo-upload-form">
+                        {{ csrf_field() }}
+                        <input type="hidden" name="document_role" value="prior_memo">
+                        <label class="drop-zone memo-drop-zone">
+                            <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
+                            <span class="drop-title">Drop or select a prior memo</span>
+                            <span class="file-name">PDF, DOCX, PPTX, TXT, and Markdown files are supported.</span>
+                        </label>
+                        <button type="submit" class="btn-upload btn-secondary">Upload prior memo</button>
+                    </form>
+
+                    <form id="memo-style-profile-form" class="memo-builder-form">
+                        {{ csrf_field() }}
+                        <input type="hidden" name="style_profile_id" id="memo-style-profile-builder-id">
+                        <label class="memo-field">
+                            <span>Style profile name</span>
+                            <input type="text" name="name" id="memo-style-profile-name" class="analysis-input" placeholder="My Memo Style" value="My Memo Style">
+                        </label>
+                        <button type="submit" class="btn-upload">Build or rebuild profile</button>
+                    </form>
+                </div>
+
+                <div class="memo-choice-grid" id="memo-style-profile-grid">
+                    {% if memo_style_profiles %}
+                        {% for profile in memo_style_profiles %}
+                        <article
+                            class="memo-choice-card {% if profile.status != 'ready' %}is-muted{% endif %}"
+                            data-memo-profile-card
+                            data-profile-id="{{ profile.id }}"
+                            data-profile-name="{{ profile.name }}"
+                            data-profile-status="{{ profile.status }}"
+                            {% if profile.status == "ready" %}tabindex="0" role="button"{% endif %}
+                        >
+                            <div class="memo-choice-head">
+                                <div>
+                                    <p class="memo-choice-title">{{ profile.name }}</p>
+                                    <p class="tiny">Updated {{ profile.updated_at[:10] if profile.updated_at else "recently" }}</p>
+                                </div>
+                                <span class="memo-status-pill tone-{{ profile.status_tone }}">{{ profile.status|replace("_", " ")|title }}</span>
+                            </div>
+                            <div class="memo-choice-stats">
+                                <div><span>Source memos</span><strong>{{ profile.source_document_count }}</strong></div>
+                                <div><span>Section exemplars</span><strong>{{ profile.approved_exemplar_count }}</strong></div>
+                            </div>
+                            <div class="memo-choice-actions">
+                                <button type="button" class="btn-upload btn-sm {% if profile.status == 'ready' %}{% else %}btn-filter-clear{% endif %}" data-memo-select-profile {% if profile.status != "ready" %}disabled{% endif %}>
+                                    {% if profile.status == "ready" %}Use this profile{% else %}Waiting for build{% endif %}
+                                </button>
+                                <button type="button" class="btn-upload btn-secondary btn-sm memo-style-rebuild-btn" data-style-profile-id="{{ profile.id }}" data-style-profile-name="{{ profile.name }}">
+                                    Rebuild profile
+                                </button>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    {% else %}
+                    <div class="memo-empty-state">
+                        <h3>No style profile is ready yet</h3>
+                        <p>Upload prior memos and rebuild a profile to continue.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <section class="panel memo-step-card" id="memo-step-sources">
+            <div class="memo-step-head">
+                <div class="memo-step-label">
+                    <span class="memo-step-number">2</span>
+                    <div>
+                        <p class="memo-eyebrow">Add Diligence Materials</p>
+                        <h3>Choose the documents that should ground this memo draft</h3>
+                    </div>
+                </div>
+                <p class="memo-step-helper">Add DDQs, PPMs, decks, and supporting files. Only fully processed files can be used in a memo run.</p>
+            </div>
+
+            <div class="memo-step-body">
+                <form id="memo-source-upload-form" enctype="multipart/form-data" class="memo-upload-form">
+                    {{ csrf_field() }}
+                    <div class="memo-segmented-control">
+                        <label class="memo-field memo-field-grow">
+                            <span>Document role</span>
+                            <select name="document_role" class="analysis-input">
+                                <option value="ddq">DDQ</option>
+                                <option value="ppm">PPM</option>
+                                <option value="overview_deck">Overview Deck</option>
+                                <option value="supporting_material">Supporting Material</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="drop-zone memo-drop-zone">
+                        <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
+                        <span class="drop-title">Drop or select a diligence document</span>
+                        <span class="file-name">The engine cites uploaded materials directly in the draft.</span>
+                    </label>
+                    <button type="submit" class="btn-upload btn-secondary">Upload source document</button>
+                </form>
+
+                <div class="memo-resource-toolbar">
+                    <label class="memo-field memo-field-grow">
+                        <span>Search source materials</span>
+                        <input type="search" id="memo-document-search" class="analysis-input" placeholder="Search by file name or role">
+                    </label>
+                    <div class="memo-filter-group" role="group" aria-label="Filter source documents">
+                        <button type="button" class="memo-filter-pill is-active" data-memo-doc-filter="all">All</button>
+                        <button type="button" class="memo-filter-pill" data-memo-doc-filter="ready">Ready</button>
+                        <button type="button" class="memo-filter-pill" data-memo-doc-filter="processing">Processing</button>
+                        <button type="button" class="memo-filter-pill" data-memo-doc-filter="attention">Needs attention</button>
+                    </div>
+                </div>
+
+                <div class="memo-resource-list" id="memo-resource-list">
+                    {% set source_state = namespace(has_sources=false) %}
+                    {% for document in memo_documents %}
+                        {% if document.document_role not in ["prior_memo", "approved_generated_memo"] %}
+                            {% set source_state.has_sources = true %}
+                            {% set readiness = "ready" if document.status == "ready" and document.extraction_status == "ready" else ("failed" if document.status == "failed" or document.extraction_status == "failed" else "processing") %}
+                            <label
+                                class="memo-resource-card {% if readiness != 'ready' %}is-muted{% endif %}"
+                                data-memo-document-card
+                                data-document-id="{{ document.id }}"
+                                data-document-status="{{ readiness }}"
+                                data-document-search="{{ (document.file_name ~ ' ' ~ document.document_role)|lower }}"
+                            >
+                                <span class="memo-resource-check">
+                                    <input type="checkbox" class="memo-source-checkbox" value="{{ document.id }}" {% if readiness != "ready" %}disabled{% endif %}>
+                                </span>
+                                <span class="memo-resource-copy">
+                                    <span class="memo-resource-title">{{ document.file_name }}</span>
+                                    <span class="memo-resource-meta">
+                                        <span class="memo-inline-pill">{{ document.document_role|replace("_", " ")|title }}</span>
+                                        {% if document.page_count %}
+                                        <span>{{ document.page_count }} pages</span>
+                                        {% endif %}
+                                        <span>Uploaded {{ document.created_at[:10] if document.created_at else "recently" }}</span>
+                                    </span>
+                                    {% if document.error_text %}
+                                    <span class="tiny">{{ document.error_text }}</span>
+                                    {% endif %}
+                                </span>
+                                <span class="memo-status-pill tone-{{ readiness }}">{{ "Ready" if readiness == "ready" else ("Needs attention" if readiness == "failed" else "Processing") }}</span>
+                            </label>
+                        {% endif %}
+                    {% endfor %}
+                    {% if not source_state.has_sources %}
+                    <div class="memo-empty-state">
+                        <h3>No diligence pack yet</h3>
+                        <p>Upload DDQs, PPMs, overview decks, or supporting materials to start.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <section class="panel memo-step-card" id="memo-step-generate">
+            <div class="memo-step-head">
+                <div class="memo-step-label">
+                    <span class="memo-step-number">3</span>
+                    <div>
+                        <p class="memo-eyebrow">Generate and Review</p>
+                        <h3>Launch a memo run once the selected inputs are ready</h3>
+                    </div>
+                </div>
+                <p class="memo-step-helper">Choose the materials for this draft. Current app analytics are included automatically.</p>
+            </div>
+
+            <form id="memo-run-form" class="memo-generate-form" data-has-active-firm="{{ 'true' if app_active_firm else 'false' }}">
+                {{ csrf_field() }}
+                <input type="hidden" name="style_profile_id" id="memo-run-style-profile-id">
+
+                <div class="memo-config-grid">
+                    <div class="memo-summary-card">
+                        <span>Selected style profile</span>
+                        <strong id="memo-selected-style-name">No profile selected</strong>
+                        <p class="tiny" id="memo-selected-style-meta">Choose a ready style profile from Step 1.</p>
+                    </div>
+                    <div class="memo-summary-card">
+                        <span>Selected source documents</span>
+                        <strong id="memo-selected-doc-count">0 documents</strong>
+                        <p class="tiny" id="memo-selected-doc-meta">Select one or more ready documents from Step 2.</p>
+                    </div>
+                    <label class="memo-field">
+                        <span>Benchmark asset class</span>
+                        <select name="benchmark_asset_class" class="analysis-input">
+                            <option value="">No benchmark selected</option>
+                            {% for asset_class in benchmark_asset_classes %}
+                            <option value="{{ asset_class }}">{{ asset_class }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="memo-field memo-field-full">
+                        <span>Memo angle or reviewer guidance</span>
+                        <textarea name="user_notes" rows="4" class="analysis-input memo-textarea" placeholder="Optional notes for the drafting engine, focus areas, or diligence questions to emphasize."></textarea>
+                    </label>
+                </div>
+
+                <div class="memo-readiness-checklist">
+                    <div class="memo-readiness-item" id="memo-readiness-style">
+                        <i class="bi bi-circle"></i>
+                        <span>Ready style profile selected</span>
+                    </div>
+                    <div class="memo-readiness-item" id="memo-readiness-docs">
+                        <i class="bi bi-circle"></i>
+                        <span>At least one ready source document selected</span>
+                    </div>
+                    <div class="memo-readiness-item {% if app_active_firm %}is-ready{% endif %}" id="memo-readiness-firm">
+                        <i class="bi {% if app_active_firm %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i>
+                        <span>Active firm in scope{% if app_active_firm %}: {{ app_active_firm.name }}{% endif %}</span>
+                    </div>
+                </div>
+
+                <div class="memo-generate-actions">
+                    <button type="submit" class="btn-upload" id="memo-run-submit-btn" disabled>Generate memo</button>
+                    <p class="tiny">The draft will open in review mode as soon as generation starts.</p>
+                    <p class="tiny" id="memo-run-submit-feedback" role="status" aria-live="polite" hidden></p>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <aside class="memo-sidebar">
+        <section class="panel memo-sidebar-card">
+            <p class="memo-eyebrow">How the engine works</p>
+            <h3>Grounded drafting, not a single blind prompt</h3>
+            <ol class="memo-mini-list">
+                <li>The engine learns your memo structure and tone from prior memos.</li>
+                <li>It reads uploaded diligence materials and app analytics together.</li>
+                <li>It drafts sections with citations, validation checks, and open questions.</li>
+            </ol>
+        </section>
+
+        <section class="panel memo-sidebar-card memo-readiness-card">
+            <p class="memo-eyebrow">Run Readiness</p>
+            <div class="memo-readiness-metric">
+                <span>Ready profiles</span>
+                <strong data-memo-metric="ready-profiles">{{ counts.ready_profiles }}</strong>
+            </div>
+            <div class="memo-readiness-metric">
+                <span>Ready source docs</span>
+                <strong data-memo-metric="ready-documents">{{ counts.ready_source_docs }}</strong>
+            </div>
+            <div class="memo-readiness-metric">
+                <span>Active runs</span>
+                <strong data-memo-metric="active-runs">{{ counts.active_runs }}</strong>
+            </div>
+            <div id="memo-studio-activity" class="notice-card notice-card-info" role="status" aria-live="polite" hidden></div>
+        </section>
+
+        <section class="panel memo-sidebar-card">
+            <div class="memo-sidebar-head">
+                <div>
+                    <p class="memo-eyebrow">Recent Memo Runs</p>
+                    <h3>Recent activity</h3>
+                </div>
+                <a href="{{ url_for('memo_studio') }}" class="btn-link">View all</a>
+            </div>
+            <div class="memo-run-card-list" id="memo-sidebar-run-list">
+                {% if memo_runs %}
+                    {% for run in memo_runs[:6] %}
+                    <article class="memo-run-card">
+                        <div class="memo-run-card-head">
+                            <div>
+                                <strong>#{{ run.id }}</strong>
+                                <p class="tiny">{{ run.style_profile_name or "Style profile unavailable" }}</p>
+                            </div>
+                            <span class="memo-status-pill tone-{{ run.status_tone }}">{{ run.status|replace("_", " ")|title }}</span>
+                        </div>
+                        <p class="tiny">{{ run.latest_job_label }}</p>
+                        <div class="memo-run-card-meta">
+                            <span>{{ run.benchmark_asset_class or "No benchmark" }}</span>
+                            <span>{{ run.source_document_count }} docs</span>
+                        </div>
+                        <a href="{{ url_for('memo_run_page', run_id=run.id) }}" class="btn-upload btn-secondary btn-sm">Open run</a>
+                    </article>
+                    {% endfor %}
+                {% else %}
+                <div class="memo-empty-state">
+                    <h3>No memo runs yet</h3>
+                    <p>No memo runs yet. Once your style profile and source materials are ready, generate your first draft.</p>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+    </aside>
+</div>
+
+{% elif active_tab == "style" %}
+<section class="memo-hero panel">
+    <div class="memo-hero-copy">
+        <p class="memo-eyebrow">Style Library</p>
+        <h2>Build a stronger style corpus for the memo engine</h2>
+        <p>Keep your best prior memos here, rebuild profiles as your writing evolves, and maintain the exemplars the memo engine uses to mirror your structure and tone.</p>
+    </div>
+    <div class="memo-hero-metrics">
+        <div class="memo-hero-badge">
+            <span>Prior memos</span>
+            <strong>{{ counts.style_docs }}</strong>
+        </div>
+        <div class="memo-hero-badge">
+            <span>Ready profiles</span>
+            <strong>{{ counts.ready_profiles }}</strong>
+        </div>
+    </div>
+</section>
+
 <div class="upload-grid">
     <section class="panel">
-        <div class="upload-actions">
-            <a href="{{ url_for('memo_style_library') }}" class="btn-upload {% if active_tab == 'style' %}btn-secondary{% endif %}">Style Library</a>
-            <a href="{{ url_for('memo_source_library') }}" class="btn-upload {% if active_tab == 'sources' %}btn-secondary{% endif %}">Source Library</a>
-            <a href="{{ url_for('memo_studio') }}" class="btn-upload {% if active_tab == 'generate' %}btn-secondary{% endif %}">Generate Memo</a>
-        </div>
-        <p class="tiny">The memo engine uses your uploaded memo exemplars plus current app analytics for quantitative grounding.</p>
-        <div id="memo-studio-activity" class="warn-box" hidden></div>
-    </section>
-
-    <section class="panel">
         <h3>Upload Prior Memo</h3>
+        <p class="tiny">Representative memos improve style matching, section ordering, and tone transfer.</p>
         <form id="memo-style-upload-form" enctype="multipart/form-data">
             {{ csrf_field() }}
             <input type="hidden" name="document_role" value="prior_memo">
-            <label class="drop-zone">
+            <label class="drop-zone memo-drop-zone">
                 <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
                 <span class="drop-title">Drop or select a prior memo</span>
-                <span class="file-name"></span>
+                <span class="file-name">PDF, DOCX, PPTX, TXT, and Markdown files are supported.</span>
             </label>
-            <button type="submit" class="btn-upload">Upload Prior Memo</button>
+            <button type="submit" class="btn-upload">Upload prior memo</button>
         </form>
-        <form id="memo-style-profile-form" class="inline-form" style="margin-top: 1rem;">
+    </section>
+
+    <section class="panel">
+        <h3>Build or Refresh a Style Profile</h3>
+        <p class="tiny">Use one profile per writing voice or memo format you want the engine to learn.</p>
+        <form id="memo-style-profile-form" class="memo-builder-form">
             {{ csrf_field() }}
-            <input type="text" name="name" placeholder="Style profile name" value="My Memo Style">
-            <button type="submit" class="btn-upload btn-secondary">Rebuild Style Profile</button>
+            <input type="hidden" name="style_profile_id" id="memo-style-profile-builder-id">
+            <label class="memo-field memo-field-full">
+                <span>Style profile name</span>
+                <input type="text" name="name" id="memo-style-profile-name" class="analysis-input" placeholder="My Memo Style" value="My Memo Style">
+            </label>
+            <button type="submit" class="btn-upload">Build or rebuild profile</button>
         </form>
+    </section>
+
+    <section class="panel">
+        <h3>Style Profiles</h3>
         {% if memo_style_profiles %}
         <table class="data-table compact">
             <thead>
@@ -41,43 +446,106 @@
                     <th>Status</th>
                     <th class="num">Source Docs</th>
                     <th class="num">Exemplars</th>
+                    <th>Updated</th>
                 </tr>
             </thead>
             <tbody>
                 {% for profile in memo_style_profiles %}
                 <tr>
                     <td>{{ profile.name }}</td>
-                    <td>{{ profile.status }}</td>
+                    <td><span class="memo-status-pill tone-{{ profile.status_tone }}">{{ profile.status|replace("_", " ")|title }}</span></td>
                     <td class="num">{{ profile.source_document_count }}</td>
                     <td class="num">{{ profile.approved_exemplar_count }}</td>
+                    <td>{{ profile.updated_at[:10] if profile.updated_at else "—" }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p class="tiny">No style profiles built yet.</p>
+        <div class="memo-empty-state">
+            <h3>No style profiles yet</h3>
+            <p>Upload prior memos and rebuild a style profile to create your first reusable writing pattern.</p>
+        </div>
         {% endif %}
     </section>
 
     <section class="panel">
-        <h3>Upload Diligence Source</h3>
-        <form id="memo-source-upload-form" enctype="multipart/form-data">
+        <h3>Prior Memo Files</h3>
+        {% if memo_documents %}
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Status</th>
+                    <th>Extraction</th>
+                    <th class="num">Pages</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for document in memo_documents %}
+                <tr>
+                    <td>{{ document.file_name }}</td>
+                    <td><span class="memo-status-pill tone-{{ document.status_tone }}">{{ document.status|replace("_", " ")|title }}</span></td>
+                    <td><span class="memo-status-pill tone-{{ document.extraction_status_tone }}">{{ document.extraction_status|replace("_", " ")|title }}</span></td>
+                    <td class="num">{{ document.page_count or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="memo-empty-state">
+            <h3>No prior memos uploaded</h3>
+            <p>Upload representative memos to start teaching the memo engine your voice and structure.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+{% else %}
+<section class="memo-hero panel">
+    <div class="memo-hero-copy">
+        <p class="memo-eyebrow">Source Library</p>
+        <h2>Curate the diligence pack that grounds each memo run</h2>
+        <p>Upload DDQs, PPMs, overview decks, and supporting files here. The memo engine uses these source materials directly for retrieval, citations, and fact grounding.</p>
+    </div>
+    <div class="memo-hero-metrics">
+        <div class="memo-hero-badge">
+            <span>Total source docs</span>
+            <strong>{{ counts.source_docs }}</strong>
+        </div>
+        <div class="memo-hero-badge">
+            <span>Ready for use</span>
+            <strong>{{ counts.ready_source_docs }}</strong>
+        </div>
+    </div>
+</section>
+
+<div class="upload-grid">
+    <section class="panel">
+        <h3>Upload Source Document</h3>
+        <p class="tiny">Only fully processed files can be selected in a memo run.</p>
+        <form id="memo-source-upload-form" enctype="multipart/form-data" class="memo-upload-form">
             {{ csrf_field() }}
-            <div class="upload-actions">
-                <select name="document_role">
+            <label class="memo-field memo-field-full">
+                <span>Document role</span>
+                <select name="document_role" class="analysis-input">
                     <option value="ddq">DDQ</option>
                     <option value="ppm">PPM</option>
                     <option value="overview_deck">Overview Deck</option>
                     <option value="supporting_material">Supporting Material</option>
                 </select>
-            </div>
-            <label class="drop-zone">
+            </label>
+            <label class="drop-zone memo-drop-zone">
                 <input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required class="drop-input">
                 <span class="drop-title">Drop or select a diligence document</span>
-                <span class="file-name"></span>
+                <span class="file-name">The memo engine cites uploaded materials directly in the draft.</span>
             </label>
-            <button type="submit" class="btn-upload">Upload Source Document</button>
+            <button type="submit" class="btn-upload">Upload source document</button>
         </form>
+    </section>
+
+    <section class="panel">
+        <h3>Source Documents</h3>
         {% if memo_documents %}
         <table class="data-table compact">
             <thead>
@@ -86,88 +554,28 @@
                     <th>Role</th>
                     <th>Status</th>
                     <th>Extraction</th>
+                    <th class="num">Pages</th>
                 </tr>
             </thead>
             <tbody>
                 {% for document in memo_documents %}
                 <tr>
                     <td>{{ document.file_name }}</td>
-                    <td>{{ document.document_role }}</td>
-                    <td>{{ document.status }}</td>
-                    <td>{{ document.extraction_status }}</td>
+                    <td>{{ document.document_role|replace("_", " ")|title }}</td>
+                    <td><span class="memo-status-pill tone-{{ document.status_tone }}">{{ document.status|replace("_", " ")|title }}</span></td>
+                    <td><span class="memo-status-pill tone-{{ document.extraction_status_tone }}">{{ document.extraction_status|replace("_", " ")|title }}</span></td>
+                    <td class="num">{{ document.page_count or "—" }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p class="tiny">No memo documents uploaded yet.</p>
-        {% endif %}
-    </section>
-
-    <section class="panel">
-        <h3>Generate Memo</h3>
-        <form id="memo-run-form">
-            {{ csrf_field() }}
-            <div class="upload-actions">
-                <select name="style_profile_id" required>
-                    <option value="">Select style profile</option>
-                    {% for profile in memo_style_profiles %}
-                    <option value="{{ profile.id }}" {% if profile.status != "ready" %}disabled{% endif %}>{{ profile.name }} ({{ profile.status }})</option>
-                    {% endfor %}
-                </select>
-                <select name="benchmark_asset_class">
-                    <option value="">Benchmark</option>
-                    {% for asset_class in benchmark_asset_classes %}
-                    <option value="{{ asset_class }}">{{ asset_class }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <label class="tiny" for="memo-document-select">Source Documents</label>
-            <select id="memo-document-select" name="document_ids" multiple style="min-height: 10rem;">
-                {% for document in memo_documents %}
-                {% if document.document_role not in ['prior_memo', 'approved_generated_memo'] %}
-                <option value="{{ document.id }}" {% if document.status != "ready" or document.extraction_status != "ready" %}disabled{% endif %}>{{ document.file_name }} [{{ document.document_role }}{% if document.status != "ready" or document.extraction_status != "ready" %} | {{ document.extraction_status }}{% endif %}]</option>
-                {% endif %}
-                {% endfor %}
-            </select>
-            <p class="tiny" id="memo-run-form-status">Only ready style profiles and fully processed source documents can be used to start a memo.</p>
-            <textarea name="user_notes" rows="4" placeholder="Optional notes or diligence angle for the memo"></textarea>
-            <button type="submit" class="btn-upload" id="memo-run-submit-btn">Generate Memo</button>
-            <p class="tiny" id="memo-run-submit-feedback" hidden></p>
-        </form>
-    </section>
-
-    <section class="panel">
-        <h3>Recent Memo Runs</h3>
-        {% if memo_runs %}
-        <table class="data-table compact">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Status</th>
-                    <th>Stage</th>
-                    <th>Benchmark</th>
-                    <th>Open</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for run in memo_runs %}
-                <tr>
-                    <td>#{{ run.id }}</td>
-                    <td>{{ run.status }}</td>
-                    <td>{{ run.progress_stage }}</td>
-                    <td>{{ run.benchmark_asset_class or "—" }}</td>
-                    <td><a href="{{ url_for('memo_run_page', run_id=run.id) }}" class="btn-upload btn-secondary btn-sm">Review</a></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="empty-state">
-            <h3>No memo runs yet</h3>
-            <p>Upload source materials and generate your first memo.</p>
+        <div class="memo-empty-state">
+            <h3>No source documents yet</h3>
+            <p>Upload DDQs, PPMs, overview decks, or supporting materials to start building a diligence pack.</p>
         </div>
         {% endif %}
     </section>
 </div>
+{% endif %}
 {% endblock %}

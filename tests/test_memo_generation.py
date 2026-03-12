@@ -154,6 +154,9 @@ def test_memo_generation_run_end_to_end(client):
     assert run_response.status_code == 201
     run_payload = run_response.get_json()
     assert run_payload["status"] == "review_required"
+    assert run_payload["style_profile_name"] == "Memo Style"
+    assert run_payload["source_document_count"] == 1
+    assert run_payload["latest_job_label"]
 
     run = MemoGenerationRun.query.get(run_payload["id"])
     assert run is not None
@@ -163,6 +166,17 @@ def test_memo_generation_run_end_to_end(client):
     assert sections_response.status_code == 200
     sections_payload = sections_response.get_json()
     assert len(sections_payload["items"]) >= 1
+    for section in sections_payload["items"]:
+        assert "citation_count" in section
+        assert "open_question_count" in section
+        assert "review_status_tone" in section
+
+    for section in sections_payload["items"]:
+        review_response = client.post(
+            f"/api/memos/runs/{run.id}/sections/{section['section_key']}/review",
+            json={"review_status": "reviewed"},
+        )
+        assert review_response.status_code == 200
 
     approve_response = client.post(f"/api/memos/runs/{run.id}/approve")
     assert approve_response.status_code == 200
@@ -241,6 +255,94 @@ def test_generate_memo_requires_ready_documents(client):
     payload = response.get_json()
     assert payload["error"] == "documents_not_ready"
     assert "pending_ddq.txt" in payload["documents"]
+
+
+def test_manual_section_edit_requires_re_review_before_approval(client):
+    _seed_generation_data()
+
+    prior_memo = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (
+                BytesIO(
+                    b"Executive Summary\n\nWe recommend proceeding with diligence.\n\n"
+                    b"Recommendation\n\nWe recommend approval after closing the remaining diligence points."
+                ),
+                "prior_memo.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert prior_memo.status_code == 201
+
+    style_profile = client.post("/api/memos/style-profiles/rebuild", json={"name": "Memo Style"})
+    assert style_profile.status_code == 201
+    style_profile_id = style_profile.get_json()["id"]
+
+    source_doc = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "ddq",
+            "file": (
+                BytesIO(
+                    b"Fund Overview\n\nFund Memo targets North America buyout opportunities.\n\n"
+                    b"Risks\n\nOperational diligence is still underway."
+                ),
+                "ddq.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert source_doc.status_code == 201
+    source_doc_id = source_doc.get_json()["id"]
+
+    run_response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": style_profile_id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [source_doc_id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+    assert run_response.status_code == 201
+    run_id = run_response.get_json()["id"]
+
+    sections_response = client.get(f"/api/memos/runs/{run_id}/sections")
+    assert sections_response.status_code == 200
+    sections = sections_response.get_json()["items"]
+    assert sections
+    section_key = sections[0]["section_key"]
+
+    update_response = client.patch(
+        f"/api/memos/runs/{run_id}/sections/{section_key}",
+        json={
+            "draft_text": "Executive Summary\n\nUpdated memo language for the investment committee.",
+            "editor_notes": "Tighten the risk framing and keep the tone restrained.",
+        },
+    )
+    assert update_response.status_code == 200
+    update_payload = update_response.get_json()
+    assert update_payload["section"]["draft_text"].startswith("Executive Summary")
+    assert update_payload["section"]["editor_notes"] == "Tighten the risk framing and keep the tone restrained."
+    assert update_payload["section"]["review_status"] == "needs_review"
+    assert "Updated memo language" in (update_payload["run"]["final_markdown"] or "")
+
+    blocked_approval = client.post(f"/api/memos/runs/{run_id}/approve")
+    assert blocked_approval.status_code == 409
+    assert blocked_approval.get_json()["error"] == "approval_blocked"
+    assert section_key in blocked_approval.get_json()["blocked_sections"]
+
+    review_response = client.post(
+        f"/api/memos/runs/{run_id}/sections/{section_key}/review",
+        json={"review_status": "reviewed"},
+    )
+    assert review_response.status_code == 200
+    review_payload = review_response.get_json()
+    assert review_payload["section"]["review_status"] == "reviewed"
+    assert review_payload["run"]["reviewed_section_count"] >= 1
 
 
 def test_failed_generation_job_marks_run_failed(app_context):

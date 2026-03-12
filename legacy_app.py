@@ -47,10 +47,13 @@ from models import (
     db,
     ensure_schema_updates,
 )
-from peqa.services.memos import enqueue_job, rebuild_style_profile
+from peqa.services.memos import assemble_memo, enqueue_job, rebuild_style_profile
+from peqa.services.memos.evidence_builder import build_memo_evidence_bundle
 from peqa.services.memos.jobs import run_inline_job
 from peqa.services.memos.storage import build_storage_key, get_document_storage
-from peqa.services.memos.style_profiles import list_style_exemplars
+from peqa.services.memos.style_profiles import list_style_exemplars, load_style_profile
+from peqa.services.memos.types import DraftSection, dataclass_to_dict
+from peqa.services.memos.validation import extract_claims, validate_section
 from peqa.services.memos.worker import run_memo_worker
 from services.benchmark_parser import parse_benchmarks
 from services.deal_parser import parse_deals
@@ -4564,6 +4567,148 @@ def _memo_parse_json(value, default):
         return default
 
 
+def _memo_json_dumps(value):
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _memo_status_tone(status):
+    normalized = (status or "").strip().lower()
+    if normalized in {"ready", "approved", "review_required", "reviewed"}:
+        return "ready"
+    if normalized in {"failed", "blocked", "error"}:
+        return "failed"
+    if normalized in {"queued", "running", "uploaded", "processing", "pending"}:
+        return "processing"
+    return "attention"
+
+
+def _memo_human_stage(progress_stage):
+    stage = (progress_stage or "").strip()
+    if not stage:
+        return "Preparing memo generation."
+    if stage == "queued":
+        return "Queued. The memo engine has accepted your request and is preparing the run."
+    if stage == "building_evidence":
+        return "Collecting app analytics, extracted facts, and document citations."
+    if stage == "drafting":
+        return "Drafting sections in your style."
+    if stage == "review":
+        return "Draft complete. Review each section, then approve the memo when it meets your standard."
+    if stage == "approved":
+        return "Memo approved and ready for export."
+    if stage == "failed":
+        return "This run did not complete. Review the error details below, correct the input issue, and rerun the affected section or restart the memo."
+    if ":" in stage:
+        prefix, suffix = stage.split(":", 1)
+        label = suffix.replace("_", " ").strip()
+        if prefix == "drafting":
+            return f"Drafting {label} in your style."
+        if prefix == "rerunning":
+            return f"Rerunning {label} with the latest evidence."
+    return stage.replace("_", " ").strip().capitalize()
+
+
+def _memo_run_latest_job_label(run_status, progress_stage, latest_job):
+    if latest_job and latest_job.status == "failed":
+        return "Background job failed."
+    if latest_job and latest_job.status == "running":
+        return "Background job is running."
+    if latest_job and latest_job.status == "queued":
+        return "Waiting for the memo worker."
+    if (run_status or "").strip().lower() == "review_required":
+        return "Draft ready for review."
+    if (run_status or "").strip().lower() == "approved":
+        return "Memo approved."
+    if (run_status or "").strip().lower() == "failed":
+        return "Memo generation failed."
+    return _memo_human_stage(progress_stage)
+
+
+def _memo_style_profile_name(profile_id):
+    if not profile_id:
+        return None
+    row = db.session.get(MemoStyleProfile, profile_id)
+    return row.name if row is not None else None
+
+
+def _memo_source_documents_for_run(row):
+    document_ids = _memo_parse_json(row.document_ids_json, [])
+    if not document_ids:
+        return []
+    rows = (
+        MemoDocument.query.filter(
+            MemoDocument.team_id == row.team_id,
+            MemoDocument.id.in_(document_ids),
+        )
+        .order_by(MemoDocument.created_at.asc(), MemoDocument.id.asc())
+        .all()
+    )
+    return [_memo_serialize_document(item) for item in rows]
+
+
+def _memo_reassemble_run(run):
+    style_profile = load_style_profile(run.style_profile_id)
+    section_rows = (
+        MemoGenerationSection.query.filter_by(run_id=run.id)
+        .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
+        .all()
+    )
+    assembled = assemble_memo(
+        style_profile,
+        [
+            {
+                "section_key": row.section_key,
+                "title": row.title,
+                "draft_text": row.draft_text,
+                "validation": _memo_parse_json(row.validation_json, {}),
+                "review_status": row.review_status,
+            }
+            for row in section_rows
+        ],
+    )
+    run.final_markdown = assembled.markdown
+    run.final_html = assembled.html
+    run.status = "review_required"
+    run.progress_stage = "review"
+    run.approved_at = None
+    run.export_status = "not_requested"
+    db.session.add(run)
+    db.session.commit()
+    return run
+
+
+def _memo_section_or_404(run_id, section_key):
+    row = MemoGenerationSection.query.filter_by(run_id=run_id, section_key=section_key).first()
+    if row is None:
+        abort(404)
+    return row
+
+
+def _memo_persist_section_claims(run, section_row, draft, validation_result):
+    MemoGenerationClaim.query.filter_by(run_id=run.id, section_id=section_row.id).delete(synchronize_session=False)
+    for claim in draft.claims:
+        citation_ids = [citation_id for citation_id in (claim.get("citation_ids") or []) if citation_id]
+        mismatch_reason = None
+        for mismatch in validation_result.numeric_mismatches:
+            if mismatch.get("claim_text") == claim.get("claim_text"):
+                mismatch_reason = mismatch.get("reason")
+                break
+        db.session.add(
+            MemoGenerationClaim(
+                run_id=run.id,
+                section_id=section_row.id,
+                claim_type=claim.get("claim_type") or "synthesis",
+                claim_text=claim.get("claim_text") or "",
+                provenance_type=claim.get("provenance_type"),
+                provenance_id=claim.get("provenance_id"),
+                citation_json=_memo_json_dumps({"citation_ids": citation_ids}),
+                validation_status="ready" if mismatch_reason is None else "mismatch",
+                mismatch_reason=mismatch_reason,
+                status="ready" if mismatch_reason is None else "blocked",
+            )
+        )
+
+
 def _memo_serialize_document(row):
     return {
         "id": row.id,
@@ -4574,7 +4719,9 @@ def _memo_serialize_document(row):
         "file_name": row.file_name,
         "mime_type": row.mime_type,
         "status": row.status,
+        "status_tone": _memo_status_tone(row.status),
         "extraction_status": row.extraction_status,
+        "extraction_status_tone": _memo_status_tone(row.extraction_status),
         "page_count": row.page_count,
         "error_text": row.error_text,
         "metadata": _memo_parse_json(row.metadata_json, {}),
@@ -4590,6 +4737,7 @@ def _memo_serialize_style_profile(row):
         "created_by_user_id": row.created_by_user_id,
         "name": row.name,
         "status": row.status,
+        "status_tone": _memo_status_tone(row.status),
         "profile": _memo_parse_json(row.profile_json, {}),
         "source_document_count": row.source_document_count,
         "approved_exemplar_count": row.approved_exemplar_count,
@@ -4601,6 +4749,8 @@ def _memo_serialize_style_profile(row):
 def _memo_serialize_section(row):
     draft = _memo_parse_json(row.draft_json, {})
     validation = _memo_parse_json(row.validation_json, {})
+    metadata = draft.get("metadata") or {}
+    open_questions = draft.get("open_questions") or []
     return {
         "id": row.id,
         "section_key": row.section_key,
@@ -4609,37 +4759,53 @@ def _memo_serialize_section(row):
         "objective": row.objective,
         "draft_text": row.draft_text,
         "draft": draft,
+        "metadata": metadata,
         "citations": draft.get("citations") or [],
+        "citation_count": len(draft.get("citations") or []),
         "claims": draft.get("claims") or [],
+        "open_questions": open_questions,
+        "open_question_count": len(open_questions),
+        "editor_notes": (metadata.get("editor_notes") or "").strip(),
         "validation": validation,
         "review_status": row.review_status,
+        "review_status_tone": _memo_status_tone(row.review_status),
         "status": row.status,
+        "status_tone": _memo_status_tone(row.status),
     }
 
 
 def _memo_serialize_run(row):
+    style_profile_name = _memo_style_profile_name(row.style_profile_id)
     latest_job = (
         MemoJob.query.filter(MemoJob.run_id == row.id)
         .order_by(MemoJob.created_at.desc(), MemoJob.id.desc())
         .first()
     )
+    source_documents = _memo_source_documents_for_run(row)
     section_rows = (
         MemoGenerationSection.query.filter_by(run_id=row.id)
         .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
         .all()
     )
+    ready_section_count = sum(1 for section in section_rows if section.status in {"ready", "approved"})
+    reviewed_section_count = sum(1 for section in section_rows if section.review_status in {"reviewed", "approved"})
     return {
         "id": row.id,
         "team_id": row.team_id,
         "firm_id": row.firm_id,
         "created_by_user_id": row.created_by_user_id,
         "style_profile_id": row.style_profile_id,
+        "style_profile_name": style_profile_name,
         "memo_type": row.memo_type,
         "status": row.status,
+        "status_tone": _memo_status_tone(row.status),
         "progress_stage": row.progress_stage,
+        "human_stage": _memo_human_stage(row.progress_stage),
         "benchmark_asset_class": row.benchmark_asset_class,
         "filters": _memo_parse_json(row.filters_json, {}),
         "document_ids": _memo_parse_json(row.document_ids_json, []),
+        "source_documents": source_documents,
+        "source_document_count": len(source_documents),
         "outline": _memo_parse_json(row.outline_json, {}),
         "final_markdown": row.final_markdown,
         "final_html": row.final_html,
@@ -4647,14 +4813,18 @@ def _memo_serialize_run(row):
         "conflicts": _memo_parse_json(row.conflicts_json, []),
         "open_questions": _memo_parse_json(row.open_questions_json, []),
         "export_status": row.export_status,
+        "ready_section_count": ready_section_count,
+        "reviewed_section_count": reviewed_section_count,
         "latest_job": {
             "id": latest_job.id,
             "job_type": latest_job.job_type,
             "status": latest_job.status,
+            "status_tone": _memo_status_tone(latest_job.status),
             "attempt_count": latest_job.attempt_count,
             "error_text": latest_job.error_text,
             "updated_at": latest_job.updated_at.isoformat() if latest_job and latest_job.updated_at else None,
         } if latest_job else None,
+        "latest_job_label": _memo_run_latest_job_label(row.status, row.progress_stage, latest_job),
         "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -4664,7 +4834,9 @@ def _memo_serialize_run(row):
                 "section_key": section.section_key,
                 "title": section.title,
                 "status": section.status,
+                "status_tone": _memo_status_tone(section.status),
                 "review_status": section.review_status,
+                "review_status_tone": _memo_status_tone(section.review_status),
             }
             for section in section_rows
         ],
@@ -4985,6 +5157,89 @@ def memo_run_sections_api(run_id):
     return jsonify({"items": [_memo_serialize_section(row) for row in rows]})
 
 
+@app.route("/api/memos/runs/<int:run_id>/sections/<section_key>", methods=["PATCH"])
+@login_required
+def memo_run_section_update_api(run_id, section_key):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    section = _memo_section_or_404(run.id, section_key)
+    payload = _memo_payload()
+    draft_text = (payload.get("draft_text") or "").strip()
+    if not draft_text:
+        return jsonify({"error": "draft_text_required"}), 400
+
+    existing_draft = _memo_parse_json(section.draft_json, {})
+    citations = existing_draft.get("citations") or []
+    citation_ids = [citation.get("id") for citation in citations if citation.get("id")][:3]
+    paragraphs = [paragraph.strip() for paragraph in draft_text.split("\n\n") if paragraph.strip()]
+    metadata = dict(existing_draft.get("metadata") or {})
+    editor_notes = (payload.get("editor_notes") or "").strip()
+    if editor_notes:
+        metadata["editor_notes"] = editor_notes
+    else:
+        metadata.pop("editor_notes", None)
+    metadata["manual_edit"] = True
+    metadata["last_editor_user_id"] = current_user.id
+
+    draft = DraftSection(
+        key=section.section_key,
+        title=section.title,
+        text=draft_text,
+        citations=citations,
+        claims=extract_claims(section.section_key, draft_text, citations),
+        open_questions=existing_draft.get("open_questions") or [],
+        paragraph_map=[
+            {"text": paragraph, "citation_ids": citation_ids}
+            for paragraph in paragraphs
+        ],
+        metadata=metadata,
+    )
+    evidence_bundle = build_memo_evidence_bundle(run.id)
+    validation_result = validate_section(draft, evidence_bundle)
+
+    section.draft_text = draft.text
+    section.draft_json = _memo_json_dumps(dataclass_to_dict(draft))
+    section.validation_json = _memo_json_dumps(dataclass_to_dict(validation_result))
+    section.status = validation_result.status
+    section.review_status = "needs_review"
+    section.approved_at = None
+    db.session.add(section)
+    db.session.flush()
+
+    _memo_persist_section_claims(run, section, draft, validation_result)
+
+    if run.status == "approved":
+        run.approved_at = None
+    db.session.add(run)
+    db.session.commit()
+    run = _memo_reassemble_run(run)
+    section = _memo_section_or_404(run.id, section.section_key)
+    return jsonify({"run": _memo_serialize_run(run), "section": _memo_serialize_section(section)})
+
+
+@app.route("/api/memos/runs/<int:run_id>/sections/<section_key>/review", methods=["POST"])
+@login_required
+def memo_run_section_review_api(run_id, section_key):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    section = _memo_section_or_404(run.id, section_key)
+    payload = _memo_payload()
+    review_status = (payload.get("review_status") or "reviewed").strip().lower()
+    if review_status not in {"reviewed", "needs_review"}:
+        return jsonify({"error": "invalid_review_status"}), 400
+    section.review_status = review_status
+    if review_status != "reviewed":
+        section.approved_at = None
+    db.session.add(section)
+    if run.status == "approved":
+        run.status = "review_required"
+        run.progress_stage = "review"
+        run.approved_at = None
+        db.session.add(run)
+    db.session.commit()
+    return jsonify({"run": _memo_serialize_run(run), "section": _memo_serialize_section(section)})
+
+
 @app.route("/api/memos/runs/<int:run_id>/rerun-section", methods=["POST"])
 @login_required
 def memo_run_rerun_section_api(run_id):
@@ -5005,7 +5260,11 @@ def memo_run_approve_api(run_id):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
     rows = MemoGenerationSection.query.filter_by(run_id=run.id).all()
-    blocked_sections = [row.section_key for row in rows if row.status != "ready"]
+    blocked_sections = [
+        row.section_key
+        for row in rows
+        if row.status != "ready" or row.review_status not in {"reviewed", "approved"}
+    ]
     if blocked_sections:
         return jsonify({"error": "approval_blocked", "blocked_sections": blocked_sections}), 409
 
