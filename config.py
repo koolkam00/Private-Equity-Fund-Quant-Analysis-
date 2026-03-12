@@ -60,6 +60,10 @@ class Config:
     MEMO_INLINE_JOBS = _memo_inline_jobs
     MEMO_WEB_ASYNC_JOBS = _env_flag("MEMO_WEB_ASYNC_JOBS", default=IS_PRODUCTION)
     MEMO_ENABLE_OCR = _env_flag("MEMO_ENABLE_OCR", default=False)
+    MEMO_OCR_MODEL = os.environ.get("MEMO_OCR_MODEL", "gpt-4.1-mini")
+    MEMO_OCR_MAX_PAGES = int(os.environ.get("MEMO_OCR_MAX_PAGES", "25"))
+    MEMO_OCR_MIN_PAGE_TEXT_CHARS = int(os.environ.get("MEMO_OCR_MIN_PAGE_TEXT_CHARS", "80"))
+    MEMO_OCR_RENDER_DPI = int(os.environ.get("MEMO_OCR_RENDER_DPI", "180"))
     MEMO_S3_BUCKET = os.environ.get("MEMO_S3_BUCKET")
     MEMO_S3_REGION = os.environ.get("MEMO_S3_REGION")
     MEMO_S3_ENDPOINT_URL = os.environ.get("MEMO_S3_ENDPOINT_URL")

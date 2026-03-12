@@ -19,7 +19,17 @@ services:
       - key: MEMO_INLINE_JOBS
         value: "false"
       - key: MEMO_WEB_ASYNC_JOBS
+        value: "false"
+      - key: MEMO_ENABLE_OCR
         value: "true"
+      - key: MEMO_OCR_MODEL
+        value: gpt-5-mini
+      - key: MEMO_OCR_MAX_PAGES
+        value: "40"
+      - key: MEMO_OCR_MIN_PAGE_TEXT_CHARS
+        value: "80"
+      - key: MEMO_OCR_RENDER_DPI
+        value: "180"
       - key: MEMO_LLM_PROVIDER
         value: openai
       - key: MEMO_LLM_MODEL_STYLE
@@ -62,6 +72,16 @@ services:
         value: "false"
       - key: MEMO_WEB_ASYNC_JOBS
         value: "false"
+      - key: MEMO_ENABLE_OCR
+        value: "true"
+      - key: MEMO_OCR_MODEL
+        value: gpt-5-mini
+      - key: MEMO_OCR_MAX_PAGES
+        value: "40"
+      - key: MEMO_OCR_MIN_PAGE_TEXT_CHARS
+        value: "80"
+      - key: MEMO_OCR_RENDER_DPI
+        value: "180"
       - key: MEMO_LLM_PROVIDER
         value: openai
       - key: MEMO_LLM_MODEL_STYLE
