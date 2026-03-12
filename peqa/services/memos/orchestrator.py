@@ -54,6 +54,64 @@ def _humanize_section_key(section_key: str) -> str:
     return section_key.replace("_", " ").strip().title()
 
 
+def _coerce_ai_text(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        paragraphs = []
+        for item in value:
+            text = _coerce_ai_text(item)
+            if text:
+                paragraphs.append(text)
+        return "\n\n".join(paragraphs).strip()
+    if isinstance(value, dict):
+        for key in ("text", "content", "paragraph", "value"):
+            candidate = value.get(key)
+            text = _coerce_ai_text(candidate)
+            if text:
+                return text
+        return ""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _coerce_ai_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _build_paragraph_map_from_text(text: str, citations: list[dict]) -> list[dict]:
+    citation_ids = [citation.get("id") for citation in citations if citation.get("id")]
+    return [
+        {"text": paragraph.strip(), "citation_ids": citation_ids}
+        for paragraph in text.split("\n\n")
+        if paragraph.strip()
+    ]
+
+
+def _normalize_paragraph_map(value, text: str, citations: list[dict]) -> list[dict]:
+    if isinstance(value, list):
+        normalized = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            paragraph_text = _coerce_ai_text(item.get("text"))
+            if not paragraph_text:
+                continue
+            citation_ids = item.get("citation_ids")
+            if not isinstance(citation_ids, list):
+                citation_ids = []
+            normalized.append(
+                {
+                    "text": paragraph_text,
+                    "citation_ids": [citation_id for citation_id in citation_ids if citation_id],
+                }
+            )
+        if normalized:
+            return normalized
+    return _build_paragraph_map_from_text(text, citations)
+
+
 def _style_voice(style_profile: dict) -> dict:
     tone = style_profile.get("tone") or {}
     first_person_ratio = tone.get("first_person_chunk_ratio") or 0
@@ -302,23 +360,20 @@ def _draft_section(section_spec: dict, style_profile: dict, evidence_bundle, ret
         evidence_bundle=dataclass_to_dict(evidence_bundle),
     )
     ai_result = _call_openai_json(current_app.config["MEMO_LLM_MODEL_DRAFT"], prompt)
-    if isinstance(ai_result, dict) and ai_result.get("text"):
-        citations = ai_result.get("citations") or []
-        claims = ai_result.get("claims") or extract_claims(section_spec["key"], ai_result["text"], citations)
-        paragraph_map = ai_result.get("paragraph_map") or [
-            {"text": paragraph.strip(), "citation_ids": [citation.get("id") for citation in citations if citation.get("id")]}
-            for paragraph in ai_result["text"].split("\n\n")
-            if paragraph.strip()
-        ]
+    text = _coerce_ai_text(ai_result.get("text")) if isinstance(ai_result, dict) else ""
+    if isinstance(ai_result, dict) and text:
+        citations = [item for item in _coerce_ai_list(ai_result.get("citations")) if isinstance(item, dict)]
+        claims = [item for item in _coerce_ai_list(ai_result.get("claims")) if isinstance(item, dict)] or extract_claims(section_spec["key"], text, citations)
+        paragraph_map = _normalize_paragraph_map(ai_result.get("paragraph_map"), text, citations)
         return DraftSection(
             key=section_spec["key"],
             title=section_spec["title"],
-            text=ai_result["text"].strip(),
+            text=text,
             citations=citations,
             claims=claims,
-            open_questions=ai_result.get("open_questions") or [],
+            open_questions=[item for item in _coerce_ai_list(ai_result.get("open_questions")) if isinstance(item, dict)],
             paragraph_map=paragraph_map,
-            metadata=ai_result.get("metadata") or {},
+            metadata=ai_result.get("metadata") if isinstance(ai_result.get("metadata"), dict) else {},
         )
     return _draft_text_for_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
 
