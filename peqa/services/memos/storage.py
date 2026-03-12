@@ -6,6 +6,8 @@ from typing import Any
 
 from flask import current_app
 
+from models import MemoStoredBlob, db
+
 
 class DocumentStorage:
     def put(self, file_bytes: bytes, key: str) -> str:
@@ -83,11 +85,38 @@ class S3DocumentStorage(DocumentStorage):
         )
 
 
+class DatabaseDocumentStorage(DocumentStorage):
+    def put(self, file_bytes: bytes, key: str) -> str:
+        row = MemoStoredBlob.query.filter_by(storage_key=key).first()
+        if row is None:
+            row = MemoStoredBlob(storage_key=key, content=file_bytes, size_bytes=len(file_bytes))
+        else:
+            row.content = file_bytes
+            row.size_bytes = len(file_bytes)
+        db.session.add(row)
+        db.session.commit()
+        return key
+
+    def get(self, key: str) -> bytes:
+        row = MemoStoredBlob.query.filter_by(storage_key=key).first()
+        if row is None:
+            raise FileNotFoundError(f"Memo blob not found for key: {key}")
+        return bytes(row.content or b"")
+
+    def delete(self, key: str) -> None:
+        row = MemoStoredBlob.query.filter_by(storage_key=key).first()
+        if row is not None:
+            db.session.delete(row)
+            db.session.commit()
+
+
 def get_document_storage(config: dict[str, Any] | None = None) -> DocumentStorage:
     active_config = config or current_app.config
     backend = (active_config.get("MEMO_STORAGE_BACKEND") or "local").strip().lower()
     if backend == "s3":
         return S3DocumentStorage(active_config)
+    if backend == "db":
+        return DatabaseDocumentStorage()
     return LocalDocumentStorage(active_config["MEMO_STORAGE_LOCAL_ROOT"])
 
 

@@ -5,6 +5,7 @@
 - A working first-pass memo engine has been added in the repo under `peqa/services/memos/`.
 - The app now includes memo ORM tables, a migration, memo routes in `legacy_app.py`, server-rendered memo pages, a DB-backed memo job queue, and inline job execution for dev/test.
 - The current implementation supports local/S3 document storage, TXT/PDF/DOCX/PPTX extraction when the optional parsers are installed, heuristic style profiling, evidence bundling from existing analytics, section-by-section drafting, validation, approval, and markdown/HTML export.
+- The current implementation also supports Postgres-backed memo document storage (`MEMO_STORAGE_BACKEND=db`), which is the easiest way to keep the entire feature running on Render without adding external object storage first.
 - OCR, semantic vector retrieval, and richer LLM-driven drafting remain follow-on hardening items rather than complete in this first implementation slice.
 
 ## 1. Executive recommendation

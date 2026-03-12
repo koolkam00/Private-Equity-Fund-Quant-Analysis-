@@ -417,6 +417,23 @@ class MemoDocument(db.Model):
         return f"<MemoDocument id={self.id} role={self.document_role} status={self.status}>"
 
 
+class MemoStoredBlob(db.Model):
+    __tablename__ = "memo_stored_blobs"
+    __table_args__ = (
+        Index("ix_memo_stored_blobs_created_at", "created_at"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    storage_key = db.Column(db.String(500), nullable=False, unique=True, index=True)
+    content = db.Column(db.LargeBinary, nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def __repr__(self):
+        return f"<MemoStoredBlob key={self.storage_key} bytes={self.size_bytes}>"
+
+
 class MemoDocumentChunk(db.Model):
     __tablename__ = "memo_document_chunks"
     __table_args__ = (
@@ -672,6 +689,7 @@ def ensure_schema_updates():
     TeamFirmAccess.__table__.create(bind=engine, checkfirst=True)
     TeamInvite.__table__.create(bind=engine, checkfirst=True)
     MemoDocument.__table__.create(bind=engine, checkfirst=True)
+    MemoStoredBlob.__table__.create(bind=engine, checkfirst=True)
     MemoDocumentChunk.__table__.create(bind=engine, checkfirst=True)
     MemoStyleProfile.__table__.create(bind=engine, checkfirst=True)
     MemoStyleExemplar.__table__.create(bind=engine, checkfirst=True)
@@ -840,6 +858,7 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_memo_documents_status", "memo_documents", "status")
     _ensure_index(engine, "ix_memo_documents_extraction_status", "memo_documents", "extraction_status")
     _ensure_index(engine, "ix_memo_documents_sha256", "memo_documents", "sha256")
+    _ensure_index(engine, "ix_memo_stored_blobs_storage_key", "memo_stored_blobs", "storage_key")
     _ensure_index(engine, "ix_memo_document_chunks_document_id", "memo_document_chunks", "document_id")
     _ensure_index(engine, "ix_memo_document_chunks_team_id", "memo_document_chunks", "team_id")
     _ensure_index(engine, "ix_memo_document_chunks_firm_id", "memo_document_chunks", "firm_id")
@@ -880,6 +899,12 @@ def ensure_schema_updates():
         "ix_memo_documents_firm_status",
         "memo_documents",
         ["firm_id", "status"],
+    )
+    _ensure_index_columns(
+        engine,
+        "ix_memo_stored_blobs_created_at",
+        "memo_stored_blobs",
+        ["created_at"],
     )
     _ensure_index_columns(
         engine,

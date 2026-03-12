@@ -15,29 +15,19 @@ services:
       - key: SECRET_KEY
         sync: false
       - key: MEMO_STORAGE_BACKEND
-        value: s3
+        value: db
       - key: MEMO_INLINE_JOBS
         value: "false"
-      - key: MEMO_S3_BUCKET
-        sync: false
-      - key: MEMO_S3_REGION
-        sync: false
-      - key: MEMO_S3_ENDPOINT_URL
-        sync: false
-      - key: MEMO_S3_ACCESS_KEY_ID
-        sync: false
-      - key: MEMO_S3_SECRET_ACCESS_KEY
-        sync: false
       - key: MEMO_LLM_PROVIDER
         value: openai
       - key: MEMO_LLM_MODEL_STYLE
-        value: gpt-4.1-mini
+        value: gpt-5-mini
       - key: MEMO_LLM_MODEL_OUTLINE
-        value: gpt-4.1-mini
+        value: gpt-5-mini
       - key: MEMO_LLM_MODEL_DRAFT
-        value: gpt-4.1
+        value: gpt-5.4
       - key: MEMO_LLM_MODEL_VALIDATE
-        value: gpt-4.1-mini
+        value: gpt-5.4
       - key: OPENAI_API_KEY
         sync: false
       - key: BOOTSTRAP_ADMIN_EMAIL
@@ -65,29 +55,19 @@ services:
       - key: SECRET_KEY
         sync: false
       - key: MEMO_STORAGE_BACKEND
-        value: s3
+        value: db
       - key: MEMO_INLINE_JOBS
         value: "false"
-      - key: MEMO_S3_BUCKET
-        sync: false
-      - key: MEMO_S3_REGION
-        sync: false
-      - key: MEMO_S3_ENDPOINT_URL
-        sync: false
-      - key: MEMO_S3_ACCESS_KEY_ID
-        sync: false
-      - key: MEMO_S3_SECRET_ACCESS_KEY
-        sync: false
       - key: MEMO_LLM_PROVIDER
         value: openai
       - key: MEMO_LLM_MODEL_STYLE
-        value: gpt-4.1-mini
+        value: gpt-5-mini
       - key: MEMO_LLM_MODEL_OUTLINE
-        value: gpt-4.1-mini
+        value: gpt-5-mini
       - key: MEMO_LLM_MODEL_DRAFT
-        value: gpt-4.1
+        value: gpt-5.4
       - key: MEMO_LLM_MODEL_VALIDATE
-        value: gpt-4.1-mini
+        value: gpt-5.4
       - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_URL
