@@ -58,7 +58,7 @@ class Config:
     }
     MEMO_MAX_DOCUMENT_MB = _memo_max_document_mb
     MEMO_INLINE_JOBS = _memo_inline_jobs
-    MEMO_WEB_ASYNC_JOBS = _env_flag("MEMO_WEB_ASYNC_JOBS", default=not _memo_inline_jobs)
+    MEMO_WEB_ASYNC_JOBS = _env_flag("MEMO_WEB_ASYNC_JOBS", default=IS_PRODUCTION)
     MEMO_ENABLE_OCR = _env_flag("MEMO_ENABLE_OCR", default=False)
     MEMO_S3_BUCKET = os.environ.get("MEMO_S3_BUCKET")
     MEMO_S3_REGION = os.environ.get("MEMO_S3_REGION")

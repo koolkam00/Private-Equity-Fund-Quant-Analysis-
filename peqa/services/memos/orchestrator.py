@@ -114,7 +114,6 @@ def _call_openai_json(model: str, prompt: dict) -> dict | None:
         if hasattr(client, "responses"):
             response = client.responses.create(
                 model=model,
-                temperature=0,
                 input=[
                     {"role": "system", "content": [{"type": "input_text", "text": prompt["system"]}]},
                     {"role": "user", "content": [{"type": "input_text", "text": input_payload}]},
@@ -125,7 +124,6 @@ def _call_openai_json(model: str, prompt: dict) -> dict | None:
                 return json.loads(output_text)
         response = client.chat.completions.create(
             model=model,
-            temperature=0,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": prompt["system"]},

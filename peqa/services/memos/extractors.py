@@ -12,7 +12,34 @@ def _extract_text_pdf(file_bytes: bytes) -> list[ExtractedPage]:
     except ImportError as exc:
         raise RuntimeError("pypdf is required to extract PDF memo documents") from exc
 
-    reader = PdfReader(BytesIO(file_bytes))
+    try:
+        reader = PdfReader(BytesIO(file_bytes))
+    except Exception as exc:
+        raise RuntimeError(
+            "Unable to read this PDF. If it is encrypted, password-protected, or uses unsupported security settings, "
+            "export an unlocked PDF and upload it again."
+        ) from exc
+
+    try:
+        if getattr(reader, "is_encrypted", False):
+            try:
+                decrypt_result = reader.decrypt("")
+            except Exception as exc:
+                raise RuntimeError(
+                    "This PDF appears to be encrypted. Upload an unlocked PDF or a version that can be opened without a password."
+                ) from exc
+            if decrypt_result == 0:
+                raise RuntimeError(
+                    "This PDF is password-protected. Upload an unlocked PDF or a version that can be opened without a password."
+                )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            "Unable to read this PDF. If it is encrypted, password-protected, or uses unsupported security settings, "
+            "export an unlocked PDF and upload it again."
+        ) from exc
+
     pages = []
     for index, page in enumerate(reader.pages, start=1):
         pages.append(ExtractedPage(page_number=index, text=(page.extract_text() or "").strip()))

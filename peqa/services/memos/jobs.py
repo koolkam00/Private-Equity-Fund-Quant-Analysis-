@@ -49,11 +49,18 @@ def enqueue_job(team_id: int, job_type: str, payload: dict, run_id: int | None =
     db.session.add(job)
     db.session.commit()
 
-    if current_app.config.get("MEMO_INLINE_JOBS"):
-        run_inline_job(job.id)
-        job = db.session.get(MemoJob, job.id)
-    elif current_app.config.get("MEMO_WEB_ASYNC_JOBS"):
+    use_web_async = bool(current_app.config.get("MEMO_WEB_ASYNC_JOBS"))
+    use_inline = bool(current_app.config.get("MEMO_INLINE_JOBS"))
+    is_production = bool(current_app.config.get("IS_PRODUCTION"))
+
+    if use_web_async or (is_production and use_inline):
         launch_async_job(job.id)
+    elif use_inline:
+        try:
+            run_inline_job(job.id)
+        except Exception:
+            logger.exception("Inline memo job %s failed during enqueue", job.id)
+        job = db.session.get(MemoJob, job.id)
     return job
 
 

@@ -25,3 +25,25 @@ def test_memo_document_upload_creates_chunks(client):
     document = MemoDocument.query.get(payload["id"])
     assert document is not None
     assert MemoDocumentChunk.query.filter_by(document_id=document.id).count() >= 1
+
+
+def test_memo_document_upload_returns_failed_document_instead_of_500(client, monkeypatch):
+    def fail_extract(*_args, **_kwargs):
+        raise RuntimeError("simulated pdf extraction failure")
+
+    monkeypatch.setattr("peqa.services.memos.jobs.extract_document", fail_extract)
+
+    response = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (BytesIO(b"%PDF-1.7\nbroken"), "memo.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["status"] == "failed"
+    assert payload["extraction_status"] == "failed"
+    assert "simulated pdf extraction failure" in payload["error_text"]

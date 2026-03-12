@@ -395,3 +395,60 @@ def test_failed_generation_job_marks_run_failed(app_context):
     assert job.status == "failed"
     assert run.status == "failed"
     assert run.progress_stage == "failed"
+
+
+def test_generate_memo_run_returns_failed_run_instead_of_500(client, monkeypatch):
+    _seed_generation_data()
+
+    prior_memo = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (
+                BytesIO(b"Executive Summary\n\nProceed."),
+                "prior_memo.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert prior_memo.status_code == 201
+
+    style_profile = client.post("/api/memos/style-profiles/rebuild", json={"name": "Memo Style"})
+    assert style_profile.status_code == 201
+    style_profile_id = style_profile.get_json()["id"]
+
+    source_doc = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "ddq",
+            "file": (
+                BytesIO(b"Fund Overview\n\nGrounding text."),
+                "ddq.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert source_doc.status_code == 201
+    source_doc_id = source_doc.get_json()["id"]
+
+    def fail_generate(_run_id):
+        raise RuntimeError("simulated generation failure")
+
+    monkeypatch.setattr("peqa.services.memos.jobs.generate_memo_run", fail_generate)
+
+    response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": style_profile_id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [source_doc_id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["status"] in {"queued", "failed"}
+    assert payload["latest_job"] is not None
+    assert "simulated generation failure" in (payload["latest_job"]["error_text"] or "")
