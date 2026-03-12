@@ -152,6 +152,9 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                                 <button type="button" class="btn-upload btn-secondary btn-sm memo-style-rebuild-btn" data-style-profile-id="{{ profile.id }}" data-style-profile-name="{{ profile.name }}">
                                     Rebuild profile
                                 </button>
+                                <button type="button" class="btn-upload btn-filter-clear btn-sm memo-style-delete-btn" data-delete-style-profile-id="{{ profile.id }}" data-delete-style-profile-name="{{ profile.name }}">
+                                    Remove
+                                </button>
                             </div>
                         </article>
                         {% endfor %}
@@ -241,7 +244,12 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                                     <span class="tiny">{{ document.error_text }}</span>
                                     {% endif %}
                                 </span>
-                                <span class="memo-status-pill tone-{{ readiness }}">{{ "Ready" if readiness == "ready" else ("Needs attention" if readiness == "failed" else "Processing") }}</span>
+                                <span class="memo-resource-actions">
+                                    <span class="memo-status-pill tone-{{ readiness }}">{{ "Ready" if readiness == "ready" else ("Needs attention" if readiness == "failed" else "Processing") }}</span>
+                                    <button type="button" class="btn-upload btn-filter-clear btn-sm memo-document-delete-btn" data-delete-document-id="{{ document.id }}" data-delete-document-name="{{ document.file_name }}">
+                                        Remove
+                                    </button>
+                                </span>
                             </label>
                         {% endif %}
                     {% endfor %}
@@ -270,6 +278,7 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
             <form id="memo-run-form" class="memo-generate-form" data-has-active-firm="{{ 'true' if app_active_firm else 'false' }}">
                 {{ csrf_field() }}
                 <input type="hidden" name="style_profile_id" id="memo-run-style-profile-id">
+                <input type="hidden" name="benchmark_asset_class" value="{{ current_benchmark_asset_class or '' }}">
 
                 <div class="memo-config-grid">
                     <div class="memo-summary-card">
@@ -282,15 +291,17 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                         <strong id="memo-selected-doc-count">0 documents</strong>
                         <p class="tiny" id="memo-selected-doc-meta">Select one or more ready documents from Step 2.</p>
                     </div>
-                    <label class="memo-field">
-                        <span>Benchmark asset class</span>
-                        <select name="benchmark_asset_class" class="analysis-input">
-                            <option value="">No benchmark selected</option>
-                            {% for asset_class in benchmark_asset_classes %}
-                            <option value="{{ asset_class }}">{{ asset_class }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
+                    <div class="memo-summary-card">
+                        <span>Dashboard benchmark</span>
+                        <strong>{{ current_benchmark_asset_class or "No benchmark selected" }}</strong>
+                        <p class="tiny">
+                            {% if current_benchmark_asset_class %}
+                            Memo generation follows the benchmark currently selected on the dashboard.
+                            {% else %}
+                            No benchmark is selected on the dashboard. Set one there if you want benchmark-specific memo analysis.
+                            {% endif %}
+                        </p>
+                    </div>
                     <label class="memo-field memo-field-full">
                         <span>Memo angle or reviewer guidance</span>
                         <textarea name="user_notes" rows="4" class="analysis-input memo-textarea" placeholder="Optional notes for the drafting engine, focus areas, or diligence questions to emphasize."></textarea>
@@ -447,6 +458,7 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <th class="num">Source Docs</th>
                     <th class="num">Exemplars</th>
                     <th>Updated</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -457,6 +469,11 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <td class="num">{{ profile.source_document_count }}</td>
                     <td class="num">{{ profile.approved_exemplar_count }}</td>
                     <td>{{ profile.updated_at[:10] if profile.updated_at else "—" }}</td>
+                    <td>
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-style-delete-btn" data-delete-style-profile-id="{{ profile.id }}" data-delete-style-profile-name="{{ profile.name }}">
+                            Remove
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -479,6 +496,7 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <th>Status</th>
                     <th>Extraction</th>
                     <th class="num">Pages</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -488,6 +506,11 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <td><span class="memo-status-pill tone-{{ document.status_tone }}">{{ document.status|replace("_", " ")|title }}</span></td>
                     <td><span class="memo-status-pill tone-{{ document.extraction_status_tone }}">{{ document.extraction_status|replace("_", " ")|title }}</span></td>
                     <td class="num">{{ document.page_count or "—" }}</td>
+                    <td>
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-document-delete-btn" data-delete-document-id="{{ document.id }}" data-delete-document-name="{{ document.file_name }}">
+                            Remove
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -555,6 +578,7 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <th>Status</th>
                     <th>Extraction</th>
                     <th class="num">Pages</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -565,6 +589,11 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                     <td><span class="memo-status-pill tone-{{ document.status_tone }}">{{ document.status|replace("_", " ")|title }}</span></td>
                     <td><span class="memo-status-pill tone-{{ document.extraction_status_tone }}">{{ document.extraction_status|replace("_", " ")|title }}</span></td>
                     <td class="num">{{ document.page_count or "—" }}</td>
+                    <td>
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-document-delete-btn" data-delete-document-id="{{ document.id }}" data-delete-document-name="{{ document.file_name }}">
+                            Remove
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

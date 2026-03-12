@@ -2418,6 +2418,11 @@ textarea.analysis-input::placeholder {
     display: grid;
     gap: 5px;
 }
+.memo-resource-actions {
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+}
 .memo-resource-title {
     font-weight: 800;
     color: #16312d;
@@ -2446,6 +2451,9 @@ textarea.analysis-input::placeholder {
     border-radius: 16px;
     border: 1px solid rgba(205, 220, 214, 0.92);
     background: rgba(249, 252, 250, 0.95);
+}
+.memo-summary-card p {
+    margin: 8px 0 0;
 }
 .memo-config-grid {
     display: grid;

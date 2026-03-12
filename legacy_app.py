@@ -36,6 +36,7 @@ from models import (
     MemoGenerationRun,
     MemoGenerationSection,
     MemoJob,
+    MemoStyleExemplar,
     MemoStyleProfile,
     PublicMarketIndexLevel,
     Team,
@@ -4503,13 +4504,17 @@ def _memo_firm_scope(membership, requested_firm_id=None, allow_null=False):
 
 
 def _memo_document_query(membership):
-    return MemoDocument.query.filter(MemoDocument.team_id == membership.team_id)
+    return MemoDocument.query.filter(
+        MemoDocument.team_id == membership.team_id,
+        MemoDocument.status != "deleted",
+    )
 
 
 def _memo_style_profile_query(membership):
     return MemoStyleProfile.query.filter(
         MemoStyleProfile.team_id == membership.team_id,
         MemoStyleProfile.created_by_user_id == current_user.id,
+        MemoStyleProfile.status != "deleted",
     )
 
 
@@ -4675,6 +4680,57 @@ def _memo_reassemble_run(run):
     db.session.add(run)
     db.session.commit()
     return run
+
+
+def _memo_archive_document(membership, document, deleted_by_user_id):
+    storage = get_document_storage()
+    try:
+        storage.delete(document.storage_key)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        logger.exception("Failed to remove memo document blob for document %s", document.id)
+
+    metadata = _memo_parse_json(document.metadata_json, {})
+    metadata["deleted_at"] = datetime.now(timezone.utc).isoformat()
+    metadata["deleted_by_user_id"] = deleted_by_user_id
+    metadata["removed_from_studio"] = True
+
+    document.status = "deleted"
+    document.extraction_status = "deleted"
+    document.error_text = "Removed from AI Memo Studio."
+    document.metadata_json = _memo_json_dumps(metadata)
+    db.session.add(document)
+
+    if document.document_role in MEMO_STYLE_ROLES:
+        MemoStyleExemplar.query.filter_by(document_id=document.id).update(
+            {"status": "deleted"},
+            synchronize_session=False,
+        )
+        affected_profiles = _memo_style_profile_query(membership).all()
+        db.session.flush()
+        for profile in affected_profiles:
+            profile.status = "queued"
+            db.session.add(profile)
+    db.session.commit()
+
+    if document.document_role in MEMO_STYLE_ROLES:
+        for profile in _memo_style_profile_query(membership).all():
+            enqueue_job(
+                profile.team_id,
+                "rebuild_style_profile",
+                {"style_profile_id": profile.id},
+            )
+
+
+def _memo_archive_style_profile(profile):
+    profile.status = "deleted"
+    db.session.add(profile)
+    MemoStyleExemplar.query.filter_by(style_profile_id=profile.id).update(
+        {"status": "deleted"},
+        synchronize_session=False,
+    )
+    db.session.commit()
 
 
 def _memo_section_or_404(run_id, section_key):
@@ -4902,6 +4958,9 @@ def memo_studio():
     profiles = _memo_style_profile_query(membership).order_by(MemoStyleProfile.updated_at.desc(), MemoStyleProfile.id.desc()).all()
     runs = _memo_run_query(membership).order_by(MemoGenerationRun.created_at.desc(), MemoGenerationRun.id.desc()).limit(25).all()
     benchmark_asset_classes = _benchmark_asset_classes_for_team(membership.team_id)
+    current_benchmark_asset_class = (session.get("selected_benchmark_asset_class", "") or "").strip()
+    if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+        current_benchmark_asset_class = ""
     return render_template(
         "memo_studio.html",
         active_tab=active_tab,
@@ -4909,6 +4968,7 @@ def memo_studio():
         memo_style_profiles=[_memo_serialize_style_profile(row) for row in profiles],
         memo_runs=[_memo_serialize_run(row) for row in runs],
         benchmark_asset_classes=benchmark_asset_classes,
+        current_benchmark_asset_class=current_benchmark_asset_class,
     )
 
 
@@ -4933,6 +4993,7 @@ def memo_style_library():
         memo_style_profiles=[_memo_serialize_style_profile(row) for row in profiles],
         memo_runs=[],
         benchmark_asset_classes=_benchmark_asset_classes_for_team(membership.team_id),
+        current_benchmark_asset_class=(session.get("selected_benchmark_asset_class", "") or "").strip(),
     )
 
 
@@ -4953,6 +5014,7 @@ def memo_source_library():
         memo_style_profiles=[],
         memo_runs=[],
         benchmark_asset_classes=_benchmark_asset_classes_for_team(membership.team_id),
+        current_benchmark_asset_class=(session.get("selected_benchmark_asset_class", "") or "").strip(),
     )
 
 
@@ -5028,6 +5090,15 @@ def memo_documents_api():
     return jsonify(_memo_serialize_document(document)), 201
 
 
+@app.route("/api/memos/documents/<int:document_id>", methods=["DELETE"])
+@login_required
+def memo_document_delete_api(document_id):
+    membership = _require_team_scope()
+    document = _memo_document_or_404(membership, document_id)
+    _memo_archive_document(membership, document, current_user.id)
+    return jsonify({"id": document_id, "status": "deleted"})
+
+
 @app.route("/api/memos/style-profiles", methods=["GET"])
 @login_required
 def memo_style_profiles_api():
@@ -5039,6 +5110,15 @@ def memo_style_profiles_api():
         item["exemplars"] = list_style_exemplars(row.id)
         payload.append(item)
     return jsonify({"items": payload})
+
+
+@app.route("/api/memos/style-profiles/<int:profile_id>", methods=["DELETE"])
+@login_required
+def memo_style_profile_delete_api(profile_id):
+    membership = _require_team_scope()
+    profile = _memo_style_profile_or_404(membership, profile_id)
+    _memo_archive_style_profile(profile)
+    return jsonify({"id": profile_id, "status": "deleted"})
 
 
 @app.route("/api/memos/style-profiles/rebuild", methods=["POST"])
@@ -5115,7 +5195,14 @@ def memo_runs_api():
     firm_id = _memo_firm_scope(membership, payload.get("firm_id"), allow_null=False)
     raw_filters = payload.get("filters")
     filters = raw_filters if isinstance(raw_filters, dict) else _memo_parse_json(raw_filters, {})
-    benchmark_asset_class = (payload.get("benchmark_asset_class") or session.get("selected_benchmark_asset_class") or "").strip()
+    available_benchmarks = set(_benchmark_asset_classes_for_team(membership.team_id))
+    dashboard_benchmark = (session.get("selected_benchmark_asset_class") or "").strip()
+    if dashboard_benchmark and dashboard_benchmark not in available_benchmarks:
+        dashboard_benchmark = ""
+    payload_benchmark = (payload.get("benchmark_asset_class") or "").strip()
+    if payload_benchmark and payload_benchmark not in available_benchmarks:
+        payload_benchmark = ""
+    benchmark_asset_class = dashboard_benchmark or payload_benchmark
 
     run = MemoGenerationRun(
         team_id=membership.team_id,

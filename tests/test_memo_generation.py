@@ -257,6 +257,71 @@ def test_generate_memo_requires_ready_documents(client):
     assert "pending_ddq.txt" in payload["documents"]
 
 
+def test_generate_memo_prefers_dashboard_benchmark_selection(client):
+    _seed_generation_data()
+    membership = TeamMembership.query.first()
+    db.session.add(
+        BenchmarkPoint(
+            team_id=membership.team_id,
+            asset_class="Growth",
+            vintage_year=2021,
+            metric="net_irr",
+            quartile="median",
+            value=0.13,
+        )
+    )
+    db.session.commit()
+
+    prior_memo = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (
+                BytesIO(b"Executive Summary\n\nProceed."),
+                "prior_memo.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert prior_memo.status_code == 201
+
+    style_profile = client.post("/api/memos/style-profiles/rebuild", json={"name": "Memo Style"})
+    assert style_profile.status_code == 201
+    style_profile_id = style_profile.get_json()["id"]
+
+    source_doc = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "ddq",
+            "file": (
+                BytesIO(b"Fund Overview\n\nGrounding text."),
+                "ddq.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert source_doc.status_code == 201
+    source_doc_id = source_doc.get_json()["id"]
+
+    with client.session_transaction() as session_state:
+        session_state["selected_benchmark_asset_class"] = "Growth"
+
+    response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": style_profile_id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [source_doc_id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["benchmark_asset_class"] == "Growth"
+
+
 def test_manual_section_edit_requires_re_review_before_approval(client):
     _seed_generation_data()
 

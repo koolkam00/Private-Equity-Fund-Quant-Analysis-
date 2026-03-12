@@ -112,7 +112,11 @@ def _fail_job(job: MemoJob, exc: Exception):
 def _process_extract_document(payload: dict):
     document = db.session.get(MemoDocument, payload["document_id"])
     if document is None:
-        raise ValueError(f"Memo document {payload['document_id']} not found")
+        logger.info("Skipping extract_document job; memo document %s no longer exists.", payload["document_id"])
+        return None
+    if document.status == "deleted" or document.extraction_status == "deleted":
+        logger.info("Skipping extract_document job; memo document %s was removed from studio.", document.id)
+        return None
 
     storage = get_document_storage()
     document.status = "processing"
@@ -159,7 +163,14 @@ def _process_extract_document(payload: dict):
 
 
 def _process_rebuild_style_profile(payload: dict):
-    rebuild_style_profile(payload["style_profile_id"], document_ids=payload.get("document_ids"))
+    profile = db.session.get(MemoStyleProfile, payload["style_profile_id"])
+    if profile is None:
+        logger.info("Skipping rebuild_style_profile job; style profile %s no longer exists.", payload["style_profile_id"])
+        return None
+    if profile.status == "deleted":
+        logger.info("Skipping rebuild_style_profile job; style profile %s was removed from studio.", profile.id)
+        return None
+    rebuild_style_profile(profile.id, document_ids=payload.get("document_ids"))
 
 
 def _process_generate_memo(payload: dict):

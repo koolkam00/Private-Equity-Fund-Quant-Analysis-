@@ -3058,6 +3058,48 @@ function initMemoStudio() {
         docFilter: 'all',
     };
 
+    async function removeMemoDocument(button) {
+        const documentId = Number(button?.dataset.deleteDocumentId || 0);
+        const documentName = String(button?.dataset.deleteDocumentName || 'this document').trim();
+        if (!documentId) return;
+        if (!window.confirm(`Remove ${documentName} from AI Memo Studio? The uploaded file will be deleted, but historical memo evidence already derived from it will be preserved.`)) {
+            return;
+        }
+        try {
+            setButtonBusy(button, true, 'Removing...');
+            await fetchJson(`/api/memos/documents/${encodeURIComponent(documentId)}`, {
+                method: 'DELETE',
+                headers: jsonHeaders(),
+            });
+            window.location.reload();
+        } catch (error) {
+            window.alert(error.message);
+        } finally {
+            setButtonBusy(button, false);
+        }
+    }
+
+    async function removeStyleProfile(button) {
+        const profileId = Number(button?.dataset.deleteStyleProfileId || 0);
+        const profileName = String(button?.dataset.deleteStyleProfileName || 'this style profile').trim();
+        if (!profileId) return;
+        if (!window.confirm(`Remove ${profileName} from AI Memo Studio? Historical memo runs will remain available, but this profile will no longer be selectable for new drafts.`)) {
+            return;
+        }
+        try {
+            setButtonBusy(button, true, 'Removing...');
+            await fetchJson(`/api/memos/style-profiles/${encodeURIComponent(profileId)}`, {
+                method: 'DELETE',
+                headers: jsonHeaders(),
+            });
+            window.location.reload();
+        } catch (error) {
+            window.alert(error.message);
+        } finally {
+            setButtonBusy(button, false);
+        }
+    }
+
     function setReadinessItem(element, isReady) {
         if (!element) return;
         element.classList.toggle('is-ready', Boolean(isReady));
@@ -3192,6 +3234,22 @@ function initMemoStudio() {
                 styleProfileNameInput.value = button.dataset.styleProfileName || styleProfileNameInput.value || 'My Memo Style';
             }
             styleProfileForm.requestSubmit();
+        });
+    });
+
+    document.querySelectorAll('.memo-document-delete-btn').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeMemoDocument(button);
+        });
+    });
+
+    document.querySelectorAll('.memo-style-delete-btn').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeStyleProfile(button);
         });
     });
 
