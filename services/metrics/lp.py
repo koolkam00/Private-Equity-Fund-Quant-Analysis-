@@ -21,7 +21,7 @@ from models import (
 from peqa.services.context import load_team_benchmark_thresholds
 from peqa.services.metrics.status import normalize_realization_status
 from peqa.services.filtering import build_fund_vintage_lookup, deal_vintage_year, sort_fund_rows_by_vintage
-from services.metrics.analysis import compute_valuation_quality_analysis
+from services.metrics.analysis import compute_fund_liquidity_analysis, compute_valuation_quality_analysis
 from services.metrics.benchmarking import rank_benchmark_metric
 from services.metrics.common import resolve_analysis_as_of_date, safe_divide
 from services.metrics.deal import compute_deal_metrics
@@ -718,32 +718,11 @@ def compute_lp_due_diligence_memo(
     fund_names = _fund_names_from_deals(deals)
     fund_metadata_lookup = _metadata_by_fund(team_id, firm_id, fund_names)
 
-    liquidity = compute_lp_liquidity_quality_analysis(
-        deals,
-        firm_id=firm_id,
-        team_id=team_id,
-        as_of_date=as_of,
-    )
-    reporting_quality = compute_reporting_quality_analysis(
-        deals,
-        team_id=team_id,
-        firm_id=firm_id,
-        benchmark_asset_class=benchmark_asset_class,
-        metrics_by_id=metrics_by_id,
-        as_of_date=as_of,
-    )
+    fund_liquidity = compute_fund_liquidity_analysis(deals, firm_id=firm_id)
     nav_at_risk = compute_nav_at_risk_analysis(
         deals,
         firm_id=firm_id,
         team_id=team_id,
-        metrics_by_id=metrics_by_id,
-        as_of_date=as_of,
-    )
-    manager = compute_manager_consistency_analysis(
-        deals,
-        team_id=team_id,
-        firm_id=firm_id,
-        benchmark_asset_class=benchmark_asset_class,
         metrics_by_id=metrics_by_id,
         as_of_date=as_of,
     )
@@ -754,30 +733,11 @@ def compute_lp_due_diligence_memo(
         benchmark_asset_class=benchmark_asset_class,
         as_of_date=as_of,
     )
-    benchmark_confidence = compute_benchmark_confidence_analysis(
-        deals,
-        team_id=team_id,
-        firm_id=firm_id,
-        benchmark_asset_class=benchmark_asset_class,
-        as_of_date=as_of,
-    )
-    liquidity_forecast = compute_liquidity_forecast_analysis(
-        deals,
-        team_id=team_id,
-        firm_id=firm_id,
-        as_of_date=as_of,
-    )
-    fee_drag = compute_fee_drag_analysis(
-        deals,
-        team_id=team_id,
-        firm_id=firm_id,
-        metrics_by_id=metrics_by_id,
-        as_of_date=as_of,
-    )
 
     benchmark_summary = {
         "benchmark_asset_class": benchmark_asset_class,
         "fund_count": len(fund_names),
+        "pme_complete_funds": (public_market.get("coverage") or {}).get("funds_with_complete_coverage"),
     }
     fund_metadata_rows = []
     for fund_name in fund_names:
@@ -803,14 +763,9 @@ def compute_lp_due_diligence_memo(
     )
 
     coverage_flags = []
-    for source in (
-        reporting_quality,
-        liquidity,
-        nav_at_risk,
-        benchmark_confidence,
-        public_market,
-        fee_drag,
-    ):
+    if not fund_liquidity.get("has_data"):
+        coverage_flags.append("Fund quarter snapshots are missing, so current liquidity metrics are incomplete.")
+    for source in (nav_at_risk, public_market):
         coverage_flags.extend(source.get("risk_flags") or [])
     deduped_flags = []
     seen_flags = set()
@@ -830,34 +785,30 @@ def compute_lp_due_diligence_memo(
         },
         "takeaway": {
             "text": (
-                "LP diligence is strongest when reporting quality, benchmark coverage, and liquidity signals align. "
+                "LP diligence is strongest when current fund-liquidity trends, public market coverage, and NAV concentration signals align. "
                 "Use this memo as the summary surface before drilling into individual analysis pages."
             ),
             "tone": "neutral",
-            "why_it_matters": "This combines data quality, liquidity, benchmark confidence, public market comparison, and fee compression into one briefing layer.",
+            "why_it_matters": "This combines current fund liquidity, NAV concentration, and public market comparison into one briefing layer.",
         },
         "coverage": {
             "items": [
                 _coverage_item("Funds", len(fund_names)),
-                _coverage_item("Decision-Ready", reporting_quality.get("coverage_summary", {}).get("decision_ready_count"), "positive" if (reporting_quality.get("coverage_summary", {}).get("decision_ready_count") or 0) else "warning"),
+                _coverage_item("Current DPI", (fund_liquidity.get("latest") or {}).get("dpi")),
+                _coverage_item("Current TVPI", (fund_liquidity.get("latest") or {}).get("tvpi")),
                 _coverage_item("PME Complete", public_market.get("coverage", {}).get("funds_with_complete_coverage")),
-                _coverage_item("Benchmark Complete", benchmark_confidence.get("summary", {}).get("funds_with_complete_quartile_coverage")),
+                _coverage_item("Top-10 NAV %", (nav_at_risk.get("summary") or {}).get("top_10_nav_pct")),
             ]
         },
         "confidence": _confidence_payload(
             "medium" if deduped_flags else "high",
-            "Memo confidence combines reporting readiness, benchmark depth, and public market coverage.",
+            "Memo confidence combines fund liquidity coverage, public market coverage, and NAV concentration.",
         ),
         "fund_metadata": fund_metadata_rows,
         "benchmarking_summary": benchmark_summary,
-        "reporting_quality": reporting_quality,
-        "liquidity_quality": liquidity,
-        "liquidity_forecast": liquidity_forecast,
+        "fund_liquidity": fund_liquidity,
         "nav_at_risk": nav_at_risk,
-        "manager_consistency": manager,
         "public_market_comparison": public_market,
-        "benchmark_confidence": benchmark_confidence,
-        "fee_drag": fee_drag,
         "data_coverage_flags": deduped_flags,
         "risk_flags": deduped_flags,
     }

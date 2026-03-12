@@ -170,13 +170,8 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
     assert primary_positions[-1] < analysis_idx
 
     analysis_labels = [
-        "LP Liquidity Quality",
-        "Liquidity Forecast",
         "NAV at Risk",
-        "Manager Consistency",
         "Public Market Comparison",
-        "Benchmark Confidence",
-        "Reporting Quality",
         "LP Due Diligence Memo",
         "Fund Liquidity",
         "Underwrite vs Outcome",
@@ -184,7 +179,6 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
         "Exit Readiness",
         "Stress Lab",
         "Deal Trajectory",
-        "Fee Drag",
         "Chart Builder",
     ]
     for label in analysis_labels:
@@ -1643,14 +1637,8 @@ def test_analysis_pages_render(client):
         "exit-readiness": b"Exit Readiness &amp; Aging",
         "stress-lab": b"Concentration Stress Lab",
         "deal-trajectory": b"Deal Trajectory",
-        "lp-liquidity-quality": b"LP Liquidity Quality",
-        "liquidity-forecast": b"Liquidity Forecast",
         "nav-at-risk": b"NAV at Risk",
-        "manager-consistency": b"Manager Consistency",
         "public-market-comparison": b"Public Market Comparison",
-        "benchmark-confidence": b"Benchmark Confidence",
-        "reporting-quality": b"Reporting Quality",
-        "fee-drag": b"Fee Drag",
         "lp-due-diligence-memo": b"LP Due Diligence Memo",
         "vca-ebitda": b"Value Creation Analysis - by EBITDA",
         "vca-revenue": b"Value Creation Analysis - by Revenue",
@@ -1670,6 +1658,19 @@ def test_analysis_pages_render(client):
         if page in {"vca-ebitda", "vca-revenue", "benchmarking"}:
             assert b"Download / Print PDF" in response.data
             assert b"Preview Print Layout" in response.data
+
+
+def test_removed_analysis_pages_return_404(client):
+    for page in (
+        "lp-liquidity-quality",
+        "liquidity-forecast",
+        "manager-consistency",
+        "benchmark-confidence",
+        "reporting-quality",
+        "fee-drag",
+    ):
+        response = client.get(f"/analysis/{page}")
+        assert response.status_code == 404
 
 
 def test_analysis_api_series_schema(client):
@@ -1700,14 +1701,8 @@ def test_analysis_api_series_schema(client):
         "exit-readiness",
         "stress-lab",
         "deal-trajectory",
-        "lp-liquidity-quality",
-        "liquidity-forecast",
         "nav-at-risk",
-        "manager-consistency",
         "public-market-comparison",
-        "benchmark-confidence",
-        "reporting-quality",
-        "fee-drag",
         "lp-due-diligence-memo",
         "vca-ebitda",
         "vca-revenue",
@@ -1718,6 +1713,19 @@ def test_analysis_api_series_schema(client):
         payload = response.get_json()
         assert payload["page"] == page
         assert "payload" in payload
+
+
+def test_removed_analysis_api_series_return_404(client):
+    for page in (
+        "lp-liquidity-quality",
+        "liquidity-forecast",
+        "manager-consistency",
+        "benchmark-confidence",
+        "reporting-quality",
+        "fee-drag",
+    ):
+        response = client.get(f"/api/analysis/{page}/series")
+        assert response.status_code == 404
 
 
 def test_analysis_vca_ebitda_api_payload_shape(client):

@@ -1,5 +1,6 @@
 from datetime import date
 from io import BytesIO
+import json
 
 from models import (
     BenchmarkPoint,
@@ -161,6 +162,9 @@ def test_memo_generation_run_end_to_end(client):
     run = MemoGenerationRun.query.get(run_payload["id"])
     assert run is not None
     assert run.final_markdown
+    evidence = json.loads(run.evidence_json)
+    assert "funds_with_decision_ready_reporting" not in evidence["structured_facts"]
+    assert "benchmark_complete_funds" not in evidence["structured_facts"]
 
     sections_response = client.get(f"/api/memos/runs/{run.id}/sections")
     assert sections_response.status_code == 200

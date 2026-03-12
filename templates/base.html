@@ -58,20 +58,10 @@
             <a href="{{ url_for('memo_studio') }}" class="nav-item {% if request.endpoint in ['memo_studio', 'memo_style_library', 'memo_source_library', 'memo_run_page'] %}active{% endif %}"><i
                     class="bi bi-file-earmark-text"></i> AI Investment Memos</a>
             <div class="nav-section">Analysis</div>
-            <a href="{{ url_for('analysis_page', page='lp-liquidity-quality') }}" class="nav-item nav-sub {% if active_analysis == 'lp-liquidity-quality' %}active{% endif %}"><i
-                    class="bi bi-droplet-half"></i> LP Liquidity Quality</a>
-            <a href="{{ url_for('analysis_page', page='liquidity-forecast') }}" class="nav-item nav-sub {% if active_analysis == 'liquidity-forecast' %}active{% endif %}"><i
-                    class="bi bi-hourglass-top"></i> Liquidity Forecast</a>
             <a href="{{ url_for('analysis_page', page='nav-at-risk') }}" class="nav-item nav-sub {% if active_analysis == 'nav-at-risk' %}active{% endif %}"><i
                     class="bi bi-exclamation-diamond"></i> NAV at Risk</a>
-            <a href="{{ url_for('analysis_page', page='manager-consistency') }}" class="nav-item nav-sub {% if active_analysis == 'manager-consistency' %}active{% endif %}"><i
-                    class="bi bi-diagram-3"></i> Manager Consistency</a>
             <a href="{{ url_for('analysis_page', page='public-market-comparison') }}" class="nav-item nav-sub {% if active_analysis == 'public-market-comparison' %}active{% endif %}"><i
                     class="bi bi-graph-up"></i> Public Market Comparison</a>
-            <a href="{{ url_for('analysis_page', page='benchmark-confidence') }}" class="nav-item nav-sub {% if active_analysis == 'benchmark-confidence' %}active{% endif %}"><i
-                    class="bi bi-shield-lock"></i> Benchmark Confidence</a>
-            <a href="{{ url_for('analysis_page', page='reporting-quality') }}" class="nav-item nav-sub {% if active_analysis == 'reporting-quality' %}active{% endif %}"><i
-                    class="bi bi-clipboard2-pulse"></i> Reporting Quality</a>
             <a href="{{ url_for('analysis_page', page='fund-liquidity') }}" class="nav-item nav-sub {% if active_analysis == 'fund-liquidity' %}active{% endif %}"><i
                     class="bi bi-graph-up-arrow"></i> Fund Liquidity</a>
             <a href="{{ url_for('analysis_page', page='underwrite-outcome') }}" class="nav-item nav-sub {% if active_analysis == 'underwrite-outcome' %}active{% endif %}"><i
@@ -84,8 +74,6 @@
                     class="bi bi-activity"></i> Stress Lab</a>
             <a href="{{ url_for('analysis_page', page='deal-trajectory') }}" class="nav-item nav-sub {% if active_analysis == 'deal-trajectory' %}active{% endif %}"><i
                     class="bi bi-bezier2"></i> Deal Trajectory</a>
-            <a href="{{ url_for('analysis_page', page='fee-drag') }}" class="nav-item nav-sub {% if active_analysis == 'fee-drag' %}active{% endif %}"><i
-                    class="bi bi-cash-stack"></i> Fee Drag</a>
             <a href="{{ url_for('analysis_page', page='chart-builder') }}" class="nav-item nav-sub {% if active_analysis == 'chart-builder' %}active{% endif %}"><i
                     class="bi bi-bar-chart-line"></i> Chart Builder</a>
             <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i

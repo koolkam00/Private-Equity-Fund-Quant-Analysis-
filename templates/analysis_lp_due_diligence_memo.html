@@ -2,12 +2,12 @@
 {% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer, section_nav with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
-{% block page_subtitle %}A single LP briefing page that rolls up reporting quality, liquidity, benchmark confidence, PME coverage, and fee compression into one review surface.{% endblock %}
+{% block page_subtitle %}A single LP briefing page that rolls up fund liquidity, NAV concentration, and public market comparison into one review surface.{% endblock %}
 {% block page_nav %}
 {{ section_nav([
     {"id": "memo-metadata", "label": "Metadata"},
     {"id": "memo-kpis", "label": "Summary"},
-    {"id": "memo-manager", "label": "Managers"},
+    {"id": "memo-risk", "label": "Risk"},
 ]) }}
 {% endblock %}
 
@@ -95,20 +95,20 @@
 </div>
 
 <div class="kpi-grid" id="memo-kpis">
-    <div class="kpi-card"><span>Liquidity DPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.dpi_current) }}</strong></div>
-    <div class="kpi-card"><span>Liquidity TVPI</span><strong>{{ fmt_multiple(analysis.liquidity_quality.kpis.tvpi_current) }}</strong></div>
-    <div class="kpi-card"><span>Manager Top-Half Rate</span><strong>{{ fmt_pct_1dp(analysis.manager_consistency.kpis.top_half_rate) }}</strong></div>
+    <div class="kpi-card"><span>Current DPI</span><strong>{{ fmt_multiple(analysis.fund_liquidity.latest.dpi) }}</strong></div>
+    <div class="kpi-card"><span>Current TVPI</span><strong>{{ fmt_multiple(analysis.fund_liquidity.latest.tvpi) }}</strong></div>
+    <div class="kpi-card"><span>Top-10 NAV %</span><strong>{{ fmt_pct_1dp(analysis.nav_at_risk.summary.top_10_nav_pct) }}</strong></div>
     <div class="kpi-card"><span>PME Complete Coverage</span><strong>{{ analysis.public_market_comparison.coverage.funds_with_complete_coverage }}</strong></div>
  </div>
 
 <div class="panel two-col analysis-secondary">
     <div>
-        <h3>Liquidity Quality</h3>
+        <h3>Current Fund Liquidity</h3>
         <table class="compact-table">
-            <tr><td>RVPI</td><td class="num">{{ fmt_multiple(analysis.liquidity_quality.kpis.rvpi_current) }}</td></tr>
-            <tr><td>Unrealized Dependency</td><td class="num">{{ fmt_pct_1dp(analysis.liquidity_quality.kpis.unrealized_dependency) }}</td></tr>
-            <tr><td>Tail NAV %</td><td class="num">{{ fmt_pct_1dp(analysis.liquidity_quality.kpis.tail_nav_pct) }}</td></tr>
-            <tr><td>Aged Unrealized Count</td><td class="num">{{ analysis.liquidity_quality.kpis.aged_unrealized_count }}</td></tr>
+            <tr><td>RVPI</td><td class="num">{{ fmt_multiple(analysis.fund_liquidity.latest.rvpi) }}</td></tr>
+            <tr><td>PIC</td><td class="num">{{ fmt_multiple(analysis.fund_liquidity.latest.pic) }}</td></tr>
+            <tr><td>Distributed Capital</td><td class="num">{{ fmt_currency_symbol(analysis.fund_liquidity.latest.distributed) }}</td></tr>
+            <tr><td>NAV</td><td class="num">{{ fmt_currency_symbol(analysis.fund_liquidity.latest.nav) }}</td></tr>
         </table>
     </div>
     <div>
@@ -123,29 +123,29 @@
     </div>
 </div>
 
-<div class="panel analysis-secondary" id="memo-manager">
-    <h3>Manager Consistency Snapshot</h3>
+<div class="panel analysis-secondary" id="memo-risk">
+    <h3>NAV at Risk Snapshot</h3>
     <table class="data-table compact">
         <thead>
             <tr>
-                <th>Manager</th>
-                <th class="num">Funds</th>
-                <th class="num">Top-Half Rate</th>
-                <th class="num">Q4 Rate</th>
-                <th class="num">Realized Share</th>
+                <th>Fund</th>
+                <th class="num">NAV</th>
+                <th class="num">Aged NAV %</th>
+                <th class="num">Stale NAV %</th>
+                <th class="num">Below Plan NAV %</th>
             </tr>
         </thead>
         <tbody>
-            {% for row in analysis.manager_consistency.manager_rows %}
+            {% for row in analysis.nav_at_risk.fund_rows %}
             <tr>
-                <td>{{ row.manager_name }}</td>
-                <td class="num">{{ row.fund_count }}</td>
-                <td class="num">{{ fmt_pct_1dp(row.top_half_rate) }}</td>
-                <td class="num">{{ fmt_pct_1dp(row.q4_rate) }}</td>
-                <td class="num">{{ fmt_pct_1dp(row.realized_value_share) }}</td>
+                <td>{{ row.fund_number }}</td>
+                <td class="num">{{ fmt_currency_symbol(row.nav) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.aged_nav_pct) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.stale_nav_pct) }}</td>
+                <td class="num">{{ fmt_pct_1dp(row.below_plan_nav_pct) }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="num">No manager history available.</td></tr>
+            <tr><td colspan="5" class="num">No unrealized NAV concentration rows are available.</td></tr>
             {% endfor %}
         </tbody>
     </table>

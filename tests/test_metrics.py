@@ -1635,12 +1635,15 @@ def test_lp_due_diligence_memo_combines_sections(app_context):
 
     out = compute_lp_due_diligence_memo([deal], team_id=deal.team_id, firm_id=deal.firm_id)
     assert out["meta"]["methodology_version"] == "lp-ddq-v2"
-    assert "liquidity_quality" in out
-    assert "reporting_quality" in out
-    assert "benchmark_confidence" in out
-    assert "fee_drag" in out
-    assert "manager_consistency" in out
+    assert "fund_liquidity" in out
+    assert "nav_at_risk" in out
     assert "public_market_comparison" in out
+    assert "liquidity_quality" not in out
+    assert "reporting_quality" not in out
+    assert "benchmark_confidence" not in out
+    assert "fee_drag" not in out
+    assert "manager_consistency" not in out
+    assert "liquidity_forecast" not in out
 
 
 def test_reporting_quality_analysis_flags_decision_readiness(app_context):

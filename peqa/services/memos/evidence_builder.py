@@ -5,7 +5,7 @@ import json
 from models import Firm, MemoDocumentChunk, MemoGenerationRun, UploadIssue, db
 from peqa.services.filtering import apply_deal_filters, build_deal_scope_query
 from peqa.services.memos.types import MemoEvidenceBundle
-from services.metrics import compute_ic_memo_payload, compute_lp_due_diligence_memo
+from services.metrics import compute_fund_liquidity_analysis, compute_ic_memo_payload, compute_lp_due_diligence_memo
 from services.utils import DEFAULT_CURRENCY_CODE, currency_symbol, currency_unit_label, normalize_currency_code
 
 
@@ -32,14 +32,6 @@ def _reporting_currency_context(firm) -> dict:
     }
 
 
-def _safe_first_metric(rows: list[dict], key: str):
-    for row in rows or []:
-        value = row.get(key)
-        if value is not None:
-            return value
-    return None
-
-
 def _build_missing_data(lp_payload: dict, upload_issues: list[UploadIssue]) -> list[dict]:
     missing = []
     for issue in upload_issues:
@@ -52,7 +44,15 @@ def _build_missing_data(lp_payload: dict, upload_issues: list[UploadIssue]) -> l
                 "file_type": issue.file_type,
             }
         )
-    for key in ("reporting_quality", "liquidity_quality", "public_market_comparison", "benchmark_confidence", "fee_drag", "nav_at_risk"):
+    if not (lp_payload.get("fund_liquidity") or {}).get("has_data"):
+        missing.append(
+            {
+                "source": "fund_liquidity",
+                "severity": "warning",
+                "message": "No fund quarter snapshots are available for current liquidity metrics.",
+            }
+        )
+    for key in ("public_market_comparison", "nav_at_risk"):
         payload = lp_payload.get(key) or {}
         for flag in payload.get("risk_flags") or []:
             missing.append({"source": key, "severity": "warning", "message": flag})
@@ -61,9 +61,6 @@ def _build_missing_data(lp_payload: dict, upload_issues: list[UploadIssue]) -> l
 
 def _build_conflicts(lp_payload: dict) -> list[dict]:
     conflicts = []
-    benchmark_confidence = lp_payload.get("benchmark_confidence") or {}
-    for note in benchmark_confidence.get("risk_flags") or []:
-        conflicts.append({"source": "benchmark_confidence", "message": note})
     public_market = lp_payload.get("public_market_comparison") or {}
     for row in public_market.get("fund_rows") or []:
         if row.get("coverage") == "partial":
@@ -96,6 +93,7 @@ def build_memo_evidence_bundle(run_id: int) -> MemoEvidenceBundle:
         benchmark_asset_class=run.benchmark_asset_class or "",
     )
     ic_payload = compute_ic_memo_payload(deals)
+    fund_liquidity = lp_payload.get("fund_liquidity") or compute_fund_liquidity_analysis(deals, firm_id=run.firm_id)
 
     chunk_query = MemoDocumentChunk.query.filter(MemoDocumentChunk.team_id == run.team_id)
     if document_ids:
@@ -135,11 +133,12 @@ def build_memo_evidence_bundle(run_id: int) -> MemoEvidenceBundle:
         "benchmark_asset_class": run.benchmark_asset_class or "",
         "fund_count": len(lp_payload.get("fund_metadata") or []),
         "fund_metadata": lp_payload.get("fund_metadata") or [],
-        "funds_with_decision_ready_reporting": (lp_payload.get("reporting_quality") or {}).get("coverage_summary", {}).get("decision_ready_count"),
         "pme_complete_funds": (lp_payload.get("public_market_comparison") or {}).get("coverage", {}).get("funds_with_complete_coverage"),
-        "benchmark_complete_funds": (lp_payload.get("benchmark_confidence") or {}).get("summary", {}).get("funds_with_complete_quartile_coverage"),
-        "liquidity_current_dpi": _safe_first_metric((lp_payload.get("liquidity_quality") or {}).get("fund_rows") or [], "dpi_current"),
-        "liquidity_current_tvpi": _safe_first_metric((lp_payload.get("liquidity_quality") or {}).get("fund_rows") or [], "tvpi_current"),
+        "liquidity_current_dpi": (fund_liquidity.get("latest") or {}).get("dpi"),
+        "liquidity_current_tvpi": (fund_liquidity.get("latest") or {}).get("tvpi"),
+        "liquidity_current_rvpi": (fund_liquidity.get("latest") or {}).get("rvpi"),
+        "top_10_nav_pct": (lp_payload.get("nav_at_risk") or {}).get("summary", {}).get("top_10_nav_pct"),
+        "stale_nav_pct": (lp_payload.get("nav_at_risk") or {}).get("summary", {}).get("stale_nav_pct"),
         "ic_portfolio_summary": ic_payload.get("portfolio_summary") or {},
         "top_value_creation_deals": ic_payload.get("top_5_deals_by_value_created") or [],
     }
@@ -164,7 +163,7 @@ def build_memo_evidence_bundle(run_id: int) -> MemoEvidenceBundle:
         open_questions=open_questions,
         benchmark_context={
             "asset_class": run.benchmark_asset_class or "",
-            "summary": lp_payload.get("benchmark_confidence") or {},
+            "summary": lp_payload.get("benchmarking_summary") or {},
         },
     )
 

@@ -197,8 +197,9 @@ def _draft_text_for_section(section_spec: dict, style_profile: dict, evidence_bu
         recommendation = "proceed with diligence" if len(evidence_bundle.open_questions) <= 3 else "hold pending resolution of the open diligence items"
         paragraphs.append(
             f"{voice['recommend_prefix']} {recommendation}. The current app evidence covers {facts.get('fund_count') or 0} funds, "
-            f"with {(facts.get('funds_with_decision_ready_reporting') or 0)} funds showing decision-ready reporting quality and "
-            f"{(facts.get('pme_complete_funds') or 0)} funds with complete PME coverage."
+            f"with {(facts.get('pme_complete_funds') or 0)} funds showing complete PME coverage and "
+            f"current aggregate liquidity at DPI {facts.get('liquidity_current_dpi') if facts.get('liquidity_current_dpi') is not None else 'n/a'} / "
+            f"TVPI {facts.get('liquidity_current_tvpi') if facts.get('liquidity_current_tvpi') is not None else 'n/a'}."
         )
         if snippets:
             paragraphs.append(f"{voice['observation_prefix']} the source materials emphasize: {snippets[0]}")
@@ -215,15 +216,14 @@ def _draft_text_for_section(section_spec: dict, style_profile: dict, evidence_bu
         if snippets:
             paragraphs.append(f"Source-document context: {snippets[0]}")
     elif section_key == "performance_and_benchmarking":
-        benchmark_complete = facts.get("benchmark_complete_funds") or 0
         pme_complete = facts.get("pme_complete_funds") or 0
         paragraphs.append(
-            f"Benchmark coverage is complete for {benchmark_complete} fund(s), while PME coverage is complete for {pme_complete} fund(s). "
-            "Interpret relative-performance conclusions within those coverage constraints."
+            f"The benchmark context for this memo is {facts.get('benchmark_asset_class') or 'not selected'}, with complete PME coverage on {pme_complete} fund(s). "
+            "Interpret relative-performance conclusions within those coverage constraints and the available public-market matching depth."
         )
-        risk_flags = (lp_payload.get("benchmark_confidence") or {}).get("risk_flags") or []
+        risk_flags = (lp_payload.get("public_market_comparison") or {}).get("risk_flags") or []
         if risk_flags:
-            paragraphs.append("Benchmarking caveats: " + "; ".join(risk_flags[:3]))
+            paragraphs.append("Public market comparison caveats: " + "; ".join(risk_flags[:3]))
         if snippets:
             paragraphs.append(f"Supporting materials also state: {snippets[0]}")
     elif section_key == "liquidity_and_realization":
@@ -231,9 +231,9 @@ def _draft_text_for_section(section_spec: dict, style_profile: dict, evidence_bu
             f"Current liquidity signals show a representative DPI of {facts.get('liquidity_current_dpi') if facts.get('liquidity_current_dpi') is not None else 'n/a'} "
             f"and TVPI of {facts.get('liquidity_current_tvpi') if facts.get('liquidity_current_tvpi') is not None else 'n/a'} in the currently loaded fund data."
         )
-        liquidity_flags = (lp_payload.get("liquidity_quality") or {}).get("risk_flags") or []
+        liquidity_flags = (lp_payload.get("nav_at_risk") or {}).get("risk_flags") or []
         if liquidity_flags:
-            paragraphs.append("Liquidity risk flags: " + "; ".join(liquidity_flags[:3]))
+            paragraphs.append("Realization and NAV concentration flags: " + "; ".join(liquidity_flags[:3]))
     elif section_key == "risks_and_open_questions":
         if evidence_bundle.missing_data:
             paragraphs.append("Missing or incomplete data items: " + "; ".join(item.get("message", "") for item in evidence_bundle.missing_data[:5]))

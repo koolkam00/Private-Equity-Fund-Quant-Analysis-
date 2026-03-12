@@ -179,41 +179,17 @@ ANALYSIS_PAGES = {
         "title": "Benchmarking Analysis (IC PDF)",
         "description": "IC-focused benchmark quartile analysis by fund with print-ready executive summaries.",
     },
-    "lp-liquidity-quality": {
-        "title": "LP Liquidity Quality",
-        "description": "Current DPI/TVPI/RVPI, tail NAV concentration, and aged unrealized exposure quality checks.",
-    },
-    "liquidity-forecast": {
-        "title": "Liquidity Forecast",
-        "description": "Deterministic 4-quarter pacing view for calls, distributions, reserve coverage, and projected DPI range.",
-    },
     "nav-at-risk": {
         "title": "NAV at Risk",
         "description": "Tail-risk concentration across aged unrealized positions, stale marks, and below-plan holdings.",
-    },
-    "manager-consistency": {
-        "title": "Manager Consistency",
-        "description": "Fund-by-fund quartile consistency, realized share, and dispersion across manager history.",
     },
     "public-market-comparison": {
         "title": "Public Market Comparison",
         "description": "KS PME and Direct Alpha using uploaded fund cash flows and benchmark index series.",
     },
-    "benchmark-confidence": {
-        "title": "Benchmark Confidence",
-        "description": "Exact vs wildcard benchmark matching, quartile completeness, and PME benchmark depth by fund.",
-    },
-    "reporting-quality": {
-        "title": "Reporting Quality",
-        "description": "Data completeness, mark freshness, upload issue severity, and LP diligence readiness by fund.",
-    },
-    "fee-drag": {
-        "title": "Fee Drag",
-        "description": "Gross-to-net compression, implied fee drag, and fee transparency coverage by fund.",
-    },
     "lp-due-diligence-memo": {
         "title": "LP Due Diligence Memo",
-        "description": "Single-page LP diligence summary combining metadata, liquidity, benchmarking, and public market coverage.",
+        "description": "Single-page LP diligence summary combining metadata, current fund liquidity, NAV concentration, and public market coverage.",
     },
     "chart-builder": {
         "title": "Chart Builder",
@@ -748,24 +724,6 @@ def _scale_analysis_payload(page, payload, scale):
                 row[key] = _scale_money(row.get(key), scale)
         return
 
-    if page == "lp-liquidity-quality":
-        for row in payload.get("aging") or []:
-            row["nav"] = _scale_money(row.get("nav"), scale)
-        return
-
-    if page == "liquidity-forecast":
-        summary = payload.get("forecast_summary") or {}
-        summary["estimated_12m_net_cashflow"] = _scale_money(summary.get("estimated_12m_net_cashflow"), scale)
-        for key in ("capital_call_series", "distribution_series"):
-            for row in payload.get(key) or []:
-                row["amount"] = _scale_money(row.get("amount"), scale)
-        for row in payload.get("nav_burnoff_series") or []:
-            row["nav"] = _scale_money(row.get("nav"), scale)
-        for row in payload.get("fund_rows") or []:
-            for key in ("estimated_12m_net_cashflow", "projected_call_total", "projected_distribution_total", "projected_nav_end"):
-                row[key] = _scale_money(row.get(key), scale)
-        return
-
     if page == "nav-at-risk":
         summary = payload.get("summary") or {}
         summary["total_nav"] = _scale_money(summary.get("total_nav"), scale)
@@ -782,13 +740,6 @@ def _scale_analysis_payload(page, payload, scale):
                 row["nav"] = _scale_money(row.get("nav"), scale)
         return
 
-    if page == "reporting-quality":
-        freshness = payload.get("freshness") or {}
-        freshness["stale_mark_nav_pct"] = freshness.get("stale_mark_nav_pct")
-        for row in payload.get("fund_rows") or []:
-            row["stale_mark_nav"] = _scale_money(row.get("stale_mark_nav"), scale)
-        return
-
     if page == "public-market-comparison":
         for row in payload.get("fund_rows") or []:
             row["nav_used"] = _scale_money(row.get("nav_used"), scale)
@@ -797,27 +748,12 @@ def _scale_analysis_payload(page, payload, scale):
             row["future_value"] = _scale_money(row.get("future_value"), scale)
         return
 
-    if page == "fee-drag":
-        bridge = payload.get("fee_bridge") or {}
-        bridge["implied_value_drag"] = _scale_money(bridge.get("implied_value_drag"), scale)
-        for row in payload.get("expense_breakdown") or []:
-            row["amount"] = _scale_money(row.get("amount"), scale)
-        for row in payload.get("fund_rows") or []:
-            row["implied_value_drag"] = _scale_money(row.get("implied_value_drag"), scale)
-        return
-
-    if page == "benchmark-confidence":
-        return
-
     if page == "lp-due-diligence-memo":
         for row in payload.get("fund_metadata") or []:
             row["fund_size"] = _scale_money(row.get("fund_size"), scale)
-        _scale_analysis_payload("reporting-quality", payload.get("reporting_quality") or {}, scale)
-        _scale_analysis_payload("lp-liquidity-quality", payload.get("liquidity_quality") or {}, scale)
-        _scale_analysis_payload("liquidity-forecast", payload.get("liquidity_forecast") or {}, scale)
+        _scale_analysis_payload("fund-liquidity", payload.get("fund_liquidity") or {}, scale)
         _scale_analysis_payload("nav-at-risk", payload.get("nav_at_risk") or {}, scale)
         _scale_analysis_payload("public-market-comparison", payload.get("public_market_comparison") or {}, scale)
-        _scale_analysis_payload("fee-drag", payload.get("fee_drag") or {}, scale)
         return
 
     if page == "vca-ebitda":
@@ -2808,34 +2744,11 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
             metrics_by_id=metrics_by_id,
             fund_vintage_lookup=build_fund_vintage_lookup(filtered_deals, team_id=team_id, firm_id=firm_id),
         )
-    if page == "lp-liquidity-quality":
-        return compute_lp_liquidity_quality_analysis(
-            filtered_deals,
-            firm_id=firm_id,
-            team_id=team_id,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
-    if page == "liquidity-forecast":
-        return compute_liquidity_forecast_analysis(
-            filtered_deals,
-            team_id=team_id,
-            firm_id=firm_id,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
     if page == "nav-at-risk":
         return compute_nav_at_risk_analysis(
             filtered_deals,
             firm_id=firm_id,
             team_id=team_id,
-            metrics_by_id=metrics_by_id,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
-    if page == "manager-consistency":
-        return compute_manager_consistency_analysis(
-            filtered_deals,
-            team_id=team_id,
-            firm_id=firm_id,
-            benchmark_asset_class=benchmark_asset_class,
             metrics_by_id=metrics_by_id,
             as_of_date=resolve_analysis_as_of_date(filtered_deals),
         )
@@ -2845,31 +2758,6 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
             team_id=team_id,
             firm_id=firm_id,
             benchmark_asset_class=benchmark_asset_class,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
-    if page == "benchmark-confidence":
-        return compute_benchmark_confidence_analysis(
-            filtered_deals,
-            team_id=team_id,
-            firm_id=firm_id,
-            benchmark_asset_class=benchmark_asset_class,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
-    if page == "reporting-quality":
-        return compute_reporting_quality_analysis(
-            filtered_deals,
-            team_id=team_id,
-            firm_id=firm_id,
-            benchmark_asset_class=benchmark_asset_class,
-            metrics_by_id=metrics_by_id,
-            as_of_date=resolve_analysis_as_of_date(filtered_deals),
-        )
-    if page == "fee-drag":
-        return compute_fee_drag_analysis(
-            filtered_deals,
-            team_id=team_id,
-            firm_id=firm_id,
-            metrics_by_id=metrics_by_id,
             as_of_date=resolve_analysis_as_of_date(filtered_deals),
         )
     if page == "lp-due-diligence-memo":
@@ -3612,22 +3500,10 @@ def analysis_page(page):
         template_name = "analysis_vca_revenue.html"
     elif page == "benchmarking":
         template_name = "analysis_benchmarking.html"
-    elif page == "lp-liquidity-quality":
-        template_name = "analysis_lp_liquidity_quality.html"
-    elif page == "liquidity-forecast":
-        template_name = "analysis_liquidity_forecast.html"
     elif page == "nav-at-risk":
         template_name = "analysis_nav_at_risk.html"
-    elif page == "manager-consistency":
-        template_name = "analysis_manager_consistency.html"
     elif page == "public-market-comparison":
         template_name = "analysis_public_market_comparison.html"
-    elif page == "benchmark-confidence":
-        template_name = "analysis_benchmark_confidence.html"
-    elif page == "reporting-quality":
-        template_name = "analysis_reporting_quality.html"
-    elif page == "fee-drag":
-        template_name = "analysis_fee_drag.html"
     elif page == "lp-due-diligence-memo":
         template_name = "analysis_lp_due_diligence_memo.html"
 
