@@ -4,15 +4,22 @@ from io import BytesIO
 from models import (
     BenchmarkPoint,
     Deal,
+    Firm,
     FundCashflow,
     FundMetadata,
     FundQuarterSnapshot,
+    MemoDocument,
+    MemoJob,
     MemoGenerationRun,
+    MemoStyleProfile,
     PublicMarketIndexLevel,
+    Team,
     TeamFirmAccess,
     TeamMembership,
+    User,
     db,
 )
+from peqa.services.memos.jobs import _fail_job
 
 
 def _seed_generation_data():
@@ -164,3 +171,125 @@ def test_memo_generation_run_end_to_end(client):
     export_response = client.post(f"/api/memos/runs/{run.id}/export?format=markdown")
     assert export_response.status_code == 200
     assert export_response.mimetype == "text/markdown"
+
+
+def test_generate_memo_requires_ready_style_profile(client):
+    _seed_generation_data()
+    membership = TeamMembership.query.first()
+    profile = MemoStyleProfile(
+        team_id=membership.team_id,
+        created_by_user_id=User.query.filter_by(email="tester@example.com").first().id,
+        name="Pending Style",
+        status="queued",
+    )
+    db.session.add(profile)
+    db.session.commit()
+
+    response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": profile.id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "style_profile_not_ready"
+
+
+def test_generate_memo_requires_ready_documents(client):
+    _seed_generation_data()
+    membership = TeamMembership.query.first()
+    user = User.query.filter_by(email="tester@example.com").first()
+    profile = MemoStyleProfile(
+        team_id=membership.team_id,
+        created_by_user_id=user.id,
+        name="Ready Style",
+        status="ready",
+        profile_json="{}",
+    )
+    document = MemoDocument(
+        team_id=membership.team_id,
+        firm_id=TeamFirmAccess.query.filter_by(team_id=membership.team_id).first().firm_id,
+        created_by_user_id=user.id,
+        document_role="ddq",
+        file_name="pending_ddq.txt",
+        mime_type="text/plain",
+        storage_key="memo-documents/test/pending_ddq.txt",
+        sha256="abc123",
+        status="uploaded",
+        extraction_status="pending",
+    )
+    db.session.add_all([profile, document])
+    db.session.commit()
+
+    response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": profile.id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [document.id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["error"] == "documents_not_ready"
+    assert "pending_ddq.txt" in payload["documents"]
+
+
+def test_failed_generation_job_marks_run_failed(app_context):
+    membership = TeamMembership(team_id=1, user_id=1, role="owner")
+    profile = MemoStyleProfile(
+        id=1,
+        team_id=1,
+        created_by_user_id=1,
+        name="Ready Style",
+        status="ready",
+        profile_json="{}",
+    )
+    db.session.add_all(
+        [
+            Team(id=1, name="Memo Team", slug="memo-team"),
+            User(id=1, email="owner@example.com", password_hash="x", is_active=True),
+            Firm(id=1, name="Memo Firm", slug="memo-firm"),
+            membership,
+            TeamFirmAccess(team_id=1, firm_id=1, created_by_user_id=1),
+            profile,
+        ]
+    )
+    db.session.flush()
+    run = MemoGenerationRun(
+        team_id=1,
+        firm_id=1,
+        created_by_user_id=1,
+        style_profile_id=1,
+        memo_type="fund_investment",
+        status="running",
+        progress_stage="drafting",
+    )
+    db.session.add(run)
+    db.session.flush()
+    job = MemoJob(
+        team_id=1,
+        run_id=run.id,
+        job_type="generate_memo_run",
+        status="running",
+        attempt_count=3,
+        payload_json="{}",
+    )
+    db.session.add(job)
+    db.session.commit()
+
+    _fail_job(job, RuntimeError("generation exploded"))
+
+    db.session.refresh(run)
+    db.session.refresh(job)
+    assert job.status == "failed"
+    assert run.status == "failed"
+    assert run.progress_stage == "failed"

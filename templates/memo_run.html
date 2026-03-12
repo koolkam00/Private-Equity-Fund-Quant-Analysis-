@@ -15,6 +15,13 @@
     </div>
     <p><strong>Status:</strong> <span id="memo-run-status">{{ memo_run.status }}</span> | <strong>Stage:</strong> <span id="memo-run-stage">{{ memo_run.progress_stage }}</span></p>
     <p class="tiny">Benchmark: {{ memo_run.benchmark_asset_class or "None" }} | Style Profile: {{ memo_run.style_profile_id }}</p>
+    <div style="margin: 0.75rem 0 0.5rem;">
+        <div style="height: 0.75rem; background: rgba(20, 35, 33, 0.10); border-radius: 999px; overflow: hidden;">
+            <div id="memo-run-progress-bar" style="width: 6%; height: 100%; background: linear-gradient(90deg, #1d7f67, #e9b44c); transition: width 0.35s ease;"></div>
+        </div>
+    </div>
+    <p class="tiny" id="memo-run-status-message">Preparing memo generation.</p>
+    <div id="memo-run-job-alert" class="warn-box" {% if not memo_run.latest_job or memo_run.latest_job.status != "failed" %}hidden{% endif %}></div>
     <div id="memo-run-alerts" class="warn-box" {% if not memo_run.missing_data and not memo_run.conflicts %}hidden{% endif %}>
         <p><strong>Missing Data / Conflicts</strong></p>
         {% for item in memo_run.missing_data %}
@@ -63,6 +70,6 @@
 </section>
 
 <script id="memo-run-payload" type="application/json">
-    {{ {"runId": memo_run.id}|tojson }}
+    {{ {"runId": memo_run.id, "initialRun": memo_run}|tojson }}
 </script>
 {% endblock %}

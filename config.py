@@ -18,6 +18,7 @@ class Config:
     _max_content_length_mb = int(
         os.environ.get("MAX_CONTENT_LENGTH_MB", str(max(16, _memo_max_document_mb)))
     )
+    _memo_inline_jobs = _env_flag("MEMO_INLINE_JOBS", default=not IS_PRODUCTION)
 
     _secret = os.environ.get("SECRET_KEY")
     if IS_PRODUCTION and (not _secret or _secret == "dev-secret-key-change-in-prod"):
@@ -56,7 +57,8 @@ class Config:
         ".pptx",
     }
     MEMO_MAX_DOCUMENT_MB = _memo_max_document_mb
-    MEMO_INLINE_JOBS = _env_flag("MEMO_INLINE_JOBS", default=not IS_PRODUCTION)
+    MEMO_INLINE_JOBS = _memo_inline_jobs
+    MEMO_WEB_ASYNC_JOBS = _env_flag("MEMO_WEB_ASYNC_JOBS", default=not _memo_inline_jobs)
     MEMO_ENABLE_OCR = _env_flag("MEMO_ENABLE_OCR", default=False)
     MEMO_S3_BUCKET = os.environ.get("MEMO_S3_BUCKET")
     MEMO_S3_REGION = os.environ.get("MEMO_S3_REGION")

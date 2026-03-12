@@ -18,6 +18,8 @@ services:
         value: db
       - key: MEMO_INLINE_JOBS
         value: "false"
+      - key: MEMO_WEB_ASYNC_JOBS
+        value: "true"
       - key: MEMO_LLM_PROVIDER
         value: openai
       - key: MEMO_LLM_MODEL_STYLE
@@ -57,6 +59,8 @@ services:
       - key: MEMO_STORAGE_BACKEND
         value: db
       - key: MEMO_INLINE_JOBS
+        value: "false"
+      - key: MEMO_WEB_ASYNC_JOBS
         value: "false"
       - key: MEMO_LLM_PROVIDER
         value: openai

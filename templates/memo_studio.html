@@ -13,6 +13,7 @@
             <a href="{{ url_for('memo_studio') }}" class="btn-upload {% if active_tab == 'generate' %}btn-secondary{% endif %}">Generate Memo</a>
         </div>
         <p class="tiny">The memo engine uses your uploaded memo exemplars plus current app analytics for quantitative grounding.</p>
+        <div id="memo-studio-activity" class="warn-box" hidden></div>
     </section>
 
     <section class="panel">
@@ -111,7 +112,7 @@
                 <select name="style_profile_id" required>
                     <option value="">Select style profile</option>
                     {% for profile in memo_style_profiles %}
-                    <option value="{{ profile.id }}">{{ profile.name }} ({{ profile.status }})</option>
+                    <option value="{{ profile.id }}" {% if profile.status != "ready" %}disabled{% endif %}>{{ profile.name }} ({{ profile.status }})</option>
                     {% endfor %}
                 </select>
                 <select name="benchmark_asset_class">
@@ -125,12 +126,14 @@
             <select id="memo-document-select" name="document_ids" multiple style="min-height: 10rem;">
                 {% for document in memo_documents %}
                 {% if document.document_role not in ['prior_memo', 'approved_generated_memo'] %}
-                <option value="{{ document.id }}">{{ document.file_name }} [{{ document.document_role }}]</option>
+                <option value="{{ document.id }}" {% if document.status != "ready" or document.extraction_status != "ready" %}disabled{% endif %}>{{ document.file_name }} [{{ document.document_role }}{% if document.status != "ready" or document.extraction_status != "ready" %} | {{ document.extraction_status }}{% endif %}]</option>
                 {% endif %}
                 {% endfor %}
             </select>
+            <p class="tiny" id="memo-run-form-status">Only ready style profiles and fully processed source documents can be used to start a memo.</p>
             <textarea name="user_notes" rows="4" placeholder="Optional notes or diligence angle for the memo"></textarea>
-            <button type="submit" class="btn-upload">Generate Memo</button>
+            <button type="submit" class="btn-upload" id="memo-run-submit-btn">Generate Memo</button>
+            <p class="tiny" id="memo-run-submit-feedback" hidden></p>
         </form>
     </section>
 

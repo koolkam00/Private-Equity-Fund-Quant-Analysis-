@@ -2832,13 +2832,119 @@ async function fetchJson(url, options = {}) {
     return payload;
 }
 
+function setButtonBusy(button, isBusy, busyText) {
+    if (!button) return;
+    if (isBusy) {
+        if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent || '';
+        }
+        button.disabled = true;
+        if (busyText) {
+            button.textContent = busyText;
+        }
+        return;
+    }
+    button.disabled = false;
+    if (button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+    }
+}
+
+function formatMemoActivitySummary(documents, profiles, runs) {
+    const pendingDocuments = documents.filter((item) => !['ready', 'failed'].includes(item.status) || !['ready', 'failed'].includes(item.extraction_status));
+    const failedDocuments = documents.filter((item) => item.status === 'failed' || item.extraction_status === 'failed');
+    const pendingProfiles = profiles.filter((item) => !['ready', 'empty', 'failed'].includes(item.status));
+    const failedProfiles = profiles.filter((item) => item.status === 'failed');
+    const activeRuns = runs.filter((item) => ['queued', 'running'].includes(item.status));
+    const failedRuns = runs.filter((item) => item.status === 'failed');
+    const messages = [];
+
+    if (pendingDocuments.length) {
+        messages.push(`${pendingDocuments.length} memo document${pendingDocuments.length === 1 ? ' is' : 's are'} still processing.`);
+    }
+    if (pendingProfiles.length) {
+        messages.push(`${pendingProfiles.length} style profile${pendingProfiles.length === 1 ? ' is' : 's are'} still building.`);
+    }
+    if (activeRuns.length) {
+        messages.push(`${activeRuns.length} memo run${activeRuns.length === 1 ? ' is' : 's are'} currently generating.`);
+    }
+    if (failedDocuments.length) {
+        const names = failedDocuments.slice(0, 3).map((item) => item.file_name).join(', ');
+        messages.push(`Failed documents: ${names}.`);
+    }
+    if (failedProfiles.length) {
+        const names = failedProfiles.slice(0, 3).map((item) => item.name).join(', ');
+        messages.push(`Failed style profiles: ${names}.`);
+    }
+    if (failedRuns.length) {
+        const ids = failedRuns.slice(0, 3).map((item) => `#${item.id}`).join(', ');
+        messages.push(`Failed memo runs: ${ids}.`);
+    }
+    return {
+        hasPending: pendingDocuments.length > 0 || pendingProfiles.length > 0 || activeRuns.length > 0,
+        html: messages.length ? `<p><strong>Memo Activity</strong></p>${messages.map((message) => `<p class="tiny">${escapeHtml(message)}</p>`).join('')}` : '',
+    };
+}
+
+function computeMemoRunProgress(run, sections) {
+    const status = (run?.status || '').trim();
+    const stage = (run?.progress_stage || '').trim();
+    const latestJob = run?.latest_job || null;
+    const totalSections = Array.isArray(sections) ? sections.length : 0;
+    const completedSections = Array.isArray(sections)
+        ? sections.filter((section) => ['ready', 'approved'].includes(section.status)).length
+        : 0;
+
+    if (status === 'approved') {
+        return { percent: 100, message: 'Memo approved. Exports are ready.', jobAlert: '' };
+    }
+    if (status === 'review_required') {
+        return { percent: 100, message: 'Draft complete. Review the sections below before approval.', jobAlert: '' };
+    }
+    if (status === 'failed') {
+        const detail = latestJob?.error_text ? ` ${latestJob.error_text}` : '';
+        return {
+            percent: 100,
+            message: `Memo generation failed.${detail}`,
+            jobAlert: latestJob?.error_text ? `<p><strong>Generation failed</strong></p><p class="tiny">${escapeHtml(latestJob.error_text)}</p>` : '',
+        };
+    }
+
+    let percent = 8;
+    let message = 'Queued. The memo engine has accepted the job and is waiting to start.';
+    if (stage === 'building_evidence') {
+        percent = 22;
+        message = 'Collecting source documents, app outputs, and diligence context.';
+    } else if (stage === 'drafting') {
+        percent = 45;
+        message = 'Drafting memo sections in your style.';
+    } else if (stage.startsWith('drafting:')) {
+        percent = totalSections > 0 ? Math.max(45, Math.min(92, 45 + Math.round((completedSections / totalSections) * 47))) : 62;
+        message = `Drafting ${stage.split(':')[1].replace(/_/g, ' ')}.`;
+    } else if (stage.startsWith('rerunning:')) {
+        percent = 70;
+        message = `Rerunning ${stage.split(':')[1].replace(/_/g, ' ')}.`;
+    }
+
+    let jobAlert = '';
+    if (latestJob?.status === 'queued') {
+        jobAlert = '<p><strong>Job queued</strong></p><p class="tiny">Background processing is waiting to claim this memo job.</p>';
+    } else if (latestJob?.status === 'running') {
+        jobAlert = '<p><strong>Job running</strong></p><p class="tiny">The memo engine is actively processing this run.</p>';
+    }
+
+    return { percent, message, jobAlert };
+}
+
 function bindMemoUploadForm(formId, endpoint) {
     const form = document.getElementById(formId);
     if (!form) return;
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const formData = new FormData(form);
+        const submitButton = form.querySelector('button[type="submit"]');
         try {
+            setButtonBusy(submitButton, true, 'Uploading...');
             await fetchJson(endpoint, {
                 method: 'POST',
                 body: formData,
@@ -2847,11 +2953,14 @@ function bindMemoUploadForm(formId, endpoint) {
             window.location.reload();
         } catch (error) {
             window.alert(error.message);
+        } finally {
+            setButtonBusy(submitButton, false);
         }
     });
 }
 
 function initMemoStudio() {
+    let sawPendingStudioWork = false;
     bindMemoUploadForm('memo-style-upload-form', '/api/memos/documents');
     bindMemoUploadForm('memo-source-upload-form', '/api/memos/documents');
 
@@ -2860,7 +2969,9 @@ function initMemoStudio() {
         styleProfileForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const formData = new FormData(styleProfileForm);
+            const submitButton = styleProfileForm.querySelector('button[type="submit"]');
             try {
+                setButtonBusy(submitButton, true, 'Building Style...');
                 await fetchJson('/api/memos/style-profiles/rebuild', {
                     method: 'POST',
                     body: formData,
@@ -2869,12 +2980,16 @@ function initMemoStudio() {
                 window.location.reload();
             } catch (error) {
                 window.alert(error.message);
+            } finally {
+                setButtonBusy(submitButton, false);
             }
         });
     }
 
     const memoRunForm = document.getElementById('memo-run-form');
     if (memoRunForm) {
+        const feedbackEl = document.getElementById('memo-run-submit-feedback');
+        const submitButton = document.getElementById('memo-run-submit-btn');
         memoRunForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const documentSelect = document.getElementById('memo-document-select');
@@ -2890,6 +3005,11 @@ function initMemoStudio() {
                 filters: {},
             };
             try {
+                if (feedbackEl) {
+                    feedbackEl.hidden = false;
+                    feedbackEl.textContent = 'Creating memo run and starting generation...';
+                }
+                setButtonBusy(submitButton, true, 'Starting...');
                 const response = await fetchJson('/api/memos/runs', {
                     method: 'POST',
                     headers: {
@@ -2898,12 +3018,52 @@ function initMemoStudio() {
                     },
                     body: JSON.stringify(payload),
                 });
+                if (feedbackEl) {
+                    feedbackEl.textContent = 'Memo run created. Opening live progress view...';
+                }
                 window.location.href = `/memos/runs/${response.id}`;
             } catch (error) {
-                window.alert(error.message);
+                if (feedbackEl) {
+                    feedbackEl.hidden = false;
+                    feedbackEl.textContent = error.message;
+                } else {
+                    window.alert(error.message);
+                }
+            } finally {
+                setButtonBusy(submitButton, false);
             }
         });
     }
+
+    const activityEl = document.getElementById('memo-studio-activity');
+    async function refreshStudioActivity() {
+        if (!activityEl) return;
+        try {
+            const [documentsPayload, profilesPayload, runsPayload] = await Promise.all([
+                fetchJson('/api/memos/documents', { headers: jsonHeaders() }),
+                fetchJson('/api/memos/style-profiles', { headers: jsonHeaders() }),
+                fetchJson('/api/memos/runs', { headers: jsonHeaders() }),
+            ]);
+            const summary = formatMemoActivitySummary(
+                documentsPayload?.items || [],
+                profilesPayload?.items || [],
+                runsPayload?.items || [],
+            );
+            activityEl.hidden = !summary.html;
+            activityEl.innerHTML = summary.html;
+            if (summary.hasPending) {
+                sawPendingStudioWork = true;
+                window.setTimeout(() => {
+                    refreshStudioActivity().catch((error) => console.error(error));
+                }, 3000);
+            } else if (sawPendingStudioWork) {
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    }
+    refreshStudioActivity().catch((error) => console.error(error));
 }
 
 function renderMemoRunSections(sections) {
@@ -2959,6 +3119,9 @@ function initMemoRun() {
     const stageEl = document.getElementById('memo-run-stage');
     const finalMarkdownEl = document.getElementById('memo-run-final-markdown');
     const alertsEl = document.getElementById('memo-run-alerts');
+    const progressBarEl = document.getElementById('memo-run-progress-bar');
+    const statusMessageEl = document.getElementById('memo-run-status-message');
+    const jobAlertEl = document.getElementById('memo-run-job-alert');
 
     async function refreshRun() {
         const [run, sectionsPayload] = await Promise.all([
@@ -2976,6 +3139,13 @@ function initMemoRun() {
                 : '';
         }
         const sections = (sectionsPayload?.items || []).map((section) => ({ ...section, run_id: runId }));
+        const progress = computeMemoRunProgress(run, sections);
+        if (progressBarEl) progressBarEl.style.width = `${progress.percent}%`;
+        if (statusMessageEl) statusMessageEl.textContent = progress.message;
+        if (jobAlertEl) {
+            jobAlertEl.hidden = !progress.jobAlert;
+            jobAlertEl.innerHTML = progress.jobAlert;
+        }
         renderMemoRunSections(sections);
         bindMemoRunSectionButtons(runId);
         if (run.status === 'queued' || run.status === 'running') {
@@ -3053,6 +3223,15 @@ function initMemoRun() {
     });
 
     bindMemoRunSectionButtons(runId);
+    if (payload.initialRun) {
+        const progress = computeMemoRunProgress(payload.initialRun, []);
+        if (progressBarEl) progressBarEl.style.width = `${progress.percent}%`;
+        if (statusMessageEl) statusMessageEl.textContent = progress.message;
+        if (jobAlertEl) {
+            jobAlertEl.hidden = !progress.jobAlert;
+            jobAlertEl.innerHTML = progress.jobAlert;
+        }
+    }
     if ((statusEl?.textContent || '').trim() === 'queued' || (statusEl?.textContent || '').trim() === 'running') {
         refreshRun().catch((error) => console.error(error));
     }

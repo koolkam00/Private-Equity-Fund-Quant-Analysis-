@@ -4537,6 +4537,24 @@ def _memo_run_or_404(membership, run_id):
     return row
 
 
+def _memo_resolve_documents(membership, document_ids):
+    unique_ids = sorted({int(value) for value in (document_ids or []) if int(value) > 0})
+    if not unique_ids:
+        return []
+    rows = (
+        _memo_document_query(membership)
+        .filter(MemoDocument.id.in_(unique_ids))
+        .order_by(MemoDocument.created_at.asc(), MemoDocument.id.asc())
+        .all()
+    )
+    if len(rows) != len(unique_ids):
+        abort(404)
+    for row in rows:
+        if row.document_role in MEMO_STYLE_ROLES and row.created_by_user_id != current_user.id:
+            abort(403)
+    return rows
+
+
 def _memo_parse_json(value, default):
     if not value:
         return default
@@ -4600,6 +4618,11 @@ def _memo_serialize_section(row):
 
 
 def _memo_serialize_run(row):
+    latest_job = (
+        MemoJob.query.filter(MemoJob.run_id == row.id)
+        .order_by(MemoJob.created_at.desc(), MemoJob.id.desc())
+        .first()
+    )
     section_rows = (
         MemoGenerationSection.query.filter_by(run_id=row.id)
         .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
@@ -4624,6 +4647,14 @@ def _memo_serialize_run(row):
         "conflicts": _memo_parse_json(row.conflicts_json, []),
         "open_questions": _memo_parse_json(row.open_questions_json, []),
         "export_status": row.export_status,
+        "latest_job": {
+            "id": latest_job.id,
+            "job_type": latest_job.job_type,
+            "status": latest_job.status,
+            "attempt_count": latest_job.attempt_count,
+            "error_text": latest_job.error_text,
+            "updated_at": latest_job.updated_at.isoformat() if latest_job and latest_job.updated_at else None,
+        } if latest_job else None,
         "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -4859,6 +4890,7 @@ def memo_style_profile_rebuild_api():
         )
         db.session.add(profile)
         db.session.commit()
+    profile.status = "queued"
     db.session.add(profile)
     db.session.commit()
     enqueue_job(
@@ -4885,7 +4917,29 @@ def memo_runs_api():
     if style_profile_id in (None, ""):
         return jsonify({"error": "style_profile_id_required"}), 400
     style_profile = _memo_style_profile_or_404(membership, int(style_profile_id))
+    if style_profile.status != "ready":
+        status_label = style_profile.status or "pending"
+        return jsonify(
+            {
+                "error": "style_profile_not_ready",
+                "message": f"Style profile '{style_profile.name}' is still {status_label}. Wait for it to finish processing before generating a memo.",
+            }
+        ), 409
     document_ids = _memo_parse_document_ids(payload.get("document_ids"))
+    source_documents = _memo_resolve_documents(membership, document_ids)
+    blocked_documents = [
+        row.file_name
+        for row in source_documents
+        if row.status != "ready" or row.extraction_status != "ready"
+    ]
+    if blocked_documents:
+        return jsonify(
+            {
+                "error": "documents_not_ready",
+                "message": "Some selected source documents are still processing. Wait for them to reach Ready before generating a memo.",
+                "documents": blocked_documents,
+            }
+        ), 409
     firm_id = _memo_firm_scope(membership, payload.get("firm_id"), allow_null=False)
     raw_filters = payload.get("filters")
     filters = raw_filters if isinstance(raw_filters, dict) else _memo_parse_json(raw_filters, {})

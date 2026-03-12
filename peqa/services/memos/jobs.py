@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 from flask import current_app
 
-from models import MemoDocument, MemoDocumentChunk, MemoGenerationRun, MemoJob, db
+from models import MemoDocument, MemoDocumentChunk, MemoGenerationRun, MemoJob, MemoStyleProfile, db
 from peqa.services.memos.chunking import chunk_document
 from peqa.services.memos.extractors import extract_document
 from peqa.services.memos.orchestrator import generate_memo_run, rerun_memo_section
@@ -16,6 +17,8 @@ from peqa.services.memos.style_profiles import rebuild_style_profile
 
 
 logger = logging.getLogger(__name__)
+_async_job_ids: set[int] = set()
+_async_job_ids_lock = threading.Lock()
 
 
 def _utc_now_naive() -> datetime:
@@ -49,6 +52,8 @@ def enqueue_job(team_id: int, job_type: str, payload: dict, run_id: int | None =
     if current_app.config.get("MEMO_INLINE_JOBS"):
         run_inline_job(job.id)
         job = db.session.get(MemoJob, job.id)
+    elif current_app.config.get("MEMO_WEB_ASYNC_JOBS"):
+        launch_async_job(job.id)
     return job
 
 
@@ -77,6 +82,22 @@ def _fail_job(job: MemoJob, exc: Exception):
     else:
         job.status = "queued"
         job.lease_expires_at = _utc_now_naive() + timedelta(seconds=2 ** min(job.attempt_count, 5))
+    if job.status == "failed":
+        if job.job_type == "rebuild_style_profile":
+            payload = _json_loads(job.payload_json, {})
+            profile = db.session.get(MemoStyleProfile, payload.get("style_profile_id"))
+            if profile is not None:
+                profile.status = "failed"
+                db.session.add(profile)
+        elif job.run_id:
+            run = db.session.get(MemoGenerationRun, job.run_id)
+            if run is not None:
+                if job.job_type == "export_memo":
+                    run.export_status = "failed"
+                else:
+                    run.status = "failed"
+                    run.progress_stage = "failed"
+                db.session.add(run)
     db.session.add(job)
     db.session.commit()
 
@@ -172,10 +193,9 @@ def process_job(job: MemoJob):
 
 
 def run_inline_job(job_id: int):
-    job = db.session.get(MemoJob, job_id)
+    job = claim_job_by_id(job_id)
     if job is None:
-        raise ValueError(f"Memo job {job_id} not found")
-    _mark_job_running(job)
+        raise ValueError(f"Memo job {job_id} was not available to claim")
     try:
         process_job(job)
     except Exception as exc:
@@ -187,19 +207,68 @@ def run_inline_job(job_id: int):
         return job
 
 
+def claim_job_by_id(job_id: int) -> MemoJob | None:
+    now = _utc_now_naive()
+    query = MemoJob.query.filter(
+        MemoJob.id == job_id,
+        MemoJob.status == "queued",
+        (MemoJob.lease_expires_at.is_(None)) | (MemoJob.lease_expires_at <= now),
+    )
+    try:
+        job = query.with_for_update(skip_locked=True).first()
+    except TypeError:
+        job = query.with_for_update().first()
+    if job is None:
+        return None
+    return _mark_job_running(job)
+
+
 def claim_next_job() -> MemoJob | None:
     now = _utc_now_naive()
-    job = (
+    query = (
         MemoJob.query.filter(
             MemoJob.status == "queued",
             (MemoJob.lease_expires_at.is_(None)) | (MemoJob.lease_expires_at <= now),
         )
         .order_by(MemoJob.created_at.asc(), MemoJob.id.asc())
-        .first()
     )
+    try:
+        job = query.with_for_update(skip_locked=True).first()
+    except TypeError:
+        job = query.with_for_update().first()
     if job is None:
         return None
     return _mark_job_running(job)
+
+
+def _run_async_job(app, job_id: int):
+    try:
+        with app.app_context():
+            job = claim_job_by_id(job_id)
+            if job is None:
+                return
+            try:
+                process_job(job)
+            except Exception as exc:
+                logger.exception("Async memo job %s failed", job.id)
+                _fail_job(job, exc)
+            else:
+                _complete_job(job)
+            finally:
+                db.session.remove()
+    finally:
+        with _async_job_ids_lock:
+            _async_job_ids.discard(job_id)
+
+
+def launch_async_job(job_id: int):
+    app = current_app._get_current_object()
+    with _async_job_ids_lock:
+        if job_id in _async_job_ids:
+            return
+        _async_job_ids.add(job_id)
+    thread = threading.Thread(target=_run_async_job, args=(app, job_id), daemon=True, name=f"memo-job-{job_id}")
+    thread.start()
 
 
 def run_worker_loop(poll_interval: float = 2.0):
