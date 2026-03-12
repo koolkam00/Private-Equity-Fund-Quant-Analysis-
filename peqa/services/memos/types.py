@@ -98,6 +98,9 @@ class ValidationResult:
     numeric_mismatches: list[dict[str, Any]] = field(default_factory=list)
     citation_gaps: list[dict[str, Any]] = field(default_factory=list)
     open_questions: list[dict[str, Any]] = field(default_factory=list)
+    style_score: float = 1.0
+    style_findings: list[dict[str, Any]] = field(default_factory=list)
+    copy_risk_flags: list[dict[str, Any]] = field(default_factory=list)
     summary: str = ""
 
 

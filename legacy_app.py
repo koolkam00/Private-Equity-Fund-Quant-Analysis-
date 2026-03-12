@@ -51,6 +51,7 @@ from models import (
 from peqa.services.memos import assemble_memo, enqueue_job, rebuild_style_profile
 from peqa.services.memos.evidence_builder import build_memo_evidence_bundle
 from peqa.services.memos.jobs import cancel_jobs_for_run, recover_stale_jobs, run_inline_job
+from peqa.services.memos.retrieval import retrieve_section_evidence
 from peqa.services.memos.storage import build_storage_key, get_document_storage
 from peqa.services.memos.style_profiles import list_style_exemplars, load_style_profile
 from peqa.services.memos.types import DraftSection, dataclass_to_dict
@@ -5225,7 +5226,15 @@ def memo_run_section_update_api(run_id, section_key):
         metadata=metadata,
     )
     evidence_bundle = build_memo_evidence_bundle(run.id)
-    validation_result = validate_section(draft, evidence_bundle)
+    style_profile = load_style_profile(run.style_profile_id)
+    section_spec = {
+        "key": section.section_key,
+        "title": section.title,
+        "objective": section.objective or "",
+        "required_evidence": _memo_parse_json(section.required_evidence_json, []),
+    }
+    retrieval_pack = retrieve_section_evidence(section_spec, evidence_bundle, style_profile)
+    validation_result = validate_section(draft, evidence_bundle, style_profile=style_profile, retrieval_pack=retrieval_pack)
 
     section.draft_text = draft.text
     section.draft_json = _memo_json_dumps(dataclass_to_dict(draft))

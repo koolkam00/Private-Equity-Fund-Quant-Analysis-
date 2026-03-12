@@ -25,3 +25,4 @@ def test_validate_section_flags_missing_citations():
     assert result.status == "blocked"
     assert result.unsupported_claims
     assert result.citation_gaps
+    assert result.style_score == 1.0

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 
 from flask import current_app
@@ -10,10 +9,12 @@ from flask import current_app
 from models import MemoGenerationClaim, MemoGenerationRun, MemoGenerationSection, db
 from peqa.services.memos.assembly import assemble_memo
 from peqa.services.memos.evidence_builder import build_memo_evidence_bundle
+from peqa.services.memos.llm import call_openai_json
 from peqa.services.memos.prompts import (
     DEFAULT_MEMO_SECTIONS,
     build_outline_prompt,
     build_section_drafting_prompt,
+    build_style_rewrite_prompt,
 )
 from peqa.services.memos.retrieval import retrieve_section_evidence
 from peqa.services.memos.style_profiles import load_style_profile
@@ -165,47 +166,8 @@ def _outline_from_style(style_profile: dict) -> list[dict]:
     return sections
 
 
-def _provider_enabled() -> bool:
-    provider = (current_app.config.get("MEMO_LLM_PROVIDER") or "disabled").strip().lower()
-    return provider == "openai" and bool(os.environ.get("OPENAI_API_KEY"))
-
-
 def _call_openai_json(model: str, prompt: dict) -> dict | None:
-    if not _provider_enabled():
-        return None
-    try:
-        from openai import OpenAI
-    except ImportError:
-        logger.warning("OpenAI SDK not installed; falling back to deterministic memo generation.")
-        return None
-
-    client = OpenAI(timeout=float(current_app.config.get("MEMO_LLM_TIMEOUT_SECONDS", 90)))
-    try:
-        input_payload = json.dumps(prompt["input"], default=str)
-        if hasattr(client, "responses"):
-            response = client.responses.create(
-                model=model,
-                input=[
-                    {"role": "system", "content": [{"type": "input_text", "text": prompt["system"]}]},
-                    {"role": "user", "content": [{"type": "input_text", "text": input_payload}]},
-                ],
-            )
-            output_text = getattr(response, "output_text", None)
-            if output_text:
-                return json.loads(output_text)
-        response = client.chat.completions.create(
-            model=model,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": prompt["system"]},
-                {"role": "user", "content": input_payload},
-            ],
-        )
-        output_text = response.choices[0].message.content
-        return json.loads(output_text)
-    except Exception:
-        logger.exception("LLM memo generation failed; falling back to deterministic generation.")
-        return None
+    return call_openai_json(model, prompt, logger)
 
 
 def _build_outline(style_profile: dict, evidence_bundle) -> list[dict]:
@@ -352,6 +314,87 @@ def _draft_text_for_section(section_spec: dict, style_profile: dict, evidence_bu
     )
 
 
+def _heuristic_style_rewrite(text: str, style_profile: dict, section_spec: dict) -> str:
+    if not text.strip():
+        return text
+    paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+    if not paragraphs:
+        return text
+    section_profile = (style_profile.get("section_profiles") or {}).get(section_spec["key"]) or {}
+    global_voice = style_profile.get("global_voice") or {}
+    recommendation_phrases = section_profile.get("recommendation_phrases") or global_voice.get("recommendation_phrases") or []
+    hedge_phrases = section_profile.get("hedge_phrases") or global_voice.get("hedge_phrases") or []
+    transition_phrases = section_profile.get("transition_phrases") or global_voice.get("transition_phrases") or []
+
+    if section_spec["key"] in {"executive_summary", "recommendation"} and recommendation_phrases:
+        first_phrase = recommendation_phrases[0]
+        if isinstance(first_phrase, str) and first_phrase and not paragraphs[0].lower().startswith(first_phrase.lower()):
+            if paragraphs[0].lower().startswith("recommendation:"):
+                paragraphs[0] = re.sub(r"^Recommendation:\s*", f"{first_phrase.title()} ", paragraphs[0], count=1)
+            elif "recommend" not in paragraphs[0].lower():
+                paragraphs[0] = f"{first_phrase.title()} {paragraphs[0][0].lower() + paragraphs[0][1:]}" if len(paragraphs[0]) > 1 else first_phrase.title()
+
+    if section_spec["key"] in {"executive_summary", "risks_and_open_questions"} and hedge_phrases and len(paragraphs) >= 2:
+        hedge_phrase = hedge_phrases[0]
+        if isinstance(hedge_phrase, str) and hedge_phrase and hedge_phrase.lower() not in paragraphs[-1].lower():
+            paragraphs[-1] = f"{hedge_phrase.title()}, {paragraphs[-1][0].lower() + paragraphs[-1][1:]}" if len(paragraphs[-1]) > 1 else hedge_phrase.title()
+
+    if transition_phrases and len(paragraphs) >= 2:
+        transition_phrase = transition_phrases[0]
+        if isinstance(transition_phrase, str) and transition_phrase and transition_phrase.lower() not in paragraphs[1].lower():
+            paragraphs[1] = f"{transition_phrase.title()}, {paragraphs[1][0].lower() + paragraphs[1][1:]}" if len(paragraphs[1]) > 1 else transition_phrase.title()
+
+    return "\n\n".join(paragraphs).strip()
+
+
+def _rewrite_section_in_style(section_spec: dict, grounded_draft: DraftSection, style_profile: dict, retrieval_pack) -> DraftSection:
+    section_profile = (style_profile.get("section_profiles") or {}).get(section_spec["key"]) or {}
+    prompt = build_style_rewrite_prompt(
+        section_spec=section_spec,
+        style_profile=style_profile,
+        section_profile=section_profile,
+        exemplars=retrieval_pack.exemplars,
+        grounded_draft=dataclass_to_dict(grounded_draft),
+    )
+    ai_result = _call_openai_json(current_app.config["MEMO_LLM_MODEL_DRAFT"], prompt)
+    citations = grounded_draft.citations or []
+    metadata = dict(grounded_draft.metadata or {})
+    metadata["style_profile_id"] = style_profile.get("id")
+    metadata["exemplar_count"] = len(retrieval_pack.exemplars)
+
+    text = _coerce_ai_text(ai_result.get("text")) if isinstance(ai_result, dict) else ""
+    if text:
+        paragraph_map = _normalize_paragraph_map(ai_result.get("paragraph_map"), text, citations)
+        ai_metadata = ai_result.get("metadata") if isinstance(ai_result.get("metadata"), dict) else {}
+        metadata.update(ai_metadata)
+        metadata["style_rewrite_applied"] = True
+        metadata["style_rewrite_mode"] = "llm"
+        return DraftSection(
+            key=grounded_draft.key,
+            title=grounded_draft.title,
+            text=text,
+            citations=citations,
+            claims=extract_claims(section_spec["key"], text, citations),
+            open_questions=grounded_draft.open_questions,
+            paragraph_map=paragraph_map,
+            metadata=metadata,
+        )
+
+    rewritten_text = _heuristic_style_rewrite(grounded_draft.text, style_profile, section_spec)
+    metadata["style_rewrite_applied"] = rewritten_text != grounded_draft.text
+    metadata["style_rewrite_mode"] = "heuristic" if rewritten_text != grounded_draft.text else "skipped"
+    return DraftSection(
+        key=grounded_draft.key,
+        title=grounded_draft.title,
+        text=rewritten_text,
+        citations=citations,
+        claims=extract_claims(section_spec["key"], rewritten_text, citations),
+        open_questions=grounded_draft.open_questions,
+        paragraph_map=_build_paragraph_map_from_text(rewritten_text, citations),
+        metadata=metadata,
+    )
+
+
 def _draft_section(section_spec: dict, style_profile: dict, evidence_bundle, retrieval_pack) -> DraftSection:
     prompt = build_section_drafting_prompt(
         section_spec=section_spec,
@@ -360,12 +403,13 @@ def _draft_section(section_spec: dict, style_profile: dict, evidence_bundle, ret
         evidence_bundle=dataclass_to_dict(evidence_bundle),
     )
     ai_result = _call_openai_json(current_app.config["MEMO_LLM_MODEL_DRAFT"], prompt)
+    grounded_draft = None
     text = _coerce_ai_text(ai_result.get("text")) if isinstance(ai_result, dict) else ""
     if isinstance(ai_result, dict) and text:
         citations = [item for item in _coerce_ai_list(ai_result.get("citations")) if isinstance(item, dict)]
         claims = [item for item in _coerce_ai_list(ai_result.get("claims")) if isinstance(item, dict)] or extract_claims(section_spec["key"], text, citations)
         paragraph_map = _normalize_paragraph_map(ai_result.get("paragraph_map"), text, citations)
-        return DraftSection(
+        grounded_draft = DraftSection(
             key=section_spec["key"],
             title=section_spec["title"],
             text=text,
@@ -373,9 +417,15 @@ def _draft_section(section_spec: dict, style_profile: dict, evidence_bundle, ret
             claims=claims,
             open_questions=[item for item in _coerce_ai_list(ai_result.get("open_questions")) if isinstance(item, dict)],
             paragraph_map=paragraph_map,
-            metadata=ai_result.get("metadata") if isinstance(ai_result.get("metadata"), dict) else {},
+            metadata={
+                **(ai_result.get("metadata") if isinstance(ai_result.get("metadata"), dict) else {}),
+                "draft_source": "llm_grounded",
+            },
         )
-    return _draft_text_for_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
+    if grounded_draft is None:
+        grounded_draft = _draft_text_for_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
+        grounded_draft.metadata = {**(grounded_draft.metadata or {}), "draft_source": "deterministic_grounded"}
+    return _rewrite_section_in_style(section_spec, grounded_draft, style_profile, retrieval_pack)
 
 
 def _persist_section(run: MemoGenerationRun, section_order: int, section_spec: dict, draft: DraftSection, validation_result) -> MemoGenerationSection:
@@ -481,7 +531,7 @@ def generate_memo_run(run_id: int) -> MemoGenerationRun:
         _assert_run_not_canceled(run_id)
         draft = _draft_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
         _assert_run_not_canceled(run_id)
-        validation_result = validate_section(draft, evidence_bundle)
+        validation_result = validate_section(draft, evidence_bundle, style_profile=style_profile, retrieval_pack=retrieval_pack)
         _persist_section(run, index, section_spec, draft, validation_result)
         _assert_run_not_canceled(run_id)
 
@@ -508,7 +558,7 @@ def rerun_memo_section(run_id: int, section_key: str) -> MemoGenerationRun:
     _assert_run_not_canceled(run_id)
     draft = _draft_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
     _assert_run_not_canceled(run_id)
-    validation_result = validate_section(draft, evidence_bundle)
+    validation_result = validate_section(draft, evidence_bundle, style_profile=style_profile, retrieval_pack=retrieval_pack)
 
     existing = MemoGenerationSection.query.filter_by(run_id=run.id, section_key=section_key).first()
     section_order = existing.section_order if existing is not None else 999

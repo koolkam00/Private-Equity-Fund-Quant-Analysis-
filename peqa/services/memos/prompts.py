@@ -46,8 +46,9 @@ DEFAULT_MEMO_SECTIONS = [
 def build_style_extraction_prompt(delexicalized_sections: list[dict], prior_profile: dict | None = None) -> dict:
     return {
         "system": (
-            "Extract memo-writing style as strict JSON. Focus on section order, heading patterns, tone, "
-            "how uncertainty is expressed, and how risks are framed. Do not infer facts about the underlying funds."
+            "Extract memo-writing style as strict JSON. Focus on structure, heading patterns, paragraph rhythm, "
+            "section-level opening and closing moves, transition language, recommendation phrasing, how uncertainty is "
+            "expressed, and how risks are framed. Return only style instructions and never infer fund facts."
         ),
         "input": {
             "prior_profile": prior_profile or {},
@@ -72,14 +73,38 @@ def build_outline_prompt(style_profile: dict, evidence_summary: dict) -> dict:
 def build_section_drafting_prompt(section_spec: dict, style_profile: dict, retrieval_pack: dict, evidence_bundle: dict) -> dict:
     return {
         "system": (
-            "Draft one memo section as strict JSON with text, citations, explicit open questions, and claim objects. "
-            "Use only supplied evidence. Distinguish facts, calculations, and synthesis."
+            "Draft one memo section as a grounded base draft in strict JSON with text, citations, explicit open questions, "
+            "and claim objects. Use only supplied evidence. Distinguish facts, calculations, and synthesis. Keep the prose "
+            "clean and direct; do not optimize for stylistic mimicry yet."
         ),
         "input": {
             "section_spec": section_spec,
             "style_profile": style_profile,
             "retrieval_pack": retrieval_pack,
             "evidence_bundle": evidence_bundle,
+        },
+    }
+
+
+def build_style_rewrite_prompt(
+    section_spec: dict,
+    style_profile: dict,
+    section_profile: dict,
+    exemplars: list[dict],
+    grounded_draft: dict,
+) -> dict:
+    return {
+        "system": (
+            "Rewrite the supplied grounded memo section into the user's memo style as strict JSON. Preserve every fact, "
+            "number, recommendation stance, open question, and citation id. Improve only wording, transitions, emphasis, "
+            "and paragraph structure. Do not copy exemplar language verbatim."
+        ),
+        "input": {
+            "section_spec": section_spec,
+            "style_profile": style_profile,
+            "section_profile": section_profile,
+            "exemplars": exemplars,
+            "grounded_draft": grounded_draft,
         },
     }
 

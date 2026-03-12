@@ -174,6 +174,7 @@ def test_memo_generation_run_end_to_end(client):
         assert "citation_count" in section
         assert "open_question_count" in section
         assert "review_status_tone" in section
+        assert "style_score" in section["validation"]
 
     for section in sections_payload["items"]:
         review_response = client.post(
@@ -702,3 +703,83 @@ def test_generate_memo_handles_list_text_from_llm(client, monkeypatch):
     section_texts = [item["draft_text"] for item in sections_response.get_json()["items"]]
     assert any("Paragraph one from the model." in text for text in section_texts)
     assert any("Paragraph two from the model." in text for text in section_texts)
+
+
+def test_generate_memo_applies_style_rewrite_pass(client, monkeypatch):
+    _seed_generation_data()
+
+    prior_memo = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "prior_memo",
+            "file": (
+                BytesIO(
+                    b"Executive Summary\n\nWe recommend proceeding, subject to final diligence.\n\n"
+                    b"That said, one legal item remains outstanding."
+                ),
+                "prior_memo.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert prior_memo.status_code == 201
+
+    style_profile = client.post("/api/memos/style-profiles/rebuild", json={"name": "Memo Style"})
+    assert style_profile.status_code == 201
+    style_profile_id = style_profile.get_json()["id"]
+
+    source_doc = client.post(
+        "/api/memos/documents",
+        data={
+            "document_role": "ddq",
+            "file": (
+                BytesIO(b"Fund Overview\n\nGrounding text."),
+                "ddq.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert source_doc.status_code == 201
+    source_doc_id = source_doc.get_json()["id"]
+
+    original_call = __import__("peqa.services.memos.orchestrator", fromlist=["_call_openai_json"])._call_openai_json
+
+    def fake_call_openai_json(model, prompt):
+        input_payload = prompt.get("input") or {}
+        if input_payload.get("grounded_draft"):
+            return {
+                "text": "We recommend proceeding with diligence.\n\nThat said, one legal item remains outstanding.",
+                "paragraph_map": [],
+                "metadata": {"source": "style-rewrite"},
+            }
+        if input_payload.get("section_spec"):
+            return {
+                "text": "Recommendation: proceed with diligence.\n\nOne legal item remains outstanding.",
+                "citations": [{"id": "fact:structured_facts", "label": "Structured app facts"}],
+                "claims": [],
+                "open_questions": [],
+                "paragraph_map": [],
+                "metadata": {"source": "grounded-draft"},
+            }
+        return original_call(model, prompt)
+
+    monkeypatch.setattr("peqa.services.memos.orchestrator._call_openai_json", fake_call_openai_json)
+
+    response = client.post(
+        "/api/memos/runs",
+        json={
+            "style_profile_id": style_profile_id,
+            "benchmark_asset_class": "Buyout",
+            "document_ids": [source_doc_id],
+            "memo_type": "fund_investment",
+            "filters": {},
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    sections_response = client.get(f"/api/memos/runs/{payload['id']}/sections")
+    assert sections_response.status_code == 200
+    section_rows = sections_response.get_json()["items"]
+    assert any(section["metadata"].get("style_rewrite_applied") for section in section_rows)
+    assert any("That said" in section["draft_text"] for section in section_rows)
