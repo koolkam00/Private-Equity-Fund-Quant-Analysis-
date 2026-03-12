@@ -198,6 +198,37 @@ ANALYSIS_PAGES = {
     },
 }
 
+WORKFLOW_SIDEBAR_ITEMS = [
+    {"endpoint": "dashboard", "label": "Dashboard", "icon": "bi bi-grid-1x2"},
+    {"endpoint": "analysis_page", "page_key": "benchmarking", "label": "Benchmarking Analysis", "icon": "bi bi-bar-chart-steps"},
+    {"endpoint": "track_record", "label": "Track Record", "icon": "bi bi-table"},
+    {"endpoint": "analysis_page", "page_key": "vca-ebitda", "label": "Value Creation (EBITDA)", "icon": "bi bi-table"},
+    {"endpoint": "analysis_page", "page_key": "vca-revenue", "label": "Value Creation (Revenue)", "icon": "bi bi-table"},
+    {"endpoint": "ic_memo", "label": "IC Memo", "icon": "bi bi-file-earmark-richtext"},
+    {"endpoint": "deals", "label": "Deals", "icon": "bi bi-buildings"},
+    {"endpoint": "live_ic_pdf_pack", "label": "Download 4 Analysis PDFs", "icon": "bi bi-file-earmark-zip"},
+    {"endpoint": "upload", "label": "Upload Deals", "icon": "bi bi-cloud-upload"},
+    {
+        "endpoint": "memo_studio",
+        "label": "AI Investment Memos",
+        "icon": "bi bi-file-earmark-text",
+        "active_endpoints": ["memo_studio", "memo_style_library", "memo_source_library", "memo_run_page"],
+    },
+]
+
+ANALYSIS_SIDEBAR_ITEMS = [
+    {"page_key": "nav-at-risk", "label": "NAV at Risk", "icon": "bi bi-exclamation-diamond"},
+    {"page_key": "public-market-comparison", "label": "Public Market Comparison", "icon": "bi bi-graph-up"},
+    {"page_key": "fund-liquidity", "label": "Fund Liquidity", "icon": "bi bi-graph-up-arrow"},
+    {"page_key": "underwrite-outcome", "label": "Underwrite vs Outcome", "icon": "bi bi-bullseye"},
+    {"page_key": "valuation-quality", "label": "Valuation Quality", "icon": "bi bi-shield-check"},
+    {"page_key": "exit-readiness", "label": "Exit Readiness", "icon": "bi bi-hourglass-split"},
+    {"page_key": "stress-lab", "label": "Stress Lab", "icon": "bi bi-activity"},
+    {"page_key": "deal-trajectory", "label": "Deal Trajectory", "icon": "bi bi-bezier2"},
+    {"page_key": "chart-builder", "label": "Chart Builder", "icon": "bi bi-bar-chart-line"},
+    {"page_key": "lp-due-diligence-memo", "label": "LP Due Diligence Memo", "icon": "bi bi-file-earmark-text"},
+]
+
 TEAM_ROLE_OWNER = "owner"
 TEAM_ROLE_ADMIN = "admin"
 TEAM_ROLE_MEMBER = "member"
@@ -1278,6 +1309,14 @@ def inject_global_scope_context():
         reporting = _reporting_currency_context(active_firm)
         currency_code = reporting["reporting_currency_code"]
         firms = _accessible_firms_for_current_team()
+        workflow_sidebar_items = [
+            item for item in WORKFLOW_SIDEBAR_ITEMS
+            if item.get("endpoint") != "analysis_page" or item.get("page_key") in ANALYSIS_PAGES
+        ]
+        analysis_sidebar_items = [
+            item for item in ANALYSIS_SIDEBAR_ITEMS
+            if item.get("page_key") in ANALYSIS_PAGES
+        ]
         return {
             "app_firms": firms,
             "app_active_firm": active_firm,
@@ -1298,6 +1337,8 @@ def inject_global_scope_context():
             "app_active_team": team,
             "app_active_membership": membership,
             "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
+            "app_workflow_sidebar_items": workflow_sidebar_items,
+            "app_analysis_sidebar_items": analysis_sidebar_items,
         }
     except SQLAlchemyError as exc:
         _handle_db_exception(exc, "Global scope context load failed")

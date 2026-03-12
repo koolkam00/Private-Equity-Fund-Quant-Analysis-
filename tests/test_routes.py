@@ -186,6 +186,17 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
         assert idx != -1, label
         assert idx > analysis_idx, label
 
+    removed_labels = [
+        "LP Liquidity Quality",
+        "Liquidity Forecast",
+        "Manager Consistency",
+        "Benchmark Confidence",
+        "Reporting Quality",
+        "Fee Drag",
+    ]
+    for label in removed_labels:
+        assert label not in nav_html
+
 
 def test_upload_page(client):
     response = client.get("/upload")

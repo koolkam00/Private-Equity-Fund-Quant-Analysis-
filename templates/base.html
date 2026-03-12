@@ -37,47 +37,23 @@
         <nav class="nav">
             {% set active_analysis = request.view_args.get('page') if request.endpoint in ['analysis_page', 'analysis_series_api'] and request.view_args else '' %}
             <div class="nav-section">Workflow</div>
-            <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}"><i
-                    class="bi bi-grid-1x2"></i> Dashboard</a>
-            <a href="{{ url_for('analysis_page', page='benchmarking') }}" class="nav-item {% if active_analysis == 'benchmarking' %}active{% endif %}"><i
-                    class="bi bi-bar-chart-steps"></i> Benchmarking Analysis</a>
-            <a href="{{ url_for('track_record') }}" class="nav-item {% if request.endpoint == 'track_record' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Track Record</a>
-            <a href="{{ url_for('analysis_page', page='vca-ebitda') }}" class="nav-item {% if active_analysis == 'vca-ebitda' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Value Creation (EBITDA)</a>
-            <a href="{{ url_for('analysis_page', page='vca-revenue') }}" class="nav-item {% if active_analysis == 'vca-revenue' %}active{% endif %}"><i
-                    class="bi bi-table"></i> Value Creation (Revenue)</a>
-            <a href="{{ url_for('ic_memo') }}" class="nav-item {% if request.endpoint == 'ic_memo' %}active{% endif %}"><i
-                    class="bi bi-file-earmark-richtext"></i> IC Memo</a>
-            <a href="{{ url_for('deals') }}" class="nav-item {% if request.endpoint == 'deals' %}active{% endif %}"><i
-                    class="bi bi-buildings"></i> Deals</a>
-            <a href="{{ url_for('live_ic_pdf_pack') }}" class="nav-item"><i
-                    class="bi bi-file-earmark-zip"></i> Download 4 Analysis PDFs</a>
-            <a href="{{ url_for('upload') }}" class="nav-item {% if request.endpoint == 'upload' %}active{% endif %}"><i
-                    class="bi bi-cloud-upload"></i> Upload Deals</a>
-            <a href="{{ url_for('memo_studio') }}" class="nav-item {% if request.endpoint in ['memo_studio', 'memo_style_library', 'memo_source_library', 'memo_run_page'] %}active{% endif %}"><i
-                    class="bi bi-file-earmark-text"></i> AI Investment Memos</a>
+            {% for item in app_workflow_sidebar_items or [] %}
+            {% set item_active = false %}
+            {% if item.page_key %}
+                {% set item_active = active_analysis == item.page_key %}
+                {% set item_href = url_for(item.endpoint, page=item.page_key) %}
+            {% else %}
+                {% set item_active = request.endpoint in (item.active_endpoints or [item.endpoint]) %}
+                {% set item_href = url_for(item.endpoint) %}
+            {% endif %}
+            <a href="{{ item_href }}" class="nav-item {% if item_active %}active{% endif %}"><i
+                    class="{{ item.icon }}"></i> {{ item.label }}</a>
+            {% endfor %}
             <div class="nav-section">Analysis</div>
-            <a href="{{ url_for('analysis_page', page='nav-at-risk') }}" class="nav-item nav-sub {% if active_analysis == 'nav-at-risk' %}active{% endif %}"><i
-                    class="bi bi-exclamation-diamond"></i> NAV at Risk</a>
-            <a href="{{ url_for('analysis_page', page='public-market-comparison') }}" class="nav-item nav-sub {% if active_analysis == 'public-market-comparison' %}active{% endif %}"><i
-                    class="bi bi-graph-up"></i> Public Market Comparison</a>
-            <a href="{{ url_for('analysis_page', page='fund-liquidity') }}" class="nav-item nav-sub {% if active_analysis == 'fund-liquidity' %}active{% endif %}"><i
-                    class="bi bi-graph-up-arrow"></i> Fund Liquidity</a>
-            <a href="{{ url_for('analysis_page', page='underwrite-outcome') }}" class="nav-item nav-sub {% if active_analysis == 'underwrite-outcome' %}active{% endif %}"><i
-                    class="bi bi-bullseye"></i> Underwrite vs Outcome</a>
-            <a href="{{ url_for('analysis_page', page='valuation-quality') }}" class="nav-item nav-sub {% if active_analysis == 'valuation-quality' %}active{% endif %}"><i
-                    class="bi bi-shield-check"></i> Valuation Quality</a>
-            <a href="{{ url_for('analysis_page', page='exit-readiness') }}" class="nav-item nav-sub {% if active_analysis == 'exit-readiness' %}active{% endif %}"><i
-                    class="bi bi-hourglass-split"></i> Exit Readiness</a>
-            <a href="{{ url_for('analysis_page', page='stress-lab') }}" class="nav-item nav-sub {% if active_analysis == 'stress-lab' %}active{% endif %}"><i
-                    class="bi bi-activity"></i> Stress Lab</a>
-            <a href="{{ url_for('analysis_page', page='deal-trajectory') }}" class="nav-item nav-sub {% if active_analysis == 'deal-trajectory' %}active{% endif %}"><i
-                    class="bi bi-bezier2"></i> Deal Trajectory</a>
-            <a href="{{ url_for('analysis_page', page='chart-builder') }}" class="nav-item nav-sub {% if active_analysis == 'chart-builder' %}active{% endif %}"><i
-                    class="bi bi-bar-chart-line"></i> Chart Builder</a>
-            <a href="{{ url_for('analysis_page', page='lp-due-diligence-memo') }}" class="nav-item nav-sub {% if active_analysis == 'lp-due-diligence-memo' %}active{% endif %}"><i
-                    class="bi bi-file-earmark-text"></i> LP Due Diligence Memo</a>
+            {% for item in app_analysis_sidebar_items or [] %}
+            <a href="{{ url_for('analysis_page', page=item.page_key) }}" class="nav-item nav-sub {% if active_analysis == item.page_key %}active{% endif %}"><i
+                    class="{{ item.icon }}"></i> {{ item.label }}</a>
+            {% endfor %}
             <div class="nav-section">Admin</div>
             <a href="{{ url_for('methodology') }}" class="nav-item {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>
