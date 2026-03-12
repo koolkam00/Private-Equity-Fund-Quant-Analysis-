@@ -50,7 +50,7 @@ from models import (
 )
 from peqa.services.memos import assemble_memo, enqueue_job, rebuild_style_profile
 from peqa.services.memos.evidence_builder import build_memo_evidence_bundle
-from peqa.services.memos.jobs import run_inline_job
+from peqa.services.memos.jobs import cancel_jobs_for_run, recover_stale_jobs, run_inline_job
 from peqa.services.memos.storage import build_storage_key, get_document_storage
 from peqa.services.memos.style_profiles import list_style_exemplars, load_style_profile
 from peqa.services.memos.types import DraftSection, dataclass_to_dict
@@ -252,6 +252,7 @@ ROUTE_BLUEPRINTS = {
     "memo_runs_api": "memos",
     "memo_run_api": "memos",
     "memo_run_sections_api": "memos",
+    "memo_run_cancel_api": "memos",
     "memo_run_rerun_section_api": "memos",
     "memo_run_approve_api": "memos",
     "memo_run_export_api": "memos",
@@ -4456,6 +4457,8 @@ def _memo_status_tone(status):
     normalized = (status or "").strip().lower()
     if normalized in {"ready", "approved", "review_required", "reviewed"}:
         return "ready"
+    if normalized == "canceled":
+        return "attention"
     if normalized in {"failed", "blocked", "error"}:
         return "failed"
     if normalized in {"queued", "running", "uploaded", "processing", "pending"}:
@@ -4477,6 +4480,8 @@ def _memo_human_stage(progress_stage):
         return "Draft complete. Review each section, then approve the memo when it meets your standard."
     if stage == "approved":
         return "Memo approved and ready for export."
+    if stage == "canceled":
+        return "Run canceled. No additional sections will be generated for this memo."
     if stage == "failed":
         return "This run did not complete. Review the error details below, correct the input issue, and rerun the affected section or restart the memo."
     if ":" in stage:
@@ -4490,12 +4495,18 @@ def _memo_human_stage(progress_stage):
 
 
 def _memo_run_latest_job_label(run_status, progress_stage, latest_job):
+    if latest_job and latest_job.status == "canceled":
+        return "Background job canceled."
     if latest_job and latest_job.status == "failed":
         return "Background job failed."
     if latest_job and latest_job.status == "running":
         return "Background job is running."
     if latest_job and latest_job.status == "queued":
+        if latest_job.error_text and "lease expired" in latest_job.error_text.lower():
+            return "Retrying after worker interruption."
         return "Waiting for the memo worker."
+    if (run_status or "").strip().lower() == "canceled":
+        return "Memo generation canceled."
     if (run_status or "").strip().lower() == "review_required":
         return "Draft ready for review."
     if (run_status or "").strip().lower() == "approved":
@@ -4607,6 +4618,54 @@ def _memo_archive_style_profile(profile):
         synchronize_session=False,
     )
     db.session.commit()
+
+
+def _memo_cancel_run(run, canceled_by_user_id=None):
+    normalized_status = (run.status or "").strip().lower()
+    if normalized_status == "canceled":
+        return run
+    run.status = "canceled"
+    run.progress_stage = "canceled"
+    run.approved_at = None
+    if run.export_status not in {"ready", "completed"}:
+        run.export_status = "canceled"
+    db.session.add(run)
+
+    for section in MemoGenerationSection.query.filter_by(run_id=run.id).all():
+        if section.status in {"pending", "queued", "running"}:
+            section.status = "canceled"
+            section.review_status = "canceled"
+            db.session.add(section)
+
+    cancel_jobs_for_run(
+        run.id,
+        message=(
+            f"Canceled by user {canceled_by_user_id}."
+            if canceled_by_user_id is not None
+            else "Canceled by user."
+        ),
+    )
+    db.session.commit()
+    return run
+
+
+def _memo_cancel_not_allowed_response(run):
+    return jsonify(
+        {
+            "error": "cancel_not_allowed",
+            "message": "Only queued or running memo runs can be canceled.",
+            "status": run.status,
+        }
+    ), 409
+
+
+def _memo_canceled_run_response():
+    return jsonify(
+        {
+            "error": "run_canceled",
+            "message": "This memo run was canceled. Start a new run to continue generation.",
+        }
+    ), 409
 
 
 def _memo_section_or_404(run_id, section_key):
@@ -4757,6 +4816,7 @@ def _memo_serialize_run(row):
             "updated_at": latest_job.updated_at.isoformat() if latest_job and latest_job.updated_at else None,
         } if latest_job else None,
         "latest_job_label": _memo_run_latest_job_label(row.status, row.progress_stage, latest_job),
+        "can_cancel": (row.status or "").strip().lower() in {"queued", "running"},
         "approved_at": row.approved_at.isoformat() if row.approved_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -4818,6 +4878,7 @@ def memo_worker_command(poll_interval):
 @login_required
 def memo_studio():
     membership = _require_team_scope()
+    recover_stale_jobs()
     active_tab = "generate"
     documents = (
         _memo_document_query(membership)
@@ -4898,6 +4959,7 @@ def memo_source_library():
 @login_required
 def memo_run_page(run_id):
     membership = _require_team_scope()
+    recover_stale_jobs()
     run = _memo_run_or_404(membership, run_id)
     sections = (
         MemoGenerationSection.query.filter_by(run_id=run.id)
@@ -5037,6 +5099,7 @@ def memo_style_profile_rebuild_api():
 def memo_runs_api():
     membership = _require_team_scope()
     if request.method == "GET":
+        recover_stale_jobs()
         rows = _memo_run_query(membership).order_by(MemoGenerationRun.created_at.desc(), MemoGenerationRun.id.desc()).all()
         return jsonify({"items": [_memo_serialize_run(row) for row in rows]})
 
@@ -5103,6 +5166,7 @@ def memo_runs_api():
 @login_required
 def memo_run_api(run_id):
     membership = _require_team_scope()
+    recover_stale_jobs()
     run = _memo_run_or_404(membership, run_id)
     return jsonify(_memo_serialize_run(run))
 
@@ -5111,6 +5175,7 @@ def memo_run_api(run_id):
 @login_required
 def memo_run_sections_api(run_id):
     membership = _require_team_scope()
+    recover_stale_jobs()
     run = _memo_run_or_404(membership, run_id)
     rows = (
         MemoGenerationSection.query.filter_by(run_id=run.id)
@@ -5125,6 +5190,8 @@ def memo_run_sections_api(run_id):
 def memo_run_section_update_api(run_id, section_key):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
+    if run.status == "canceled":
+        return _memo_canceled_run_response()
     section = _memo_section_or_404(run.id, section_key)
     payload = _memo_payload()
     draft_text = (payload.get("draft_text") or "").strip()
@@ -5185,6 +5252,8 @@ def memo_run_section_update_api(run_id, section_key):
 def memo_run_section_review_api(run_id, section_key):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
+    if run.status == "canceled":
+        return _memo_canceled_run_response()
     section = _memo_section_or_404(run.id, section_key)
     payload = _memo_payload()
     review_status = (payload.get("review_status") or "reviewed").strip().lower()
@@ -5203,11 +5272,27 @@ def memo_run_section_review_api(run_id, section_key):
     return jsonify({"run": _memo_serialize_run(run), "section": _memo_serialize_section(section)})
 
 
+@app.route("/api/memos/runs/<int:run_id>/cancel", methods=["POST"])
+@login_required
+def memo_run_cancel_api(run_id):
+    membership = _require_team_scope()
+    run = _memo_run_or_404(membership, run_id)
+    normalized_status = (run.status or "").strip().lower()
+    if normalized_status == "canceled":
+        return jsonify(_memo_serialize_run(run))
+    if normalized_status not in {"queued", "running"}:
+        return _memo_cancel_not_allowed_response(run)
+    run = _memo_cancel_run(run, canceled_by_user_id=current_user.id)
+    return jsonify(_memo_serialize_run(run))
+
+
 @app.route("/api/memos/runs/<int:run_id>/rerun-section", methods=["POST"])
 @login_required
 def memo_run_rerun_section_api(run_id):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
+    if run.status == "canceled":
+        return _memo_canceled_run_response()
     payload = _memo_payload()
     section_key = (payload.get("section_key") or "").strip()
     if not section_key:
@@ -5222,6 +5307,8 @@ def memo_run_rerun_section_api(run_id):
 def memo_run_approve_api(run_id):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
+    if run.status == "canceled":
+        return _memo_canceled_run_response()
     rows = MemoGenerationSection.query.filter_by(run_id=run.id).all()
     blocked_sections = [
         row.section_key
@@ -5251,6 +5338,8 @@ def memo_run_approve_api(run_id):
 def memo_run_export_api(run_id):
     membership = _require_team_scope()
     run = _memo_run_or_404(membership, run_id)
+    if run.status == "canceled":
+        return _memo_canceled_run_response()
     payload = _memo_payload()
     export_format = (payload.get("format") or request.args.get("format") or "markdown").strip().lower()
     if export_format not in {"markdown", "html"}:

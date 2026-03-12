@@ -2423,6 +2423,12 @@ textarea.analysis-input::placeholder {
     justify-items: end;
     gap: 8px;
 }
+.memo-run-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
 .memo-resource-title {
     font-weight: 800;
     color: #16312d;
@@ -3757,6 +3763,9 @@ textarea.analysis-input::placeholder {
     .memo-run-card {
         grid-template-columns: 1fr;
         justify-items: start;
+    }
+    .memo-run-card-actions {
+        justify-content: flex-start;
     }
     .memo-resource-check {
         order: -1;

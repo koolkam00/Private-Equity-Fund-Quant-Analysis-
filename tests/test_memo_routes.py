@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from models import MemoDocument, MemoStyleProfile, db
+from models import MemoDocument, MemoGenerationRun, MemoStyleProfile, TeamFirmAccess, TeamMembership, User, db
 
 
 def test_memo_pages_render(client):
@@ -74,3 +74,33 @@ def test_memo_style_profile_delete_archives_profile(client):
     list_response = client.get("/api/memos/style-profiles")
     assert list_response.status_code == 200
     assert all(item["id"] != profile_id for item in list_response.get_json()["items"])
+
+
+def test_running_memo_run_page_shows_cancel_action(client):
+    membership = TeamMembership.query.first()
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).first()
+    user = User.query.filter_by(email="tester@example.com").first()
+    profile = MemoStyleProfile(
+        team_id=membership.team_id,
+        created_by_user_id=user.id,
+        name="Route Style",
+        status="ready",
+        profile_json="{}",
+    )
+    db.session.add(profile)
+    db.session.flush()
+    run = MemoGenerationRun(
+        team_id=membership.team_id,
+        firm_id=access.firm_id,
+        created_by_user_id=user.id,
+        style_profile_id=profile.id,
+        memo_type="fund_investment",
+        status="running",
+        progress_stage="drafting",
+    )
+    db.session.add(run)
+    db.session.commit()
+
+    response = client.get(f"/memos/runs/{run.id}")
+    assert response.status_code == 200
+    assert b"Cancel run" in response.data

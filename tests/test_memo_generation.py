@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 import json
 
@@ -20,7 +20,7 @@ from models import (
     User,
     db,
 )
-from peqa.services.memos.jobs import _fail_job
+from peqa.services.memos.jobs import _fail_job, recover_stale_jobs
 
 
 def _seed_generation_data():
@@ -464,6 +464,111 @@ def test_failed_generation_job_marks_run_failed(app_context):
     assert job.status == "failed"
     assert run.status == "failed"
     assert run.progress_stage == "failed"
+
+
+def test_cancel_memo_run_marks_run_and_jobs_canceled(client):
+    _seed_generation_data()
+    membership = TeamMembership.query.first()
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).first()
+    user = User.query.filter_by(email="tester@example.com").first()
+    profile = MemoStyleProfile(
+        team_id=membership.team_id,
+        created_by_user_id=user.id,
+        name="Cancelable Style",
+        status="ready",
+        profile_json="{}",
+    )
+    db.session.add(profile)
+    db.session.flush()
+    run = MemoGenerationRun(
+        team_id=membership.team_id,
+        firm_id=access.firm_id,
+        created_by_user_id=user.id,
+        style_profile_id=profile.id,
+        memo_type="fund_investment",
+        status="running",
+        progress_stage="drafting:executive_summary",
+    )
+    db.session.add(run)
+    db.session.flush()
+    job = MemoJob(
+        team_id=membership.team_id,
+        run_id=run.id,
+        job_type="generate_memo_run",
+        status="running",
+        attempt_count=1,
+        payload_json=json.dumps({"run_id": run.id}),
+    )
+    db.session.add(job)
+    db.session.commit()
+
+    response = client.post(f"/api/memos/runs/{run.id}/cancel")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "canceled"
+    assert payload["can_cancel"] is False
+    assert payload["latest_job"]["status"] == "canceled"
+
+    db.session.refresh(run)
+    db.session.refresh(job)
+    assert run.status == "canceled"
+    assert run.progress_stage == "canceled"
+    assert job.status == "canceled"
+
+
+def test_recover_stale_jobs_requeues_running_run(app_context):
+    membership = TeamMembership(team_id=1, user_id=1, role="owner")
+    profile = MemoStyleProfile(
+        id=1,
+        team_id=1,
+        created_by_user_id=1,
+        name="Ready Style",
+        status="ready",
+        profile_json="{}",
+    )
+    db.session.add_all(
+        [
+            Team(id=1, name="Memo Team", slug="memo-team"),
+            User(id=1, email="owner@example.com", password_hash="x", is_active=True),
+            Firm(id=1, name="Memo Firm", slug="memo-firm"),
+            membership,
+            TeamFirmAccess(team_id=1, firm_id=1, created_by_user_id=1),
+            profile,
+        ]
+    )
+    db.session.flush()
+    run = MemoGenerationRun(
+        team_id=1,
+        firm_id=1,
+        created_by_user_id=1,
+        style_profile_id=1,
+        memo_type="fund_investment",
+        status="running",
+        progress_stage="drafting",
+    )
+    db.session.add(run)
+    db.session.flush()
+    job = MemoJob(
+        team_id=1,
+        run_id=run.id,
+        job_type="generate_memo_run",
+        status="running",
+        attempt_count=1,
+        lease_expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10),
+        payload_json=json.dumps({"run_id": run.id}),
+    )
+    db.session.add(job)
+    db.session.commit()
+
+    recovered = recover_stale_jobs()
+
+    db.session.refresh(run)
+    db.session.refresh(job)
+    assert recovered == 1
+    assert job.status == "queued"
+    assert "lease expired" in (job.error_text or "").lower()
+    assert run.status == "queued"
+    assert run.progress_stage == "queued"
 
 
 def test_generate_memo_run_returns_failed_run_instead_of_500(client, monkeypatch):

@@ -20,6 +20,7 @@
         </div>
 
         <div class="memo-run-summary-actions">
+            <button type="button" class="btn-upload btn-filter-clear" id="memo-run-cancel-btn" data-run-id="{{ memo_run.id }}" {% if not memo_run.can_cancel %}hidden{% endif %}>Cancel run</button>
             <button type="button" class="btn-upload" id="memo-run-approve-btn" data-run-id="{{ memo_run.id }}">Approve memo</button>
             <button type="button" class="btn-upload btn-secondary" id="memo-run-export-btn" data-run-id="{{ memo_run.id }}" data-format="markdown">Export Markdown</button>
             <button type="button" class="btn-upload btn-secondary" id="memo-run-export-html-btn" data-run-id="{{ memo_run.id }}" data-format="html">Export HTML</button>

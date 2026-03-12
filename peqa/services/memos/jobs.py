@@ -11,7 +11,7 @@ from flask import current_app
 from models import MemoDocument, MemoDocumentChunk, MemoGenerationRun, MemoJob, MemoStyleProfile, db
 from peqa.services.memos.chunking import chunk_document
 from peqa.services.memos.extractors import extract_document
-from peqa.services.memos.orchestrator import generate_memo_run, rerun_memo_section
+from peqa.services.memos.orchestrator import MemoRunCancelledError, generate_memo_run, rerun_memo_section
 from peqa.services.memos.storage import get_document_storage
 from peqa.services.memos.style_profiles import rebuild_style_profile
 
@@ -36,6 +36,16 @@ def _json_loads(value, default):
         return json.loads(value)
     except (TypeError, ValueError):
         return default
+
+
+def _job_lease_seconds(job_type: str) -> int:
+    return {
+        "extract_document": 300,
+        "rebuild_style_profile": 600,
+        "generate_memo_run": 1800,
+        "rerun_section": 1200,
+        "export_memo": 300,
+    }.get(job_type, 300)
 
 
 def enqueue_job(team_id: int, job_type: str, payload: dict, run_id: int | None = None) -> MemoJob:
@@ -67,13 +77,19 @@ def enqueue_job(team_id: int, job_type: str, payload: dict, run_id: int | None =
 def _mark_job_running(job: MemoJob) -> MemoJob:
     job.status = "running"
     job.attempt_count = (job.attempt_count or 0) + 1
-    job.lease_expires_at = _utc_now_naive() + timedelta(seconds=90)
+    job.lease_expires_at = _utc_now_naive() + timedelta(seconds=_job_lease_seconds(job.job_type))
     db.session.add(job)
     db.session.commit()
     return job
 
 
 def _complete_job(job: MemoJob):
+    db.session.refresh(job)
+    if job.status == "canceled":
+        job.lease_expires_at = None
+        db.session.add(job)
+        db.session.commit()
+        return
     job.status = "completed"
     job.lease_expires_at = None
     job.error_text = None
@@ -81,7 +97,101 @@ def _complete_job(job: MemoJob):
     db.session.commit()
 
 
+def _cancel_job(job: MemoJob, message: str = "Canceled by user."):
+    db.session.refresh(job)
+    job.status = "canceled"
+    job.lease_expires_at = None
+    job.error_text = message
+    if job.run_id:
+        run = db.session.get(MemoGenerationRun, job.run_id)
+        if run is not None and run.status in {"queued", "running"}:
+            run.status = "canceled"
+            run.progress_stage = "canceled"
+            run.approved_at = None
+            db.session.add(run)
+    db.session.add(job)
+    db.session.commit()
+
+
+def cancel_jobs_for_run(run_id: int, message: str = "Canceled by user.") -> int:
+    rows = (
+        MemoJob.query.filter(
+            MemoJob.run_id == run_id,
+            MemoJob.status.in_(("queued", "running")),
+        )
+        .order_by(MemoJob.created_at.desc(), MemoJob.id.desc())
+        .all()
+    )
+    for row in rows:
+        row.status = "canceled"
+        row.lease_expires_at = None
+        row.error_text = message
+        db.session.add(row)
+    db.session.commit()
+    return len(rows)
+
+
+def recover_stale_jobs() -> int:
+    now = _utc_now_naive()
+    rows = (
+        MemoJob.query.filter(
+            MemoJob.status == "running",
+            MemoJob.lease_expires_at.is_not(None),
+            MemoJob.lease_expires_at <= now,
+        )
+        .order_by(MemoJob.updated_at.asc(), MemoJob.id.asc())
+        .all()
+    )
+    recovered = 0
+    for row in rows:
+        if row.run_id:
+            run = db.session.get(MemoGenerationRun, row.run_id)
+            if run is not None and run.status == "canceled":
+                row.status = "canceled"
+                row.error_text = "Canceled while waiting for worker recovery."
+                row.lease_expires_at = None
+                db.session.add(row)
+                recovered += 1
+                continue
+        message = "Worker lease expired before completion."
+        max_attempts = 2 if row.job_type == "extract_document" else 3
+        if (row.attempt_count or 0) >= max_attempts:
+            row.status = "failed"
+            row.error_text = message
+            row.lease_expires_at = None
+            if row.run_id:
+                run = db.session.get(MemoGenerationRun, row.run_id)
+                if run is not None:
+                    if row.job_type == "export_memo":
+                        run.export_status = "failed"
+                    else:
+                        run.status = "failed"
+                        run.progress_stage = "failed"
+                    db.session.add(run)
+        else:
+            row.status = "queued"
+            row.error_text = message
+            row.lease_expires_at = None
+            if row.run_id:
+                run = db.session.get(MemoGenerationRun, row.run_id)
+                if run is not None and run.status == "running":
+                    run.status = "queued"
+                    run.progress_stage = "queued"
+                    db.session.add(run)
+        db.session.add(row)
+        recovered += 1
+    if recovered:
+        db.session.commit()
+    return recovered
+
+
 def _fail_job(job: MemoJob, exc: Exception):
+    db.session.refresh(job)
+    if job.status == "canceled":
+        job.lease_expires_at = None
+        db.session.add(job)
+        db.session.commit()
+        return
     job.error_text = str(exc)
     max_attempts = 2 if job.job_type == "extract_document" else 3
     if (job.attempt_count or 0) >= max_attempts:
@@ -174,11 +284,21 @@ def _process_rebuild_style_profile(payload: dict):
 
 
 def _process_generate_memo(payload: dict):
+    run = db.session.get(MemoGenerationRun, payload["run_id"])
+    if run is None:
+        raise ValueError(f"Memo run {payload['run_id']} not found")
+    if run.status == "canceled":
+        raise MemoRunCancelledError(f"Memo run {run.id} was canceled before generation started.")
     run = generate_memo_run(payload["run_id"])
     return run.id
 
 
 def _process_rerun_section(payload: dict):
+    run = db.session.get(MemoGenerationRun, payload["run_id"])
+    if run is None:
+        raise ValueError(f"Memo run {payload['run_id']} not found")
+    if run.status == "canceled":
+        raise MemoRunCancelledError(f"Memo run {run.id} was canceled before the section rerun started.")
     run = rerun_memo_section(payload["run_id"], payload["section_key"])
     return run.id
 
@@ -196,6 +316,9 @@ def _process_export_memo(payload: dict):
 
 
 def process_job(job: MemoJob):
+    db.session.refresh(job)
+    if job.status == "canceled":
+        raise MemoRunCancelledError(f"Memo job {job.id} was canceled.")
     payload = _json_loads(job.payload_json, {})
     if job.job_type == "extract_document":
         return _process_extract_document(payload)
@@ -216,6 +339,10 @@ def run_inline_job(job_id: int):
         raise ValueError(f"Memo job {job_id} was not available to claim")
     try:
         process_job(job)
+    except MemoRunCancelledError as exc:
+        logger.info("Memo job %s canceled: %s", job.id, exc)
+        _cancel_job(job, str(exc))
+        return job
     except Exception as exc:
         logger.exception("Memo job %s failed", job.id)
         _fail_job(job, exc)
@@ -242,6 +369,7 @@ def claim_job_by_id(job_id: int) -> MemoJob | None:
 
 
 def claim_next_job() -> MemoJob | None:
+    recover_stale_jobs()
     now = _utc_now_naive()
     query = (
         MemoJob.query.filter(
@@ -267,6 +395,9 @@ def _run_async_job(app, job_id: int):
                 return
             try:
                 process_job(job)
+            except MemoRunCancelledError as exc:
+                logger.info("Async memo job %s canceled: %s", job.id, exc)
+                _cancel_job(job, str(exc))
             except Exception as exc:
                 logger.exception("Async memo job %s failed", job.id)
                 _fail_job(job, exc)
@@ -297,6 +428,9 @@ def run_worker_loop(poll_interval: float = 2.0):
             continue
         try:
             process_job(job)
+        except MemoRunCancelledError as exc:
+            logger.info("Memo worker canceled job %s: %s", job.id, exc)
+            _cancel_job(job, str(exc))
         except Exception as exc:
             logger.exception("Memo worker failed job %s", job.id)
             _fail_job(job, exc)

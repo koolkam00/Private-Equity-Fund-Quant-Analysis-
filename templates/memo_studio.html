@@ -384,7 +384,12 @@ Manage the DDQs, PPMs, decks, and supporting documents that ground each memo dra
                             <span>{{ run.benchmark_asset_class or "No benchmark" }}</span>
                             <span>{{ run.source_document_count }} docs</span>
                         </div>
-                        <a href="{{ url_for('memo_run_page', run_id=run.id) }}" class="btn-upload btn-secondary btn-sm">Open run</a>
+                        <div class="memo-run-card-actions">
+                            <a href="{{ url_for('memo_run_page', run_id=run.id) }}" class="btn-upload btn-secondary btn-sm">Open run</a>
+                            {% if run.can_cancel %}
+                            <button type="button" class="btn-upload btn-filter-clear btn-sm memo-run-cancel-btn" data-run-id="{{ run.id }}">Cancel</button>
+                            {% endif %}
+                        </div>
                     </article>
                     {% endfor %}
                 {% else %}

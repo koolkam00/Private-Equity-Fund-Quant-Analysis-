@@ -24,6 +24,10 @@ from peqa.services.memos.validation import extract_claims, validate_section
 logger = logging.getLogger(__name__)
 
 
+class MemoRunCancelledError(RuntimeError):
+    """Raised when a memo run is canceled while work is in flight."""
+
+
 def _json_dumps(value):
     return json.dumps(value, sort_keys=True, default=str)
 
@@ -35,6 +39,15 @@ def _json_loads(value, default):
         return json.loads(value)
     except (TypeError, ValueError):
         return default
+
+
+def _assert_run_not_canceled(run_id: int) -> MemoGenerationRun:
+    run = db.session.get(MemoGenerationRun, run_id)
+    if run is None:
+        raise ValueError(f"Memo run {run_id} not found")
+    if (run.status or "").strip().lower() == "canceled" or (run.progress_stage or "").strip().lower() == "canceled":
+        raise MemoRunCancelledError(f"Memo run {run_id} was canceled.")
+    return run
 
 
 def _humanize_section_key(section_key: str) -> str:
@@ -108,7 +121,7 @@ def _call_openai_json(model: str, prompt: dict) -> dict | None:
         logger.warning("OpenAI SDK not installed; falling back to deterministic memo generation.")
         return None
 
-    client = OpenAI()
+    client = OpenAI(timeout=float(current_app.config.get("MEMO_LLM_TIMEOUT_SECONDS", 90)))
     try:
         input_payload = json.dumps(prompt["input"], default=str)
         if hasattr(client, "responses"):
@@ -354,6 +367,7 @@ def _persist_section(run: MemoGenerationRun, section_order: int, section_spec: d
 
 
 def _assemble_and_save(run: MemoGenerationRun, style_profile: dict) -> MemoGenerationRun:
+    _assert_run_not_canceled(run.id)
     section_rows = (
         MemoGenerationSection.query.filter_by(run_id=run.id)
         .order_by(MemoGenerationSection.section_order.asc(), MemoGenerationSection.id.asc())
@@ -382,9 +396,7 @@ def _assemble_and_save(run: MemoGenerationRun, style_profile: dict) -> MemoGener
 
 
 def generate_memo_run(run_id: int) -> MemoGenerationRun:
-    run = db.session.get(MemoGenerationRun, run_id)
-    if run is None:
-        raise ValueError(f"Memo run {run_id} not found")
+    run = _assert_run_not_canceled(run_id)
 
     run.status = "running"
     run.progress_stage = "building_evidence"
@@ -392,7 +404,9 @@ def generate_memo_run(run_id: int) -> MemoGenerationRun:
     db.session.commit()
 
     style_profile = load_style_profile(run.style_profile_id)
+    _assert_run_not_canceled(run_id)
     evidence_bundle = build_memo_evidence_bundle(run.id)
+    _assert_run_not_canceled(run_id)
     outline = _build_outline(style_profile, evidence_bundle)
     run.outline_json = _json_dumps({"sections": outline})
     run.progress_stage = "drafting"
@@ -404,23 +418,26 @@ def generate_memo_run(run_id: int) -> MemoGenerationRun:
     db.session.commit()
 
     for index, section_spec in enumerate(outline, start=1):
+        run = _assert_run_not_canceled(run_id)
         run.progress_stage = f"drafting:{section_spec['key']}"
         db.session.add(run)
         db.session.commit()
         retrieval_pack = retrieve_section_evidence(section_spec, evidence_bundle, style_profile)
+        _assert_run_not_canceled(run_id)
         draft = _draft_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
+        _assert_run_not_canceled(run_id)
         validation_result = validate_section(draft, evidence_bundle)
         _persist_section(run, index, section_spec, draft, validation_result)
+        _assert_run_not_canceled(run_id)
 
     return _assemble_and_save(run, style_profile)
 
 
 def rerun_memo_section(run_id: int, section_key: str) -> MemoGenerationRun:
-    run = db.session.get(MemoGenerationRun, run_id)
-    if run is None:
-        raise ValueError(f"Memo run {run_id} not found")
+    run = _assert_run_not_canceled(run_id)
 
     style_profile = load_style_profile(run.style_profile_id)
+    _assert_run_not_canceled(run_id)
     evidence_bundle = build_memo_evidence_bundle(run.id)
     outline_sections = (_json_loads(run.outline_json, {}) or {}).get("sections") or _outline_from_style(style_profile)
     section_spec = next((section for section in outline_sections if section.get("key") == section_key), None)
@@ -433,7 +450,9 @@ def rerun_memo_section(run_id: int, section_key: str) -> MemoGenerationRun:
     db.session.commit()
 
     retrieval_pack = retrieve_section_evidence(section_spec, evidence_bundle, style_profile)
+    _assert_run_not_canceled(run_id)
     draft = _draft_section(section_spec, style_profile, evidence_bundle, retrieval_pack)
+    _assert_run_not_canceled(run_id)
     validation_result = validate_section(draft, evidence_bundle)
 
     existing = MemoGenerationSection.query.filter_by(run_id=run.id, section_key=section_key).first()

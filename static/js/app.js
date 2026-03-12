@@ -2896,6 +2896,7 @@ function memoStatusLabel(value) {
 function memoStatusTone(value) {
     const normalized = String(value || '').trim().toLowerCase();
     if (['ready', 'approved', 'review_required', 'reviewed'].includes(normalized)) return 'ready';
+    if (normalized === 'canceled') return 'attention';
     if (['failed', 'blocked', 'error'].includes(normalized)) return 'failed';
     if (['queued', 'running', 'uploaded', 'processing', 'pending'].includes(normalized)) return 'processing';
     return 'attention';
@@ -2942,6 +2943,9 @@ function computeMemoRunProgress(run, sections) {
     }
     if (status === 'failed') {
         return { percent: 100, message: run?.human_stage || 'This run did not complete.' };
+    }
+    if (status === 'canceled') {
+        return { percent: 100, message: run?.human_stage || 'Run canceled. No additional sections will be generated for this memo.' };
     }
 
     if (stage === 'building_evidence') {
@@ -3001,7 +3005,10 @@ function renderStudioRunCards(runs) {
                 <span>${escapeHtml(run.benchmark_asset_class || 'No benchmark')}</span>
                 <span>${escapeHtml(run.source_document_count || 0)} docs</span>
             </div>
-            <a href="/memos/runs/${encodeURIComponent(run.id)}" class="btn-upload btn-secondary btn-sm">Open run</a>
+            <div class="memo-run-card-actions">
+                <a href="/memos/runs/${encodeURIComponent(run.id)}" class="btn-upload btn-secondary btn-sm">Open run</a>
+                ${run.can_cancel ? `<button type="button" class="btn-upload btn-filter-clear btn-sm memo-run-cancel-btn" data-run-id="${escapeHtml(run.id)}">Cancel</button>` : ''}
+            </div>
         </article>
     `).join('');
 }
@@ -3048,6 +3055,7 @@ function initMemoStudio() {
     const documentFilterButtons = Array.from(document.querySelectorAll('[data-memo-doc-filter]'));
     const documentCards = Array.from(document.querySelectorAll('[data-memo-document-card]'));
     const profileCards = Array.from(document.querySelectorAll('[data-memo-profile-card]'));
+    const sidebarRunList = document.getElementById('memo-sidebar-run-list');
     bindMemoUploadForm('memo-style-upload-form', '/api/memos/documents');
     bindMemoUploadForm('memo-source-upload-form', '/api/memos/documents');
 
@@ -3090,6 +3098,26 @@ function initMemoStudio() {
             setButtonBusy(button, true, 'Removing...');
             await fetchJson(`/api/memos/style-profiles/${encodeURIComponent(profileId)}`, {
                 method: 'DELETE',
+                headers: jsonHeaders(),
+            });
+            window.location.reload();
+        } catch (error) {
+            window.alert(error.message);
+        } finally {
+            setButtonBusy(button, false);
+        }
+    }
+
+    async function cancelMemoRun(button) {
+        const runId = Number(button?.dataset.runId || 0);
+        if (!runId) return;
+        if (!window.confirm(`Cancel memo run #${runId}? Any queued or in-flight generation work for this run will stop as soon as the worker reaches a cancellation checkpoint.`)) {
+            return;
+        }
+        try {
+            setButtonBusy(button, true, 'Canceling...');
+            await fetchJson(`/api/memos/runs/${encodeURIComponent(runId)}/cancel`, {
+                method: 'POST',
                 headers: jsonHeaders(),
             });
             window.location.reload();
@@ -3252,6 +3280,16 @@ function initMemoStudio() {
             removeStyleProfile(button);
         });
     });
+
+    if (sidebarRunList) {
+        sidebarRunList.addEventListener('click', (event) => {
+            const cancelButton = event.target.closest('.memo-run-cancel-btn');
+            if (!cancelButton) return;
+            event.preventDefault();
+            event.stopPropagation();
+            cancelMemoRun(cancelButton);
+        });
+    }
 
     profileCards.forEach((card) => {
         const selectButton = card.querySelector('[data-memo-select-profile]');
@@ -3431,8 +3469,10 @@ function renderMemoSectionNav(sections) {
 function renderMemoRunSections(sections, runId, runStatus) {
     const container = document.getElementById('memo-run-sections');
     if (!container) return;
+    const normalizedRunStatus = String(runStatus || '').toLowerCase();
+    const runIsCanceled = normalizedRunStatus === 'canceled';
     if (!Array.isArray(sections) || !sections.length) {
-        if (['queued', 'running'].includes(String(runStatus || '').toLowerCase())) {
+        if (['queued', 'running'].includes(normalizedRunStatus)) {
             container.innerHTML = `
                 <div class="memo-skeleton-stack" id="memo-run-skeletons">
                     <div class="memo-skeleton"></div>
@@ -3458,7 +3498,7 @@ function renderMemoRunSections(sections, runId, runStatus) {
         const numericMismatches = Array.isArray(validation.numeric_mismatches) ? validation.numeric_mismatches : [];
         const citationGaps = Array.isArray(validation.citation_gaps) ? validation.citation_gaps : [];
         const openQuestions = Array.isArray(section.open_questions) ? section.open_questions : [];
-        const canReview = section.status === 'ready' && !['reviewed', 'approved'].includes(section.review_status);
+        const canReview = !runIsCanceled && section.status === 'ready' && !['reviewed', 'approved'].includes(section.review_status);
         const validationRows = []
             .concat(unsupportedClaims.map((item) => `<p class="tiny">${escapeHtml(item.reason || 'Unsupported claim')}: ${escapeHtml(item.claim_text || '')}</p>`))
             .concat(numericMismatches.map((item) => `<p class="tiny">${escapeHtml(item.reason || 'Numeric mismatch')}: ${escapeHtml(item.claim_text || '')}</p>`))
@@ -3474,8 +3514,8 @@ function renderMemoRunSections(sections, runId, runStatus) {
                         ${section.objective ? `<p class="tiny">${escapeHtml(section.objective)}</p>` : ''}
                     </div>
                     <div class="memo-section-actions">
-                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-edit-btn" data-section-key="${escapeHtml(section.section_key)}">Edit</button>
-                        <button type="button" class="btn-upload btn-secondary btn-sm memo-rerun-section-btn" data-run-id="${escapeHtml(runId)}" data-section-key="${escapeHtml(section.section_key)}">Rerun with AI</button>
+                        <button type="button" class="btn-upload btn-filter-clear btn-sm memo-section-edit-btn" data-section-key="${escapeHtml(section.section_key)}" ${runIsCanceled ? 'disabled' : ''}>Edit</button>
+                        <button type="button" class="btn-upload btn-secondary btn-sm memo-rerun-section-btn" data-run-id="${escapeHtml(runId)}" data-section-key="${escapeHtml(section.section_key)}" ${runIsCanceled ? 'disabled' : ''}>Rerun with AI</button>
                         <button type="button" class="btn-upload btn-secondary btn-sm memo-section-review-btn" data-section-key="${escapeHtml(section.section_key)}" ${canReview ? '' : 'disabled'}>
                             ${['reviewed', 'approved'].includes(section.review_status) ? 'Reviewed' : 'Mark reviewed'}
                         </button>
@@ -3578,6 +3618,7 @@ function initMemoRun() {
     const reviewedCountEl = document.getElementById('memo-run-reviewed-count');
     const updatedAtEl = document.getElementById('memo-run-updated-at');
     const refreshBtn = document.getElementById('memo-run-refresh-btn');
+    const cancelRunBtn = document.getElementById('memo-run-cancel-btn');
     const approveBtn = document.getElementById('memo-run-approve-btn');
     const sectionsContainer = document.getElementById('memo-run-sections');
     const exportButtons = [
@@ -3627,11 +3668,24 @@ function initMemoRun() {
         const latestJob = run.latest_job || null;
         let html = '';
         let variant = 'info';
+        const runStatus = String(run.status || '').toLowerCase();
 
-        if (String(run.status || '').toLowerCase() === 'failed') {
+        if (runStatus === 'canceled') {
+            variant = 'warning';
+            html = `<p><strong>${escapeHtml(run.human_stage || 'Run canceled.')}</strong></p>`;
+            if (latestJob?.error_text) {
+                html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
+            }
+        } else if (runStatus === 'failed') {
             variant = 'danger';
             html = `<p><strong>${escapeHtml(run.human_stage || 'This run did not complete.')}</strong></p>`;
             if (latestJob?.error_text) {
+                html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
+            }
+        } else if (latestJob && latestJob.status === 'canceled') {
+            variant = 'warning';
+            html = `<p><strong>${escapeHtml(run.latest_job_label || 'Background job canceled.')}</strong></p>`;
+            if (latestJob.error_text) {
                 html += `<p class="tiny">${escapeHtml(latestJob.error_text)}</p>`;
             }
         } else if (latestJob && latestJob.status === 'failed') {
@@ -3706,11 +3760,15 @@ function initMemoRun() {
         const sectionsReadyForApproval = Array.isArray(sections)
             && sections.length > 0
             && sections.every((section) => section.status === 'ready' && ['reviewed', 'approved'].includes(section.review_status));
+        const normalizedStatus = String(run.status || '').toLowerCase();
 
         if (approveBtn) {
-            if (String(run.status || '').toLowerCase() === 'approved') {
+            if (normalizedStatus === 'approved') {
                 approveBtn.disabled = true;
                 approveBtn.textContent = 'Memo approved';
+            } else if (normalizedStatus === 'canceled') {
+                approveBtn.disabled = true;
+                approveBtn.textContent = 'Run canceled';
             } else {
                 approveBtn.disabled = !sectionsReadyForApproval;
                 approveBtn.textContent = 'Approve memo';
@@ -3718,8 +3776,12 @@ function initMemoRun() {
         }
 
         exportButtons.forEach((button) => {
-            button.disabled = !run.final_markdown && !run.final_html;
+            button.disabled = normalizedStatus === 'canceled' || (!run.final_markdown && !run.final_html);
         });
+        if (cancelRunBtn) {
+            cancelRunBtn.hidden = !run.can_cancel;
+            cancelRunBtn.disabled = !run.can_cancel;
+        }
     }
 
     function applyRunState() {
@@ -3752,6 +3814,27 @@ function initMemoRun() {
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
             refreshRun().catch((error) => window.alert(error.message));
+        });
+    }
+
+    if (cancelRunBtn) {
+        cancelRunBtn.addEventListener('click', async () => {
+            if (!window.confirm(`Cancel memo run #${runId}? Any queued or in-flight generation work for this run will stop as soon as the worker reaches a cancellation checkpoint.`)) {
+                return;
+            }
+            try {
+                setButtonBusy(cancelRunBtn, true, 'Canceling...');
+                currentRun = await fetchJson(`/api/memos/runs/${runId}/cancel`, {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                });
+                pollPaused = false;
+                applyRunState();
+            } catch (error) {
+                window.alert(error.message);
+            } finally {
+                setButtonBusy(cancelRunBtn, false);
+            }
         });
     }
 

@@ -111,7 +111,7 @@ def _ocr_page_image(page_number: int, png_bytes: bytes) -> str:
         "Return only the transcription. If no readable text is present, return an empty string."
     )
 
-    client = OpenAI()
+    client = OpenAI(timeout=float(current_app.config.get("MEMO_LLM_TIMEOUT_SECONDS", 90)))
     response = client.responses.create(
         model=model,
         input=[
