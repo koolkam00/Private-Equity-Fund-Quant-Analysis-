@@ -3,6 +3,10 @@ from io import BytesIO
 from models import MemoDocument, MemoDocumentChunk
 
 
+def test_memo_upload_limit_does_not_exceed_global_request_limit(app_context):
+    assert app_context.config["MAX_CONTENT_LENGTH"] >= app_context.config["MEMO_MAX_DOCUMENT_MB"] * 1024 * 1024
+
+
 def test_memo_document_upload_creates_chunks(client):
     response = client.post(
         "/api/memos/documents",

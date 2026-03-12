@@ -14,6 +14,10 @@ def _env_flag(name, default=False):
 class Config:
     FLASK_ENV = os.environ.get("FLASK_ENV", "development")
     IS_PRODUCTION = FLASK_ENV.lower() == "production"
+    _memo_max_document_mb = int(os.environ.get("MEMO_MAX_DOCUMENT_MB", "25"))
+    _max_content_length_mb = int(
+        os.environ.get("MAX_CONTENT_LENGTH_MB", str(max(16, _memo_max_document_mb)))
+    )
 
     _secret = os.environ.get("SECRET_KEY")
     if IS_PRODUCTION and (not _secret or _secret == "dev-secret-key-change-in-prod"):
@@ -36,7 +40,7 @@ class Config:
     RATELIMIT_HEADERS_ENABLED = True
 
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max upload
+    MAX_CONTENT_LENGTH = _max_content_length_mb * 1024 * 1024
     ALLOWED_EXTENSIONS = {".xlsx", ".xls"}
 
     MEMO_STORAGE_BACKEND = os.environ.get("MEMO_STORAGE_BACKEND", "local").strip().lower() or "local"
@@ -51,7 +55,7 @@ class Config:
         ".docx",
         ".pptx",
     }
-    MEMO_MAX_DOCUMENT_MB = int(os.environ.get("MEMO_MAX_DOCUMENT_MB", "25"))
+    MEMO_MAX_DOCUMENT_MB = _memo_max_document_mb
     MEMO_INLINE_JOBS = _env_flag("MEMO_INLINE_JOBS", default=not IS_PRODUCTION)
     MEMO_ENABLE_OCR = _env_flag("MEMO_ENABLE_OCR", default=False)
     MEMO_S3_BUCKET = os.environ.get("MEMO_S3_BUCKET")
