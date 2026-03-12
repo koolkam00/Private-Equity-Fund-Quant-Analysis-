@@ -1,24 +1,11 @@
-services:
-  - type: web
-    name: pe-portfolio-lab
-    runtime: python
-    plan: starter
-    branch: main
-    autoDeployTrigger: commit
-    buildCommand: pip install -r requirements.txt
-    preDeployCommand: python -m flask --app app db-upgrade
-    startCommand: gunicorn wsgi:app
-    healthCheckPath: /readyz
+envVarGroups:
+  - name: pe-portfolio-lab-runtime
     envVars:
       - key: FLASK_ENV
         value: production
-      - key: SECRET_KEY
-        sync: false
       - key: MEMO_STORAGE_BACKEND
         value: db
       - key: MEMO_INLINE_JOBS
-        value: "false"
-      - key: MEMO_WEB_ASYNC_JOBS
         value: "false"
       - key: MEMO_ENABLE_OCR
         value: "true"
@@ -40,14 +27,36 @@ services:
         value: gpt-5.4
       - key: MEMO_LLM_MODEL_VALIDATE
         value: gpt-5.4
+      - key: MEMO_MAX_DOCUMENT_MB
+        value: "50"
+      - key: MAX_CONTENT_LENGTH_MB
+        value: "50"
+      - key: BOOTSTRAP_TEAM_NAME
+        value: Admin Team
+
+services:
+  - type: web
+    name: pe-portfolio-lab
+    runtime: python
+    plan: starter
+    branch: main
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: python -m flask --app app db-upgrade
+    startCommand: gunicorn wsgi:app
+    healthCheckPath: /readyz
+    envVars:
+      - fromGroup: pe-portfolio-lab-runtime
+      - key: SECRET_KEY
+        sync: false
+      - key: MEMO_WEB_ASYNC_JOBS
+        value: "false"
       - key: OPENAI_API_KEY
         sync: false
       - key: BOOTSTRAP_ADMIN_EMAIL
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD
         sync: false
-      - key: BOOTSTRAP_TEAM_NAME
-        value: Admin Team
       - key: DATABASE_URL
         fromDatabase:
           name: pe-portfolio-lab-db
@@ -62,36 +71,11 @@ services:
     preDeployCommand: python -m flask --app app db-upgrade
     startCommand: python -m flask --app app memo-worker
     envVars:
-      - key: FLASK_ENV
-        value: production
+      - fromGroup: pe-portfolio-lab-runtime
       - key: SECRET_KEY
         sync: false
-      - key: MEMO_STORAGE_BACKEND
-        value: db
-      - key: MEMO_INLINE_JOBS
-        value: "false"
       - key: MEMO_WEB_ASYNC_JOBS
         value: "false"
-      - key: MEMO_ENABLE_OCR
-        value: "true"
-      - key: MEMO_OCR_MODEL
-        value: gpt-5-mini
-      - key: MEMO_OCR_MAX_PAGES
-        value: "40"
-      - key: MEMO_OCR_MIN_PAGE_TEXT_CHARS
-        value: "80"
-      - key: MEMO_OCR_RENDER_DPI
-        value: "180"
-      - key: MEMO_LLM_PROVIDER
-        value: openai
-      - key: MEMO_LLM_MODEL_STYLE
-        value: gpt-5-mini
-      - key: MEMO_LLM_MODEL_OUTLINE
-        value: gpt-5-mini
-      - key: MEMO_LLM_MODEL_DRAFT
-        value: gpt-5.4
-      - key: MEMO_LLM_MODEL_VALIDATE
-        value: gpt-5.4
       - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_URL
