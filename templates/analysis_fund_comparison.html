@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+
+{% block content %}
+{% macro metric_or_na(value, conflict, kind='pct') -%}
+{% if conflict or value is none -%}
+N/A
+{% elif kind == 'multiple' -%}
+{{ fmt_multiple(value) }}
+{% else -%}
+{{ fmt_pct_1dp(value) }}
+{% endif %}
+{%- endmacro %}
+
+<div class="fund-comparison-root">
+    <div class="panel panel-tight filter-panel">
+        <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+            <div class="filter-grid">
+                <fieldset class="filter-field filter-field-multi">
+                    <legend>Firms to Compare</legend>
+                    <div class="firm-checkbox-list">
+                        {% for firm in available_firms %}
+                        <label class="firm-checkbox">
+                            <input type="checkbox" name="firm_ids" value="{{ firm.id }}"
+                                {% if firm.id in selected_firm_ids %}checked{% endif %}>
+                            {{ firm.name }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <label class="filter-field">
+                    <span>Vintage Year</span>
+                    <select name="vintage">
+                        <option value="">All Vintages</option>
+                        {% for y in available_vintages %}<option value="{{ y }}" {% if selected_vintage == y|string %}selected{% endif %}>{{ y }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Metric</span>
+                    <select name="metric">
+                        <option value="">All Metrics</option>
+                        <option value="net_irr" {% if selected_metric == 'net_irr' %}selected{% endif %}>Net IRR</option>
+                        <option value="net_moic" {% if selected_metric == 'net_moic' %}selected{% endif %}>Net TVPI</option>
+                        <option value="net_dpi" {% if selected_metric == 'net_dpi' %}selected{% endif %}>Net DPI</option>
+                    </select>
+                </label>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn-upload btn-filter-apply">
+                    <i class="bi bi-funnel"></i> Apply Filters
+                </button>
+                {% if selected_vintage or selected_metric %}
+                <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <div class="panel">
+        <p class="subtitle">{{ page_meta.description }}</p>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-card"><span>Firms Compared</span><strong>{{ analysis.meta.firm_count }}</strong></div>
+        <div class="kpi-card"><span>Total Funds</span><strong>{{ analysis.meta.fund_count }}</strong></div>
+        <div class="kpi-card">
+            <span>Vintage Range</span>
+            <strong>
+                {% if analysis.meta.vintage_range[0] is not none %}
+                    {{ analysis.meta.vintage_range[0] }} – {{ analysis.meta.vintage_range[1] }}
+                {% else %}
+                    —
+                {% endif %}
+            </strong>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="bench-section-head">
+            <h3>Fund Performance Comparison</h3>
+            <p class="tiny">Net fund-level performance across firms organized by vintage year.</p>
+        </div>
+        <div class="track-record-scroll">
+            <table class="data-table compact">
+                <colgroup>
+                    <col style="width:16%">
+                    <col style="width:16%">
+                    <col style="width:8%">
+                    <col style="width:12%">
+                    <col style="width:12%">
+                    <col style="width:12%">
+                    <col style="width:12%">
+                    <col style="width:6%">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Firm</th>
+                        <th>Fund</th>
+                        <th class="num">Vintage</th>
+                        <th class="num">Fund Size</th>
+                        <th class="num">Net IRR</th>
+                        <th class="num">Net TVPI</th>
+                        <th class="num">Net DPI</th>
+                        <th class="num"># Deals</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in analysis.comparison_rows %}
+                    <tr>
+                        <td>{{ row.firm_name }}</td>
+                        <td>{{ row.fund_name }}</td>
+                        <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                        <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
+                        <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                        <td class="num">{{ row.deal_count }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="num">No funds available. Select at least two firms to compare.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if analysis.chart_data.vintage_labels %}
+    <div class="comparison-chart-grid">
+        {% if selected_metric == '' or selected_metric == 'net_irr' %}
+        <div class="panel">
+            <h3>Net IRR by Vintage</h3>
+            <div class="comparison-chart-panel"><canvas id="comparisonNetIrrChart"></canvas></div>
+        </div>
+        {% endif %}
+        {% if selected_metric == '' or selected_metric == 'net_moic' %}
+        <div class="panel">
+            <h3>Net TVPI by Vintage</h3>
+            <div class="comparison-chart-panel"><canvas id="comparisonNetTvpiChart"></canvas></div>
+        </div>
+        {% endif %}
+        {% if selected_metric == '' or selected_metric == 'net_dpi' %}
+        <div class="panel">
+            <h3>Net DPI by Vintage</h3>
+            <div class="comparison-chart-panel"><canvas id="comparisonNetDpiChart"></canvas></div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if analysis.firm_summaries %}
+    <div class="panel">
+        <div class="bench-section-head">
+            <h3>Firm Averages</h3>
+            <p class="tiny">Simple average of net metrics across each firm's funds.</p>
+        </div>
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>Firm</th>
+                    <th class="num">Funds</th>
+                    <th class="num">Avg Net IRR</th>
+                    <th class="num">Avg Net TVPI</th>
+                    <th class="num">Avg Net DPI</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fs in analysis.firm_summaries %}
+                <tr>
+                    <td>{{ fs.firm_name }}</td>
+                    <td class="num">{{ fs.fund_count }}</td>
+                    <td class="num">{{ fmt_pct_1dp(fs.avg_net_irr) }}</td>
+                    <td class="num">{{ fmt_multiple(fs.avg_net_moic) }}</td>
+                    <td class="num">{{ fmt_multiple(fs.avg_net_dpi) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+(() => {
+    const chartData = {{ analysis.chart_data | tojson }};
+    if (!chartData || !chartData.vintage_labels || !chartData.vintage_labels.length) return;
+    if (typeof Chart === 'undefined') return;
+
+    const FIRM_COLORS = [
+        '#0e7c66', '#e9b44c', '#5e8f80', '#b83c4a',
+        '#2f5d50', '#d4813b', '#7a6fa0', '#3498db',
+    ];
+
+    function fmtPct(v) {
+        if (v == null) return '';
+        return (v * 100).toFixed(1) + '%';
+    }
+    function fmtMultiple(v) {
+        if (v == null) return '';
+        return v.toFixed(2) + 'x';
+    }
+
+    const baseOpts = typeof chartBaseOptions === 'function' ? chartBaseOptions() : {};
+
+    const metrics = [
+        { key: 'net_irr',  fmt: fmtPct,      canvasId: 'comparisonNetIrrChart' },
+        { key: 'net_moic', fmt: fmtMultiple,  canvasId: 'comparisonNetTvpiChart' },
+        { key: 'net_dpi',  fmt: fmtMultiple,  canvasId: 'comparisonNetDpiChart' },
+    ];
+
+    metrics.forEach(({ key, fmt, canvasId }) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const seriesForMetric = chartData.series[key] || [];
+        const datasets = seriesForMetric.map((s, i) => ({
+            label: s.firm_name,
+            data: s.data,
+            backgroundColor: FIRM_COLORS[i % FIRM_COLORS.length],
+            borderColor: FIRM_COLORS[i % FIRM_COLORS.length],
+            borderWidth: 1,
+            borderRadius: 3,
+            maxBarThickness: 36,
+        }));
+
+        new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: chartData.vintage_labels.map(String),
+                datasets,
+            },
+            options: {
+                ...baseOpts,
+                plugins: {
+                    ...(baseOpts.plugins || {}),
+                    legend: { display: true, position: 'top' },
+                    tooltip: {
+                        ...(baseOpts.plugins?.tooltip || {}),
+                        callbacks: {
+                            label: (ctx) => ctx.dataset.label + ': ' + fmt(ctx.raw),
+                        },
+                    },
+                },
+                scales: {
+                    ...(baseOpts.scales || {}),
+                    y: {
+                        ...(baseOpts.scales?.y || {}),
+                        ticks: {
+                            ...(baseOpts.scales?.y?.ticks || {}),
+                            callback: (v) => fmt(v),
+                        },
+                    },
+                },
+            },
+        });
+    });
+})();
+</script>
+{% endblock %}

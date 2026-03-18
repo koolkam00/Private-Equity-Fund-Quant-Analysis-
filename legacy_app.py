@@ -72,6 +72,7 @@ from services.metrics import (
     compute_deal_trajectory_analysis,
     compute_deal_metrics,
     compute_deal_track_record,
+    compute_fund_performance_comparison,
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
     compute_fee_drag_analysis,
@@ -115,7 +116,7 @@ from peqa.services.context import (
 )
 from peqa.extensions import limiter, login_manager
 from peqa.route_binding import AppBinder
-from peqa.services.filtering import build_fund_vintage_lookup, deal_vintage_year, parse_request_filters
+from peqa.services.filtering import build_deal_scope_query, build_fund_vintage_lookup, deal_vintage_year, parse_request_filters
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -196,6 +197,10 @@ ANALYSIS_PAGES = {
         "title": "Chart Builder",
         "description": "Drag/drop fields, build ad-hoc visuals, and save team templates.",
     },
+    "fund-comparison": {
+        "title": "Fund Performance Comparison",
+        "description": "Cross-firm comparison of net fund performance (IRR, TVPI, DPI) organized by vintage year.",
+    },
 }
 
 WORKFLOW_SIDEBAR_ITEMS = [
@@ -226,6 +231,7 @@ ANALYSIS_SIDEBAR_ITEMS = [
     {"page_key": "stress-lab", "label": "Stress Lab", "icon": "bi bi-activity"},
     {"page_key": "deal-trajectory", "label": "Deal Trajectory", "icon": "bi bi-bezier2"},
     {"page_key": "chart-builder", "label": "Chart Builder", "icon": "bi bi-bar-chart-line"},
+    {"page_key": "fund-comparison", "label": "Fund Comparison", "icon": "bi bi-arrow-left-right"},
     {"page_key": "lp-due-diligence-memo", "label": "LP Due Diligence Memo", "icon": "bi bi-file-earmark-text"},
 ]
 
@@ -3519,6 +3525,64 @@ def analysis_page(page):
             )
         except SQLAlchemyError as exc:
             return _redirect_schema_failure(exc, "Chart Builder page failed")
+
+    if page == "fund-comparison":
+        try:
+            membership = _current_membership()
+            if membership is None:
+                abort(403)
+            team_id = membership.team_id
+
+            accessible_firms = _accessible_firms_for_team(team_id)
+            accessible_firm_ids = {f.id for f in accessible_firms}
+            firm_name_map = {f.id: f.name for f in accessible_firms}
+
+            raw_firm_ids = request.args.getlist("firm_ids", type=int)
+            selected_firm_ids = [fid for fid in raw_firm_ids if fid in accessible_firm_ids]
+            if not selected_firm_ids:
+                selected_firm_ids = sorted(accessible_firm_ids)
+
+            vintage_filter_str = (request.args.get("vintage", "") or "").strip()
+            vintage_filter = None
+            if vintage_filter_str:
+                try:
+                    vintage_filter = int(vintage_filter_str)
+                except (TypeError, ValueError):
+                    pass
+            metric_filter = (request.args.get("metric", "") or "").strip()
+
+            firms_data = []
+            all_vintages = set()
+            for fid in selected_firm_ids:
+                deals = build_deal_scope_query(team_id=team_id, firm_id=fid).all()
+                fvl = build_fund_vintage_lookup(deals, team_id=team_id, firm_id=fid)
+                all_vintages.update(v for v in fvl.values() if v is not None)
+                firms_data.append({
+                    "firm_id": fid,
+                    "firm_name": firm_name_map[fid],
+                    "deals": deals,
+                    "fund_vintage_lookup": fvl,
+                })
+
+            payload = compute_fund_performance_comparison(
+                firms_data,
+                vintage_filter=vintage_filter,
+                metric_filter=metric_filter,
+            )
+
+            return render_template(
+                "analysis_fund_comparison.html",
+                page_key=page,
+                page_meta=ANALYSIS_PAGES[page],
+                analysis=payload,
+                available_firms=accessible_firms,
+                selected_firm_ids=selected_firm_ids,
+                selected_vintage=vintage_filter_str,
+                selected_metric=metric_filter,
+                available_vintages=sorted(all_vintages),
+            )
+        except SQLAlchemyError as exc:
+            return _redirect_schema_failure(exc, "Fund comparison page failed")
 
     try:
         filter_ctx = _build_filtered_deals_context()
