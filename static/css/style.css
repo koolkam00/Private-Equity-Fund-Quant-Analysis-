@@ -3915,12 +3915,19 @@ textarea.analysis-input::placeholder {
     background: #f8fbfa;
     box-shadow: 0 1px 0 var(--line);
 }
+.vintage-grouped-table {
+    font-size: 13px;
+}
+.vintage-grouped-table th,
+.vintage-grouped-table td {
+    padding: 6px 10px;
+}
 .vintage-grouped-table .vintage-group-header td {
     background: #d6e6df;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.875rem;
     color: #1a2e28;
-    padding: 12px 12px;
+    padding: 8px 10px;
     border-bottom: 2px solid #b4cec3;
     border-top: 2px solid #b4cec3;
     letter-spacing: 0.02em;
@@ -3930,16 +3937,21 @@ textarea.analysis-input::placeholder {
 }
 .vintage-fund-count {
     font-weight: 400;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--muted);
     margin-left: 2px;
 }
-.vintage-grouped-table .fc-firm-name {
+.fc-entity {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+}
+.fc-entity .fc-firm-name {
     font-weight: 700;
 }
-.vintage-grouped-table .fc-fund-name {
+.fc-entity .fc-fund-name {
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 .vintage-grouped-table .num {
     font-variant-numeric: tabular-nums;

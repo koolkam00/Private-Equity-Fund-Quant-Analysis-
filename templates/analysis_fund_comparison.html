@@ -96,18 +96,16 @@ N/A
         <div class="fc-table-scroll">
             <table class="data-table compact vintage-grouped-table">
                 <colgroup>
-                    <col style="width:18%">
-                    <col style="width:18%">
+                    <col style="width:30%">
                     <col style="width:14%">
-                    <col style="width:14%">
-                    <col style="width:14%">
-                    <col style="width:14%">
+                    <col style="width:16%">
+                    <col style="width:16%">
+                    <col style="width:16%">
                     <col style="width:8%">
                 </colgroup>
                 <thead>
                     <tr>
-                        <th>Firm</th>
-                        <th>Fund</th>
+                        <th>Firm / Fund</th>
                         <th class="num">Fund Size</th>
                         <th class="num fc-metric-head">Net IRR</th>
                         <th class="num fc-metric-head">Net TVPI</th>
@@ -118,12 +116,11 @@ N/A
                 <tbody>
                     {% for group in analysis.vintage_groups %}
                     <tr class="vintage-group-header">
-                        <td colspan="7">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }} <span class="vintage-fund-count">· {{ group.rows|length }} fund{{ 's' if group.rows|length != 1 }}</span></td>
+                        <td colspan="6">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }} <span class="vintage-fund-count">· {{ group.rows|length }} fund{{ 's' if group.rows|length != 1 }}</span></td>
                     </tr>
                     {% for row in group.rows %}
                     <tr class="{{ 'vintage-row-odd' if loop.index is odd else 'vintage-row-even' }}">
-                        <td class="fc-firm-name">{{ row.firm_name }}</td>
-                        <td class="fc-fund-name">{{ row.fund_name }}</td>
+                        <td class="fc-entity"><span class="fc-firm-name">{{ row.firm_name }}</span> <span class="fc-fund-name">{{ row.fund_name }}</span></td>
                         <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
                         <td class="num fc-metric">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
                         <td class="num fc-metric">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
@@ -132,7 +129,7 @@ N/A
                     </tr>
                     {% endfor %}
                     {% else %}
-                    <tr><td colspan="7" class="num">No funds available. Select at least two firms to compare.</td></tr>
+                    <tr><td colspan="6" class="num">No funds available. Select at least two firms to compare.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
