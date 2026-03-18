@@ -19,25 +19,26 @@ N/A
         <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
             <div class="filter-grid">
                 <fieldset class="filter-field filter-field-multi">
-                    <legend>Firms to Compare <span class="firm-select-count" id="firmSelectCount"></span></legend>
-                    <div class="firm-select-toolbar">
-                        <input type="search" id="firmSearchInput" class="firm-search-input"
-                               placeholder="Search firms..." autocomplete="off">
-                        <span class="firm-select-actions">
-                            <a href="#" id="firmSelectAll">All</a>
-                            <a href="#" id="firmDeselectAll">None</a>
-                        </span>
+                    <legend>Firms to Compare</legend>
+                    <div class="firm-tag-picker" id="firmTagPicker">
+                        <div class="firm-tag-well" id="firmTagWell"></div>
+                        <div class="firm-tag-input-wrap">
+                            <input type="text" id="firmTagInput" class="firm-tag-input"
+                                   placeholder="Type to add firms..." autocomplete="off">
+                            <span class="firm-tag-hint" id="firmTagHint"></span>
+                        </div>
+                        <ul class="firm-tag-dropdown" id="firmTagDropdown" hidden></ul>
                     </div>
-                    <div class="firm-checkbox-list" id="firmCheckboxList">
+                    <div id="firmHiddenInputs">
                         {% for firm in available_firms %}
-                        <label class="firm-checkbox" data-firm-name="{{ firm.name|lower }}">
-                            <input type="checkbox" name="firm_ids" value="{{ firm.id }}"
-                                {% if firm.id in selected_firm_ids %}checked{% endif %}>
-                            {{ firm.name }}
-                        </label>
+                        {% if firm.id in selected_firm_ids %}
+                        <input type="hidden" name="firm_ids" value="{{ firm.id }}">
+                        {% endif %}
                         {% endfor %}
                     </div>
                 </fieldset>
+                <script type="application/json" id="firm-tag-data">[{% for firm in available_firms %}{"id":{{ firm.id }},"name":{{ firm.name | tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
+                <script type="application/json" id="firm-tag-selected">{{ selected_firm_ids | tojson }}</script>
                 <label class="filter-field">
                     <span>Vintage Year</span>
                     <select name="vintage">
@@ -193,61 +194,124 @@ N/A
 
 <script>
 (() => {
-    const searchInput = document.getElementById('firmSearchInput');
-    const list = document.getElementById('firmCheckboxList');
-    const countBadge = document.getElementById('firmSelectCount');
-    const selectAllBtn = document.getElementById('firmSelectAll');
-    const deselectAllBtn = document.getElementById('firmDeselectAll');
-    if (!searchInput || !list) return;
+    const input = document.getElementById('firmTagInput');
+    const well = document.getElementById('firmTagWell');
+    const dropdown = document.getElementById('firmTagDropdown');
+    const hiddenContainer = document.getElementById('firmHiddenInputs');
+    const hint = document.getElementById('firmTagHint');
+    if (!input || !well || !dropdown || !hiddenContainer) return;
 
-    const labels = Array.from(list.querySelectorAll('.firm-checkbox'));
-    const total = labels.length;
+    let allFirms = [];
+    try { allFirms = JSON.parse(document.getElementById('firm-tag-data').textContent); } catch(e) {}
+    let selectedIds = new Set();
+    try {
+        JSON.parse(document.getElementById('firm-tag-selected').textContent).forEach(id => selectedIds.add(id));
+    } catch(e) {}
 
-    function updateCount() {
-        const checked = list.querySelectorAll('input[type="checkbox"]:checked').length;
-        if (countBadge) countBadge.textContent = checked + ' of ' + total;
+    function firmById(id) { return allFirms.find(f => f.id === id); }
+
+    function syncHiddenInputs() {
+        hiddenContainer.innerHTML = '';
+        selectedIds.forEach(id => {
+            const inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = 'firm_ids'; inp.value = id;
+            hiddenContainer.appendChild(inp);
+        });
     }
 
-    function filterFirms() {
-        const q = searchInput.value.trim().toLowerCase();
-        if (!q) {
-            labels.forEach(l => { l.hidden = false; });
+    function renderPills() {
+        well.innerHTML = '';
+        selectedIds.forEach(id => {
+            const firm = firmById(id);
+            if (!firm) return;
+            const pill = document.createElement('span');
+            pill.className = 'firm-tag-pill';
+            pill.innerHTML = firm.name + '<button type="button" class="firm-tag-remove" aria-label="Remove ' + firm.name + '">&times;</button>';
+            pill.querySelector('button').addEventListener('click', () => {
+                selectedIds.delete(id);
+                renderPills();
+                syncHiddenInputs();
+                updateHint();
+            });
+            well.appendChild(pill);
+        });
+    }
+
+    function updateHint() {
+        if (hint) hint.textContent = selectedIds.size ? selectedIds.size + ' selected' : '';
+    }
+
+    function rankFirms(query) {
+        const available = allFirms.filter(f => !selectedIds.has(f.id));
+        const q = (query || '').trim().toLowerCase();
+        if (!q) return available.sort((a, b) => a.name.localeCompare(b.name));
+        const starts = [], contains = [];
+        available.forEach(f => {
+            const n = f.name.toLowerCase();
+            if (n.startsWith(q)) starts.push(f);
+            else if (n.includes(q)) contains.push(f);
+        });
+        return starts.concat(contains);
+    }
+
+    function renderDropdown() {
+        const q = input.value.trim();
+        const matches = rankFirms(q);
+        dropdown.innerHTML = '';
+        if (!matches.length) {
+            dropdown.hidden = true;
             return;
         }
-        const starts = [];
-        const contains = [];
-        const rest = [];
-        labels.forEach(l => {
-            const name = l.dataset.firmName || '';
-            if (name.startsWith(q)) starts.push(l);
-            else if (name.includes(q)) contains.push(l);
-            else rest.push(l);
-        });
-        starts.concat(contains).forEach(l => { l.hidden = false; });
-        rest.forEach(l => { l.hidden = true; });
-    }
-
-    searchInput.addEventListener('input', filterFirms);
-
-    if (selectAllBtn) {
-        selectAllBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            labels.forEach(l => {
-                if (!l.hidden) l.querySelector('input').checked = true;
+        matches.slice(0, 12).forEach(firm => {
+            const li = document.createElement('li');
+            li.className = 'firm-tag-option';
+            li.textContent = firm.name;
+            li.dataset.firmId = firm.id;
+            li.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                addFirm(firm.id);
             });
-            updateCount();
+            dropdown.appendChild(li);
         });
-    }
-    if (deselectAllBtn) {
-        deselectAllBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            labels.forEach(l => { l.querySelector('input').checked = false; });
-            updateCount();
-        });
+        dropdown.hidden = false;
     }
 
-    list.addEventListener('change', updateCount);
-    updateCount();
+    function addFirm(id) {
+        selectedIds.add(id);
+        input.value = '';
+        dropdown.hidden = true;
+        renderPills();
+        syncHiddenInputs();
+        updateHint();
+        input.focus();
+    }
+
+    input.addEventListener('input', renderDropdown);
+    input.addEventListener('focus', renderDropdown);
+    input.addEventListener('blur', () => {
+        setTimeout(() => { dropdown.hidden = true; }, 150);
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && selectedIds.size) {
+            const last = Array.from(selectedIds).pop();
+            selectedIds.delete(last);
+            renderPills();
+            syncHiddenInputs();
+            updateHint();
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const first = dropdown.querySelector('.firm-tag-option');
+            if (first) addFirm(Number(first.dataset.firmId));
+        }
+        if (e.key === 'Escape') {
+            dropdown.hidden = true;
+        }
+    });
+
+    renderPills();
+    syncHiddenInputs();
+    updateHint();
 })();
 </script>
 <script>
