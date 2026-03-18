@@ -139,8 +139,18 @@ def compute_fund_performance_comparison(
 
     sorted_vintages = sorted(all_vintages) if all_vintages else []
 
+    # Build vintage groups for grouped table display
+    vintage_groups = []
+    for vy in vintage_labels:
+        group_rows = [r for r in comparison_rows if r["vintage_year"] == vy]
+        vintage_groups.append({"vintage_year": vy, "rows": group_rows})
+    no_vintage = [r for r in comparison_rows if r["vintage_year"] is None]
+    if no_vintage:
+        vintage_groups.append({"vintage_year": None, "rows": no_vintage})
+
     return {
         "comparison_rows": comparison_rows,
+        "vintage_groups": vintage_groups,
         "chart_data": chart_data,
         "firm_summaries": firm_summaries,
         "meta": {

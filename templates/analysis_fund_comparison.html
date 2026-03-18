@@ -94,22 +94,20 @@ N/A
             <p class="tiny">Net fund-level performance across firms organized by vintage year.</p>
         </div>
         <div class="track-record-scroll">
-            <table class="data-table compact">
+            <table class="data-table compact vintage-grouped-table">
                 <colgroup>
-                    <col style="width:16%">
-                    <col style="width:16%">
+                    <col style="width:18%">
+                    <col style="width:18%">
+                    <col style="width:14%">
+                    <col style="width:14%">
+                    <col style="width:14%">
+                    <col style="width:14%">
                     <col style="width:8%">
-                    <col style="width:12%">
-                    <col style="width:12%">
-                    <col style="width:12%">
-                    <col style="width:12%">
-                    <col style="width:6%">
                 </colgroup>
                 <thead>
                     <tr>
                         <th>Firm</th>
                         <th>Fund</th>
-                        <th class="num">Vintage</th>
                         <th class="num">Fund Size</th>
                         <th class="num">Net IRR</th>
                         <th class="num">Net TVPI</th>
@@ -118,19 +116,23 @@ N/A
                     </tr>
                 </thead>
                 <tbody>
-                    {% for row in analysis.comparison_rows %}
+                    {% for group in analysis.vintage_groups %}
+                    <tr class="vintage-group-header">
+                        <td colspan="7">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }}</td>
+                    </tr>
+                    {% for row in group.rows %}
                     <tr>
                         <td>{{ row.firm_name }}</td>
                         <td>{{ row.fund_name }}</td>
-                        <td class="num">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
                         <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
                         <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
                         <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
                         <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
                         <td class="num">{{ row.deal_count }}</td>
                     </tr>
+                    {% endfor %}
                     {% else %}
-                    <tr><td colspan="8" class="num">No funds available. Select at least two firms to compare.</td></tr>
+                    <tr><td colspan="7" class="num">No funds available. Select at least two firms to compare.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

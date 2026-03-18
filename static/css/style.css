@@ -3903,6 +3903,19 @@ textarea.analysis-input::placeholder {
 .firm-tag-option:hover {
     background: rgba(14, 124, 102, 0.06);
 }
+.vintage-grouped-table .vintage-group-header td {
+    background: var(--color-surface-alt, #f0f5f3);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--color-heading, #1a2e28);
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--color-border, #d1ddd8);
+    border-top: 1px solid var(--color-border, #d1ddd8);
+    letter-spacing: 0.02em;
+}
+.vintage-grouped-table tbody tr.vintage-group-header:first-child td {
+    border-top: none;
+}
 .comparison-chart-grid {
     display: grid;
     grid-template-columns: 1fr;
