@@ -94,7 +94,7 @@ N/A
             <p class="tiny">Net fund-level performance across firms organized by vintage year.</p>
         </div>
         <div class="track-record-scroll">
-            <table class="data-table compact vintage-grouped-table">
+            <table class="data-table compact vintage-grouped-table sticky-head">
                 <colgroup>
                     <col style="width:18%">
                     <col style="width:18%">
@@ -109,25 +109,25 @@ N/A
                         <th>Firm</th>
                         <th>Fund</th>
                         <th class="num">Fund Size</th>
-                        <th class="num">Net IRR</th>
-                        <th class="num">Net TVPI</th>
-                        <th class="num">Net DPI</th>
+                        <th class="num fc-metric-head">Net IRR</th>
+                        <th class="num fc-metric-head">Net TVPI</th>
+                        <th class="num fc-metric-head">Net DPI</th>
                         <th class="num"># Deals</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for group in analysis.vintage_groups %}
                     <tr class="vintage-group-header">
-                        <td colspan="7">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }}</td>
+                        <td colspan="7">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }} <span class="vintage-fund-count">· {{ group.rows|length }} fund{{ 's' if group.rows|length != 1 }}</span></td>
                     </tr>
                     {% for row in group.rows %}
-                    <tr>
-                        <td>{{ row.firm_name }}</td>
-                        <td>{{ row.fund_name }}</td>
+                    <tr class="{{ 'vintage-row-odd' if loop.index is odd else 'vintage-row-even' }}">
+                        <td class="fc-firm-name">{{ row.firm_name }}</td>
+                        <td class="fc-fund-name">{{ row.fund_name }}</td>
                         <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
-                        <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
-                        <td class="num">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
-                        <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                        <td class="num fc-metric">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
+                        <td class="num fc-metric">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
+                        <td class="num fc-metric">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
                         <td class="num">{{ row.deal_count }}</td>
                     </tr>
                     {% endfor %}

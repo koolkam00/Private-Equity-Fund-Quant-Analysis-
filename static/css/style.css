@@ -3903,18 +3903,53 @@ textarea.analysis-input::placeholder {
 .firm-tag-option:hover {
     background: rgba(14, 124, 102, 0.06);
 }
+/* -- Vintage-grouped fund comparison table -- */
 .vintage-grouped-table .vintage-group-header td {
-    background: var(--color-surface-alt, #f0f5f3);
+    background: #d6e6df;
     font-weight: 700;
-    font-size: 0.95rem;
-    color: var(--color-heading, #1a2e28);
-    padding: 10px 12px;
-    border-bottom: 2px solid var(--color-border, #d1ddd8);
-    border-top: 1px solid var(--color-border, #d1ddd8);
+    font-size: 1rem;
+    color: #1a2e28;
+    padding: 12px 12px;
+    border-bottom: 2px solid #b4cec3;
+    border-top: 2px solid #b4cec3;
     letter-spacing: 0.02em;
 }
 .vintage-grouped-table tbody tr.vintage-group-header:first-child td {
     border-top: none;
+}
+.vintage-fund-count {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: 2px;
+}
+.vintage-grouped-table .fc-firm-name {
+    font-weight: 700;
+}
+.vintage-grouped-table .fc-fund-name {
+    color: var(--muted);
+    font-size: 13px;
+}
+.vintage-grouped-table .num {
+    font-variant-numeric: tabular-nums;
+}
+.vintage-grouped-table .fc-metric {
+    background: rgba(14, 124, 102, 0.025);
+}
+.vintage-grouped-table .fc-metric-head {
+    background: rgba(14, 124, 102, 0.04);
+}
+.vintage-grouped-table .vintage-row-odd td {
+    background: rgba(14, 124, 102, 0.02);
+}
+.vintage-grouped-table .vintage-row-odd td.fc-metric {
+    background: rgba(14, 124, 102, 0.045);
+}
+.vintage-grouped-table .vintage-row-even td {
+    background: #ffffff;
+}
+.vintage-grouped-table tbody tr:not(.vintage-group-header):hover td {
+    background: rgba(14, 124, 102, 0.09) !important;
 }
 .comparison-chart-grid {
     display: grid;
