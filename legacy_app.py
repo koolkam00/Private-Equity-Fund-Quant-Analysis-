@@ -3539,8 +3539,6 @@ def analysis_page(page):
 
             raw_firm_ids = request.args.getlist("firm_ids", type=int)
             selected_firm_ids = [fid for fid in raw_firm_ids if fid in accessible_firm_ids]
-            if not selected_firm_ids:
-                selected_firm_ids = sorted(accessible_firm_ids)
 
             vintage_filter_str = (request.args.get("vintage", "") or "").strip()
             vintage_filter = None
