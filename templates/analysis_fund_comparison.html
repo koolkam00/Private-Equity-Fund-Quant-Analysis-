@@ -19,10 +19,18 @@ N/A
         <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
             <div class="filter-grid">
                 <fieldset class="filter-field filter-field-multi">
-                    <legend>Firms to Compare</legend>
-                    <div class="firm-checkbox-list">
+                    <legend>Firms to Compare <span class="firm-select-count" id="firmSelectCount"></span></legend>
+                    <div class="firm-select-toolbar">
+                        <input type="search" id="firmSearchInput" class="firm-search-input"
+                               placeholder="Search firms..." autocomplete="off">
+                        <span class="firm-select-actions">
+                            <a href="#" id="firmSelectAll">All</a>
+                            <a href="#" id="firmDeselectAll">None</a>
+                        </span>
+                    </div>
+                    <div class="firm-checkbox-list" id="firmCheckboxList">
                         {% for firm in available_firms %}
-                        <label class="firm-checkbox">
+                        <label class="firm-checkbox" data-firm-name="{{ firm.name|lower }}">
                             <input type="checkbox" name="firm_ids" value="{{ firm.id }}"
                                 {% if firm.id in selected_firm_ids %}checked{% endif %}>
                             {{ firm.name }}
@@ -183,6 +191,65 @@ N/A
     {% endif %}
 </div>
 
+<script>
+(() => {
+    const searchInput = document.getElementById('firmSearchInput');
+    const list = document.getElementById('firmCheckboxList');
+    const countBadge = document.getElementById('firmSelectCount');
+    const selectAllBtn = document.getElementById('firmSelectAll');
+    const deselectAllBtn = document.getElementById('firmDeselectAll');
+    if (!searchInput || !list) return;
+
+    const labels = Array.from(list.querySelectorAll('.firm-checkbox'));
+    const total = labels.length;
+
+    function updateCount() {
+        const checked = list.querySelectorAll('input[type="checkbox"]:checked').length;
+        if (countBadge) countBadge.textContent = checked + ' of ' + total;
+    }
+
+    function filterFirms() {
+        const q = searchInput.value.trim().toLowerCase();
+        if (!q) {
+            labels.forEach(l => { l.hidden = false; });
+            return;
+        }
+        const starts = [];
+        const contains = [];
+        const rest = [];
+        labels.forEach(l => {
+            const name = l.dataset.firmName || '';
+            if (name.startsWith(q)) starts.push(l);
+            else if (name.includes(q)) contains.push(l);
+            else rest.push(l);
+        });
+        starts.concat(contains).forEach(l => { l.hidden = false; });
+        rest.forEach(l => { l.hidden = true; });
+    }
+
+    searchInput.addEventListener('input', filterFirms);
+
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            labels.forEach(l => {
+                if (!l.hidden) l.querySelector('input').checked = true;
+            });
+            updateCount();
+        });
+    }
+    if (deselectAllBtn) {
+        deselectAllBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            labels.forEach(l => { l.querySelector('input').checked = false; });
+            updateCount();
+        });
+    }
+
+    list.addEventListener('change', updateCount);
+    updateCount();
+})();
+</script>
 <script>
 (() => {
     const chartData = {{ analysis.chart_data | tojson }};
