@@ -3904,6 +3904,17 @@ textarea.analysis-input::placeholder {
     background: rgba(14, 124, 102, 0.06);
 }
 /* -- Vintage-grouped fund comparison table -- */
+.fc-table-scroll {
+    overflow: auto;
+    max-height: 70vh;
+}
+.fc-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f8fbfa;
+    box-shadow: 0 1px 0 var(--line);
+}
 .vintage-grouped-table .vintage-group-header td {
     background: #d6e6df;
     font-weight: 700;
@@ -3937,7 +3948,7 @@ textarea.analysis-input::placeholder {
     background: rgba(14, 124, 102, 0.025);
 }
 .vintage-grouped-table .fc-metric-head {
-    background: rgba(14, 124, 102, 0.04);
+    background: #eef5f2;
 }
 .vintage-grouped-table .vintage-row-odd td {
     background: rgba(14, 124, 102, 0.02);
