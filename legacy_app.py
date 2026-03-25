@@ -201,6 +201,10 @@ ANALYSIS_PAGES = {
         "title": "Fund Performance Comparison",
         "description": "Cross-firm comparison of net fund performance (IRR, TVPI, DPI) organized by vintage year.",
     },
+    "deal-comparison": {
+        "title": "Deal Performance Comparison",
+        "description": "Cross-firm deal-level comparison of gross returns, hold periods, and sector/geography patterns.",
+    },
 }
 
 WORKFLOW_SIDEBAR_ITEMS = [
@@ -263,6 +267,7 @@ ROUTE_BLUEPRINTS = {
     "methodology": "analysis",
     "methodology_alias": "analysis",
     "deal_bridge_api": "analysis",
+    "api_fund_comparison_deals": "analysis",
     "chart_builder_catalog_api": "chart_builder_api",
     "chart_builder_query_api": "chart_builder_api",
     "chart_builder_templates_api": "chart_builder_api",
@@ -3607,6 +3612,70 @@ def analysis_page(page):
         except SQLAlchemyError as exc:
             return _redirect_schema_failure(exc, "Fund comparison page failed")
 
+    if page == "deal-comparison":
+        try:
+            from services.metrics.deal_comparison import compute_deal_level_comparison
+
+            membership = _current_membership()
+            if membership is None:
+                abort(403)
+            team_id = membership.team_id
+
+            accessible_firms = _accessible_firms_for_team(team_id)
+            accessible_firm_ids = {f.id for f in accessible_firms}
+            firm_name_map = {f.id: f.name for f in accessible_firms}
+
+            raw_firm_ids = request.args.getlist("firm_ids", type=int)
+            selected_firm_ids = [fid for fid in raw_firm_ids if fid in accessible_firm_ids][:10]
+
+            filters = {
+                "sector": request.args.getlist("sector"),
+                "geography": request.args.getlist("geography"),
+                "status": request.args.getlist("status"),
+                "exit_type": request.args.getlist("exit_type"),
+                "vintage": [int(v) for v in request.args.getlist("vintage") if v.isdigit()],
+            }
+            filters = {k: v for k, v in filters.items() if v}
+
+            page_num = request.args.get("page", 1, type=int)
+            per_page = 50
+
+            firms_data = []
+            for fid in selected_firm_ids:
+                deals = build_deal_scope_query(team_id=team_id, firm_id=fid).all()
+                fvl = build_fund_vintage_lookup(deals, team_id=team_id, firm_id=fid)
+                firms_data.append({
+                    "firm_id": fid,
+                    "firm_name": firm_name_map.get(fid, "Unknown"),
+                    "deals": deals,
+                    "fund_vintage_lookup": fvl,
+                })
+
+            payload = compute_deal_level_comparison(firms_data, filters=filters or None)
+
+            all_rows = payload["deal_rows"]
+            total_deals = len(all_rows)
+            total_pages = max(1, (total_deals + per_page - 1) // per_page)
+            page_num = max(1, min(page_num, total_pages))
+            start = (page_num - 1) * per_page
+            paged_rows = all_rows[start:start + per_page]
+
+            return render_template(
+                "analysis_deal_comparison.html",
+                page_key=page,
+                page_meta=ANALYSIS_PAGES[page],
+                analysis=payload,
+                deal_rows=paged_rows,
+                available_firms=accessible_firms,
+                selected_firm_ids=selected_firm_ids,
+                selected_filters=filters,
+                current_page=page_num,
+                total_pages=total_pages,
+                total_deals=total_deals,
+            )
+        except SQLAlchemyError as exc:
+            return _redirect_schema_failure(exc, "Deal comparison page failed")
+
     try:
         filter_ctx = _build_filtered_deals_context()
         membership = filter_ctx.get("active_membership")
@@ -3880,6 +3949,45 @@ def methodology():
 @login_required
 def methodology_alias():
     return redirect(url_for("methodology"))
+
+
+@app.route("/api/fund-comparison/deals")
+@login_required
+def api_fund_comparison_deals():
+    """Lazy-load deals for a specific firm+fund in the comparison drill-down."""
+    from services.metrics.deal_comparison import _deal_row, _deal_moic, _deal_hold_years
+
+    firm_id = request.args.get("firm_id", type=int)
+    fund_name = request.args.get("fund_name", "")
+    if firm_id is None or not fund_name:
+        return jsonify({"deals": []}), 200
+
+    membership = _current_membership()
+    if membership is None:
+        abort(403)
+    team_id = membership.team_id
+
+    accessible_ids = {f.id for f in _accessible_firms_for_team(team_id)}
+    if firm_id not in accessible_ids:
+        abort(403)
+
+    try:
+        deals = (
+            build_deal_scope_query(team_id=team_id, firm_id=firm_id)
+            .filter(Deal.fund_number == fund_name)
+            .all()
+        )
+    except SQLAlchemyError as exc:
+        return _json_schema_failure(exc, "Deal comparison drill-down query failed")
+
+    firm = db.session.get(Firm, firm_id)
+    fname = firm.name if firm else "Unknown"
+
+    rows = []
+    for deal in deals:
+        rows.append(_deal_row(deal, firm_id, fname, {}))
+
+    return jsonify({"deals": rows})
 
 
 @app.route("/api/deals/<int:deal_id>/bridge")
