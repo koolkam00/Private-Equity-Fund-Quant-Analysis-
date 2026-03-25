@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+
+{% block content %}
+{% set FIRM_COLORS = ['#0e7c66', '#e9b44c', '#5e8f80', '#b83c4a', '#2f5d50', '#d4813b', '#7a6fa0', '#3498db', '#8e6c4f', '#2c82c9', '#c0392b', '#27ae60'] %}
+
+<div class="deal-comparison-root">
+    <div class="panel panel-tight filter-panel">
+        <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+            <div class="filter-grid">
+                <fieldset class="filter-field filter-field-multi">
+                    <legend>Firms to Compare</legend>
+                    <div class="firm-tag-picker" id="firmTagPicker">
+                        <div class="firm-tag-well" id="firmTagWell"></div>
+                        <div class="firm-tag-input-wrap">
+                            <input type="text" id="firmTagInput" class="firm-tag-input"
+                                   placeholder="Type to add firms..." autocomplete="off">
+                            <span class="firm-tag-hint" id="firmTagHint"></span>
+                        </div>
+                        <ul class="firm-tag-dropdown" id="firmTagDropdown" hidden></ul>
+                    </div>
+                    <div id="firmHiddenInputs">
+                        {% for firm in available_firms %}
+                        {% if firm.id in selected_firm_ids %}
+                        <input type="hidden" name="firm_ids" value="{{ firm.id }}">
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <script type="application/json" id="firm-tag-data">[{% for firm in available_firms %}{"id":{{ firm.id }},"name":{{ firm.name | tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
+                <script type="application/json" id="firm-tag-selected">{{ selected_firm_ids | tojson }}</script>
+
+                {% if analysis and analysis.filter_options %}
+                <label class="filter-field">
+                    <span>Sector</span>
+                    <select name="sector">
+                        <option value="">All Sectors</option>
+                        {% for s in analysis.filter_options.sector %}<option value="{{ s }}" {% if s in (selected_filters.sector or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Geography</span>
+                    <select name="geography">
+                        <option value="">All</option>
+                        {% for g in analysis.filter_options.geography %}<option value="{{ g }}" {% if g in (selected_filters.geography or []) %}selected{% endif %}>{{ g }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Status</span>
+                    <select name="status">
+                        <option value="">All</option>
+                        {% for s in analysis.filter_options.status %}<option value="{{ s }}" {% if s in (selected_filters.status or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Vintage</span>
+                    <select name="vintage">
+                        <option value="">All</option>
+                        {% for v in analysis.filter_options.vintage %}<option value="{{ v }}" {% if v in (selected_filters.vintage or []) %}selected{% endif %}>{{ v }}</option>{% endfor %}
+                    </select>
+                </label>
+                {% endif %}
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn-upload btn-filter-apply">
+                    <i class="bi bi-funnel"></i> Apply Filters
+                </button>
+                {% if selected_filters %}
+                <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key, firm_ids=selected_firm_ids) }}">
+                    <i class="bi bi-x-circle"></i> Clear Filters
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <div class="panel">
+        <p class="subtitle">{{ page_meta.description }}</p>
+        <a class="tiny" href="{{ url_for('analysis_page', page='fund-comparison', firm_ids=selected_firm_ids) }}">&larr; Back to Fund Comparison</a>
+    </div>
+
+    {% if analysis and analysis.kpi %}
+    <div class="kpi-grid">
+        <div class="kpi-card"><span>Total Deals</span><strong>{{ analysis.kpi.total_deals }}</strong></div>
+        <div class="kpi-card"><span>Wtd Avg MOIC</span><strong>{% if analysis.kpi.weighted_avg_moic is not none %}{{ '%.2f'|format(analysis.kpi.weighted_avg_moic) }}x{% else %}—{% endif %}</strong></div>
+        <div class="kpi-card"><span>Wtd Avg IRR</span><strong>{% if analysis.kpi.weighted_avg_irr is not none %}{{ fmt_pct_1dp(analysis.kpi.weighted_avg_irr) }}{% else %}—{% endif %}</strong></div>
+        <div class="kpi-card"><span>Median Hold</span><strong>{% if analysis.kpi.median_hold is not none %}{{ '%.1f'|format(analysis.kpi.median_hold) }} yrs{% else %}—{% endif %}</strong></div>
+    </div>
+    {% endif %}
+
+    {% if analysis and analysis.firm_summaries %}
+    <div class="panel">
+        <div class="bench-section-head">
+            <h3>Firm Summary</h3>
+            <p class="tiny">Average deal-level metrics by firm.</p>
+        </div>
+        <table class="data-table compact">
+            <thead>
+                <tr>
+                    <th>Firm</th>
+                    <th class="num">Deals</th>
+                    <th class="num">Avg MOIC</th>
+                    <th class="num">Avg IRR</th>
+                    <th class="num">Median Hold</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fid, fs in analysis.firm_summaries.items() %}
+                {% set color_idx = loop.index0 % FIRM_COLORS|length %}
+                <tr>
+                    <td><span class="dc-firm-dot" style="background:{{ FIRM_COLORS[color_idx] }}"></span> {{ fs.firm_name }}</td>
+                    <td class="num">{{ fs.deal_count }}</td>
+                    <td class="num">{% if fs.avg_moic is not none %}{{ '%.2f'|format(fs.avg_moic) }}x{% else %}—{% endif %}</td>
+                    <td class="num">{% if fs.avg_irr is not none %}{{ fmt_pct_1dp(fs.avg_irr) }}{% else %}—{% endif %}</td>
+                    <td class="num">{% if fs.median_hold is not none %}{{ '%.1f'|format(fs.median_hold) }} yrs{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+        <div class="bench-section-head">
+            <h3>Deal Comparison</h3>
+            <p class="tiny">
+                {% if total_deals is defined %}
+                    {{ total_deals }} deal{{ 's' if total_deals != 1 }} across selected firms.
+                    {% if total_pages > 1 %}Page {{ current_page }} of {{ total_pages }}.{% endif %}
+                {% else %}
+                    Select firms above to compare deals.
+                {% endif %}
+            </p>
+        </div>
+        {% if deal_rows %}
+        <div class="fc-table-scroll">
+            <table class="data-table compact dc-table" id="dealComparisonTable">
+                <colgroup>
+                    <col style="width:18%"><col style="width:14%"><col style="width:10%">
+                    <col style="width:10%"><col style="width:12%"><col style="width:12%">
+                    <col style="width:12%"><col style="width:12%">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th class="dc-sortable" data-sort="company_name">Company</th>
+                        <th class="dc-sortable" data-sort="firm_name">Firm</th>
+                        <th class="dc-sortable" data-sort="sector">Sector</th>
+                        <th class="dc-sortable" data-sort="status">Status</th>
+                        <th class="num dc-sortable" data-sort="equity_invested">Equity Invested</th>
+                        <th class="num dc-sortable dc-sort-active dc-sort-desc" data-sort="moic">MOIC</th>
+                        <th class="num dc-sortable" data-sort="irr">IRR</th>
+                        <th class="num dc-sortable" data-sort="hold_period">Hold (yrs)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set firm_id_list = analysis.firm_summaries.keys()|list %}
+                    {% for d in deal_rows %}
+                    {% set color_idx = firm_id_list.index(d.firm_id) if d.firm_id in firm_id_list else 0 %}
+                    <tr class="dc-deal-row" style="border-left:3px solid {{ FIRM_COLORS[color_idx % FIRM_COLORS|length] }}">
+                        <td class="dc-deal-company" title="{{ d.company_name }}">{{ d.company_name or '—' }}</td>
+                        <td>{{ d.firm_name or '—' }}</td>
+                        <td>{{ d.sector or '—' }}</td>
+                        <td>{{ d.status or '—' }}</td>
+                        <td class="num">{% if d.equity_invested is not none %}{{ fmt_currency_symbol(d.equity_invested) }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if d.moic is not none %}{{ '%.2f'|format(d.moic) }}x{% else %}—{% endif %}</td>
+                        <td class="num">{% if d.irr is not none %}{{ fmt_pct_1dp(d.irr) }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if d.hold_period is not none %}{{ '%.1f'|format(d.hold_period) }}{% else %}—{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if total_pages > 1 %}
+        <div class="dc-pagination">
+            {% if current_page > 1 %}
+            <a class="btn-upload btn-sm" href="?{% for fid in selected_firm_ids %}firm_ids={{ fid }}&{% endfor %}page={{ current_page - 1 }}{% for k, vals in selected_filters.items() %}{% for v in vals %}&{{ k }}={{ v }}{% endfor %}{% endfor %}">&larr; Previous</a>
+            {% endif %}
+            <span class="tiny">Page {{ current_page }} of {{ total_pages }}</span>
+            {% if current_page < total_pages %}
+            <a class="btn-upload btn-sm" href="?{% for fid in selected_firm_ids %}firm_ids={{ fid }}&{% endfor %}page={{ current_page + 1 }}{% for k, vals in selected_filters.items() %}{% for v in vals %}&{{ k }}={{ v }}{% endfor %}{% endfor %}">Next &rarr;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% elif selected_firm_ids %}
+        <p class="tiny" style="padding:1rem 0;color:var(--muted)">No deals match the current filters — try broadening your search.</p>
+        {% else %}
+        <p class="tiny" style="padding:1rem 0;color:var(--muted)">Select firms above to compare deals.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(() => {
+    const input = document.getElementById('firmTagInput');
+    const well = document.getElementById('firmTagWell');
+    const dropdown = document.getElementById('firmTagDropdown');
+    const hiddenContainer = document.getElementById('firmHiddenInputs');
+    const hint = document.getElementById('firmTagHint');
+    if (!input || !well || !dropdown || !hiddenContainer) return;
+
+    let allFirms = [];
+    try { allFirms = JSON.parse(document.getElementById('firm-tag-data').textContent); } catch(e) {}
+    let selectedIds = new Set();
+    try {
+        JSON.parse(document.getElementById('firm-tag-selected').textContent).forEach(id => selectedIds.add(id));
+    } catch(e) {}
+
+    function firmById(id) { return allFirms.find(f => f.id === id); }
+
+    function syncHiddenInputs() {
+        hiddenContainer.innerHTML = '';
+        selectedIds.forEach(id => {
+            const inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = 'firm_ids'; inp.value = id;
+            hiddenContainer.appendChild(inp);
+        });
+    }
+
+    function renderPills() {
+        well.innerHTML = '';
+        selectedIds.forEach(id => {
+            const firm = firmById(id);
+            if (!firm) return;
+            const pill = document.createElement('span');
+            pill.className = 'firm-tag-pill';
+            pill.innerHTML = firm.name + '<button type="button" class="firm-tag-remove" aria-label="Remove ' + firm.name + '">&times;</button>';
+            pill.querySelector('button').addEventListener('click', () => {
+                selectedIds.delete(id);
+                renderPills();
+                syncHiddenInputs();
+                updateHint();
+            });
+            well.appendChild(pill);
+        });
+    }
+
+    function updateHint() {
+        if (hint) hint.textContent = selectedIds.size ? selectedIds.size + ' selected' : '';
+    }
+
+    function rankFirms(query) {
+        const available = allFirms.filter(f => !selectedIds.has(f.id));
+        const q = (query || '').trim().toLowerCase();
+        if (!q) return available.sort((a, b) => a.name.localeCompare(b.name));
+        const starts = [], contains = [];
+        available.forEach(f => {
+            const n = f.name.toLowerCase();
+            if (n.startsWith(q)) starts.push(f);
+            else if (n.includes(q)) contains.push(f);
+        });
+        return starts.concat(contains);
+    }
+
+    function renderDropdown() {
+        const q = input.value.trim();
+        const matches = rankFirms(q);
+        dropdown.innerHTML = '';
+        if (!matches.length) { dropdown.hidden = true; return; }
+        matches.slice(0, 12).forEach(firm => {
+            const li = document.createElement('li');
+            li.className = 'firm-tag-option';
+            li.textContent = firm.name;
+            li.dataset.firmId = firm.id;
+            li.addEventListener('mousedown', (e) => { e.preventDefault(); addFirm(firm.id); });
+            dropdown.appendChild(li);
+        });
+        dropdown.hidden = false;
+    }
+
+    function addFirm(id) {
+        if (selectedIds.size >= 10) return;
+        selectedIds.add(id);
+        input.value = '';
+        dropdown.hidden = true;
+        renderPills();
+        syncHiddenInputs();
+        updateHint();
+        input.focus();
+    }
+
+    input.addEventListener('input', renderDropdown);
+    input.addEventListener('focus', renderDropdown);
+    input.addEventListener('blur', () => { setTimeout(() => { dropdown.hidden = true; }, 150); });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && selectedIds.size) {
+            const last = Array.from(selectedIds).pop();
+            selectedIds.delete(last);
+            renderPills(); syncHiddenInputs(); updateHint();
+        }
+        if (e.key === 'Enter') { e.preventDefault(); const first = dropdown.querySelector('.firm-tag-option'); if (first) addFirm(Number(first.dataset.firmId)); }
+        if (e.key === 'Escape') { dropdown.hidden = true; }
+    });
+
+    renderPills(); syncHiddenInputs(); updateHint();
+})();
+</script>
+{% endblock %}

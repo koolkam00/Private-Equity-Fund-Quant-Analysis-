@@ -89,9 +89,16 @@ N/A
     </div>
 
     <div class="panel">
-        <div class="bench-section-head">
-            <h3>Fund Performance Comparison</h3>
-            <p class="tiny">Net fund-level performance across firms organized by vintage year.</p>
+        <div class="bench-section-head" style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+                <h3>Fund Performance Comparison</h3>
+                <p class="tiny">Net fund-level performance across firms organized by vintage year. Click a fund row to see its deals.</p>
+            </div>
+            {% if selected_firm_ids %}
+            <a class="btn-upload btn-secondary btn-sm" href="{{ url_for('analysis_page', page='deal-comparison', firm_ids=selected_firm_ids) }}" style="white-space:nowrap;margin-left:1rem">
+                <i class="bi bi-table"></i> Compare Deals Across Firms &rarr;
+            </a>
+            {% endif %}
         </div>
         <div class="fc-table-scroll">
             <table class="data-table compact vintage-grouped-table">
@@ -119,13 +126,24 @@ N/A
                         <td colspan="6">{{ group.vintage_year if group.vintage_year is not none else "Unknown Vintage" }} <span class="vintage-fund-count">· {{ group.rows|length }} fund{{ 's' if group.rows|length != 1 }}</span></td>
                     </tr>
                     {% for row in group.rows %}
-                    <tr class="{{ 'vintage-row-odd' if loop.index is odd else 'vintage-row-even' }}">
-                        <td class="fc-entity"><span class="fc-firm-name">{{ row.firm_name }}</span> <span class="fc-fund-name">{{ row.fund_name }}</span></td>
+                    <tr class="{{ 'vintage-row-odd' if loop.index is odd else 'vintage-row-even' }} fc-fund-row"
+                        data-firm-id="{{ row.firm_id }}" data-fund-name="{{ row.fund_name }}"
+                        style="cursor:pointer" onclick="toggleFundDeals(this)">
+                        <td class="fc-entity">
+                            <i class="bi bi-chevron-right fc-expand-icon"></i>
+                            <span class="fc-firm-name">{{ row.firm_name }}</span> <span class="fc-fund-name">{{ row.fund_name }}</span>
+                        </td>
                         <td class="num">{{ fmt_currency_symbol(row.fund_size) }}</td>
                         <td class="num fc-metric">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
                         <td class="num fc-metric">{{ metric_or_na(row.net_moic, row.net_moic_conflict, 'multiple') }}</td>
                         <td class="num fc-metric">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
                         <td class="num">{{ row.deal_count }}</td>
+                    </tr>
+                    <tr class="fc-deals-row" style="display:none">
+                        <td colspan="6" class="fc-deals-container" data-loaded="false">
+                            <div class="fc-deals-loading" style="display:none"><i class="bi bi-arrow-repeat"></i> Loading deals...</div>
+                            <div class="fc-deals-content"></div>
+                        </td>
                     </tr>
                     {% endfor %}
                     {% else %}
@@ -388,5 +406,70 @@ N/A
         });
     });
 })();
+</script>
+<script>
+function toggleFundDeals(row) {
+    const dealsRow = row.nextElementSibling;
+    if (!dealsRow || !dealsRow.classList.contains('fc-deals-row')) return;
+    const icon = row.querySelector('.fc-expand-icon');
+    const isOpen = dealsRow.style.display !== 'none';
+
+    if (isOpen) {
+        dealsRow.style.display = 'none';
+        if (icon) { icon.classList.remove('bi-chevron-down'); icon.classList.add('bi-chevron-right'); }
+        return;
+    }
+
+    dealsRow.style.display = 'table-row';
+    if (icon) { icon.classList.remove('bi-chevron-right'); icon.classList.add('bi-chevron-down'); }
+
+    const container = dealsRow.querySelector('.fc-deals-container');
+    if (container.dataset.loaded === 'true') return;
+
+    const firmId = row.dataset.firmId;
+    const fundName = row.dataset.fundName;
+    const loading = container.querySelector('.fc-deals-loading');
+    const content = container.querySelector('.fc-deals-content');
+    loading.style.display = 'block';
+
+    fetch(`/api/fund-comparison/deals?firm_id=${encodeURIComponent(firmId)}&fund_name=${encodeURIComponent(fundName)}`)
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(data => {
+            loading.style.display = 'none';
+            container.dataset.loaded = 'true';
+            const deals = data.deals || [];
+            if (!deals.length) {
+                content.innerHTML = '<p class="tiny" style="padding:.5rem 0;color:var(--muted)">No deals in this fund.</p>';
+                return;
+            }
+            const MAX_VISIBLE = 5;
+            let html = '<table class="data-table compact fc-deal-subtable"><thead><tr>'
+                + '<th>Company</th><th>Sector</th><th>Status</th>'
+                + '<th class="num">Equity Invested</th><th class="num">MOIC</th>'
+                + '<th class="num">IRR</th><th class="num">Hold (yrs)</th>'
+                + '</tr></thead><tbody>';
+            deals.forEach((d, i) => {
+                const hidden = i >= MAX_VISIBLE ? ' style="display:none" class="fc-deal-extra"' : '';
+                html += `<tr${hidden}>`
+                    + `<td class="fc-deal-company" title="${(d.company_name||'').replace(/"/g,'&quot;')}">${d.company_name || '—'}</td>`
+                    + `<td>${d.sector || '—'}</td>`
+                    + `<td>${d.status || '—'}</td>`
+                    + `<td class="num">${d.equity_invested != null ? d.equity_invested.toLocaleString(undefined, {maximumFractionDigits:0}) : '—'}</td>`
+                    + `<td class="num">${d.moic != null ? d.moic.toFixed(2) + 'x' : '—'}</td>`
+                    + `<td class="num">${d.irr != null ? (d.irr * 100).toFixed(1) + '%' : '—'}</td>`
+                    + `<td class="num">${d.hold_period != null ? d.hold_period.toFixed(1) : '—'}</td>`
+                    + '</tr>';
+            });
+            html += '</tbody></table>';
+            if (deals.length > MAX_VISIBLE) {
+                html += `<button type="button" class="btn-upload btn-sm fc-show-all-deals" onclick="this.previousElementSibling.querySelectorAll('.fc-deal-extra').forEach(r=>r.style.display='table-row');this.remove()">Show all ${deals.length} deals</button>`;
+            }
+            content.innerHTML = html;
+        })
+        .catch(() => {
+            loading.style.display = 'none';
+            content.innerHTML = '<p class="tiny" style="color:var(--error)">Failed to load deals. <a href="#" onclick="event.preventDefault();this.closest(\'.fc-deals-container\').dataset.loaded=\'false\';toggleFundDeals(this.closest(\'.fc-deals-row\').previousElementSibling);">Click to retry</a></p>';
+        });
+}
 </script>
 {% endblock %}

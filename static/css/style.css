@@ -3988,3 +3988,82 @@ textarea.analysis-input::placeholder {
         grid-template-columns: 1fr 1fr;
     }
 }
+
+/* ── Deal Comparison & Fund Drill-Down ─────────────────── */
+.fc-expand-icon {
+    font-size: 10px;
+    margin-right: 4px;
+    transition: transform 0.15s;
+    color: var(--muted);
+}
+.fc-fund-row:hover {
+    background: rgba(14, 124, 102, 0.04);
+}
+.fc-deals-container {
+    padding: 0 0 0 28px;
+    background: var(--bg);
+}
+.fc-deal-subtable {
+    font-size: 12px;
+    margin: 4px 0 8px;
+}
+.fc-deal-subtable th {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+}
+.fc-deal-company {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fc-show-all-deals {
+    margin: 0 0 8px;
+    font-size: 11px;
+}
+.fc-deals-loading {
+    padding: 8px 0;
+    color: var(--muted);
+    font-size: 12px;
+}
+.fc-deals-loading i {
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Deal comparison standalone page */
+.dc-firm-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.dc-deal-row {
+    transition: background 0.1s;
+}
+.dc-deal-row:hover {
+    background: rgba(14, 124, 102, 0.04);
+}
+.dc-deal-company {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dc-pagination {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    justify-content: center;
+}
+.dc-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+.dc-sortable:hover {
+    color: var(--accent);
+}
