@@ -23,6 +23,8 @@
   - CSRF and rate limits
 - `tests/test_cli.py`
   - migration/bootstrap/FX refresh CLI commands
+- `tests/test_excel_export.py`
+  - firm Excel export: happy path, optional sheets, empty firm, auth, login required
 
 ## Commands
 
@@ -39,8 +41,8 @@ pytest -q
 ## Latest Observed Result
 
 - `Observed:` `pytest -q` passed with:
-  - `187 passed`
-  - `2 warnings`
+  - `219 passed`
+  - `5 warnings`
 - `Observed:` Warnings came from third-party dependencies (`dateutil`, `reportlab`), not from repo code.
 
 ## What Is Tested Well

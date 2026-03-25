@@ -15,6 +15,7 @@
 |-- services/
 |   |-- deal_parser.py
 |   |-- benchmark_parser.py
+|   |-- excel_exporter.py
 |   |-- fx_rates.py
 |   |-- utils.py
 |   `-- metrics/

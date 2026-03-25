@@ -62,6 +62,7 @@
   - `legacy_app.py::_build_vca_pdf`
   - `legacy_app.py::_build_benchmarking_pdf`
   - `/reports/ic-pdf-pack`
+  - `services/excel_exporter.py::export_firm_to_excel` — reconstructs multi-sheet Excel from DB data for a firm
 
 ## Important Dependencies
 

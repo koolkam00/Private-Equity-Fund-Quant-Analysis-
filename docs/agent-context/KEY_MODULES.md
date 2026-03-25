@@ -164,6 +164,7 @@
 - `_refresh_firm_fx_metadata`
 - `parse_benchmarks`
 - `resolve_rate_to_usd`
+- `services/excel_exporter.py::export_firm_to_excel` — reverse of ingestion; reconstructs a multi-sheet Excel workbook from DB data for a firm
 
 ### Inputs / Outputs
 
