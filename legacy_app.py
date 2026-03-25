@@ -73,6 +73,7 @@ from services.metrics import (
     compute_deal_metrics,
     compute_deal_track_record,
     compute_fund_performance_comparison,
+    compute_executive_summary_analysis,
     compute_exit_readiness_analysis,
     compute_exit_type_performance,
     compute_fee_drag_analysis,
@@ -145,6 +146,10 @@ REQUIRED_SCHEMA_TABLES = (
 )
 
 ANALYSIS_PAGES = {
+    "executive-summary": {
+        "title": "Executive Summary",
+        "description": "Comprehensive one-page overview combining key metrics, performance attribution, deal rankings, concentration analysis, and portfolio health.",
+    },
     "fund-liquidity": {
         "title": "Fund Liquidity & Performance Curve",
         "description": "Quarterly paid-in, distributed, NAV, unfunded, and TVPI/DPI/RVPI/PIC trends.",
@@ -226,6 +231,7 @@ WORKFLOW_SIDEBAR_ITEMS = [
 ]
 
 ANALYSIS_SIDEBAR_ITEMS = [
+    {"page_key": "executive-summary", "label": "Executive Summary", "icon": "bi bi-clipboard-data"},
     {"page_key": "nav-at-risk", "label": "NAV at Risk", "icon": "bi bi-exclamation-diamond"},
     {"page_key": "public-market-comparison", "label": "Public Market Comparison", "icon": "bi bi-graph-up"},
     {"page_key": "fund-liquidity", "label": "Fund Liquidity", "icon": "bi bi-graph-up-arrow"},
@@ -2732,6 +2738,17 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
 def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, benchmark_asset_class="", metrics_by_id=None):
     metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in filtered_deals}
 
+    if page == "executive-summary":
+        rank_by = (request.args.get("rank_by", "") or "moic").strip()
+        if rank_by not in ("moic", "irr"):
+            rank_by = "moic"
+        return compute_executive_summary_analysis(
+            filtered_deals,
+            metrics_by_id=metrics_by_id,
+            firm_id=firm_id,
+            team_id=team_id,
+            rank_by=rank_by,
+        )
     if page == "chart-builder":
         return {}
     if page == "fund-liquidity":
@@ -3693,7 +3710,9 @@ def analysis_page(page):
         return _redirect_schema_failure(exc, f"Analysis page '{page}' failed")
 
     template_name = "analysis_page.html"
-    if page == "vca-ebitda":
+    if page == "executive-summary":
+        template_name = "analysis_executive_summary.html"
+    elif page == "vca-ebitda":
         template_name = "analysis_vca_ebitda.html"
     elif page == "vca-revenue":
         template_name = "analysis_vca_revenue.html"
@@ -3747,6 +3766,47 @@ def analysis_series_api(page):
             "payload": payload,
         }
     )
+
+
+@app.route("/api/analysis/executive-summary/llm-insights")
+@login_required
+@limiter.limit("10/minute")
+def executive_summary_llm_insights():
+    """AJAX endpoint: returns LLM-generated bullet-point insights."""
+    from services.metrics.executive_summary_insights import generate_executive_insights
+
+    try:
+        filter_ctx = _build_filtered_deals_context()
+        membership = filter_ctx.get("active_membership")
+        rank_by = (request.args.get("rank_by", "") or "moic").strip()
+        if rank_by not in ("moic", "irr"):
+            rank_by = "moic"
+
+        payload = compute_executive_summary_analysis(
+            filter_ctx["deals"],
+            metrics_by_id=filter_ctx.get("metrics_by_id"),
+            firm_id=filter_ctx["firm_id"],
+            team_id=membership.team_id if membership is not None else None,
+            rank_by=rank_by,
+        )
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        _scale_analysis_payload("executive-summary", payload, reporting["money_scale"])
+
+        filter_params = {
+            "firm_id": filter_ctx["firm_id"],
+            "team_id": membership.team_id if membership is not None else None,
+            "fund": request.args.get("fund", ""),
+            "status": request.args.get("status", ""),
+            "sector": request.args.get("sector", ""),
+            "geography": request.args.get("geography", ""),
+            "rank_by": rank_by,
+        }
+
+        result = generate_executive_insights(payload, filter_params)
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("LLM insights endpoint failed")
+        return jsonify({"status": "error", "message": str(exc)}), 500
 
 
 @app.route("/api/chart-builder/catalog")

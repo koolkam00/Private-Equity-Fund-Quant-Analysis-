@@ -74,4 +74,5 @@ class Config:
     MEMO_LLM_MODEL_OUTLINE = os.environ.get("MEMO_LLM_MODEL_OUTLINE", "gpt-4.1-mini")
     MEMO_LLM_MODEL_DRAFT = os.environ.get("MEMO_LLM_MODEL_DRAFT", "gpt-4.1")
     MEMO_LLM_MODEL_VALIDATE = os.environ.get("MEMO_LLM_MODEL_VALIDATE", "gpt-4.1-mini")
+    MEMO_LLM_MODEL_INSIGHTS = os.environ.get("MEMO_LLM_MODEL_INSIGHTS", "gpt-4.1")
     MEMO_LLM_TIMEOUT_SECONDS = float(os.environ.get("MEMO_LLM_TIMEOUT_SECONDS", "90"))
