@@ -46,6 +46,7 @@ from services.metrics.vca_ebitda import compute_vca_ebitda_analysis
 from services.metrics.vca_revenue import compute_vca_revenue_analysis
 from services.metrics.benchmarking import compute_benchmarking_analysis, rank_benchmark_metric
 from services.metrics.fund_comparison import compute_fund_performance_comparison
+from services.metrics.executive_summary import compute_executive_summary_analysis
 
 __all__ = [
     "DRIVERS",
