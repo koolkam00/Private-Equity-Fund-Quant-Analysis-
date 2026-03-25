@@ -7,9 +7,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}PE Portfolio Analytics{% endblock %}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="preload" href="{{ url_for('static', filename='fonts/InstrumentSans-Latin.woff2') }}" as="font" type="font/woff2" crossorigin>
+    <style>
+        @font-face {
+            font-family: 'Instrument Serif';
+            src: url('{{ url_for("static", filename="fonts/InstrumentSerif-Regular.woff2") }}') format('woff2');
+            font-weight: 400;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Instrument Sans';
+            src: url('{{ url_for("static", filename="fonts/InstrumentSans-Latin.woff2") }}') format('woff2');
+            font-weight: 400 700;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Geist Mono';
+            src: url('{{ url_for("static", filename="fonts/GeistMono-Regular.woff2") }}') format('woff2');
+            font-weight: 400;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Geist Mono';
+            src: url('{{ url_for("static", filename="fonts/GeistMono-Medium.woff2") }}') format('woff2');
+            font-weight: 500;
+            font-style: normal;
+            font-display: swap;
+        }
+    </style>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">

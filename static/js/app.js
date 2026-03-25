@@ -21,8 +21,22 @@ const DRIVER_LABELS = {
 };
 const LEGACY_BRIDGE_DRIVER_KEYS = ['revenue', 'margin', 'multiple', 'leverage', 'other'];
 
-const AXIS_GRID = 'rgba(20, 35, 33, 0.10)';
-const AXIS_TICK = '#435854';
+const AXIS_GRID = 'rgba(26, 26, 26, 0.08)';
+const AXIS_TICK = '#6B6B63';
+
+/* ── Design System Chart Colors ── */
+const CHART_COLORS = {
+    accent:    '#0A6B58',
+    accent2:   '#C9982E',
+    accent3:   '#085A4A',
+    danger:    '#B83C4A',
+    muted:     '#6B6B63',
+    accentAlpha40: 'rgba(10, 107, 88, 0.40)',
+    accent2Alpha40: 'rgba(201, 152, 46, 0.40)',
+    accent3Alpha42: 'rgba(8, 90, 74, 0.42)',
+    mutedAlpha35: 'rgba(122, 122, 114, 0.35)',
+    tooltipBg: '#1A1A1A',
+};
 let currencyMetaCache = null;
 
 function getCsrfToken() {
@@ -99,15 +113,15 @@ function chartBaseOptions() {
             legend: {
                 labels: {
                     color: AXIS_TICK,
-                    font: { family: 'Manrope', weight: '700', size: 11 },
+                    font: { family: 'Instrument Sans', weight: '700', size: 11 },
                     boxWidth: 10,
                 },
             },
             tooltip: {
-                backgroundColor: '#16352f',
+                backgroundColor: CHART_COLORS.tooltipBg,
                 titleColor: '#e9f7f3',
                 bodyColor: '#e9f7f3',
-                borderColor: 'rgba(233, 180, 76, 0.4)',
+                borderColor: CHART_COLORS.accent2Alpha40,
                 borderWidth: 1,
                 padding: 10,
             },
@@ -115,11 +129,11 @@ function chartBaseOptions() {
         scales: {
             x: {
                 grid: { display: false },
-                ticks: { color: AXIS_TICK, font: { family: 'Manrope', size: 11, weight: '600' } },
+                ticks: { color: AXIS_TICK, font: { family: 'Instrument Sans', size: 11, weight: '600' } },
             },
             y: {
                 grid: { color: AXIS_GRID, borderDash: [4, 4] },
-                ticks: { color: AXIS_TICK, font: { family: 'JetBrains Mono', size: 10 } },
+                ticks: { color: AXIS_TICK, font: { family: 'Geist Mono', size: 10 } },
             },
         },
     };
@@ -226,11 +240,11 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
     const leverValues = displayRows.map((row) => row[controls.unit]);
     const wf = buildWaterfallSeries(controls.unit, leverLabels, leverValues, startValue, endValue);
     const colors = wf.kinds.map((kind, i) => {
-        if (kind === 'start') return '#2f5d50';
-        if (kind === 'end') return '#e9b44c';
+        if (kind === 'start') return CHART_COLORS.accent3;
+        if (kind === 'end') return CHART_COLORS.accent2;
         const range = wf.ranges[i];
-        if (!Array.isArray(range)) return '#9aa8a4';
-        return (range[1] - range[0]) >= 0 ? '#0e7c66' : '#b83c4a';
+        if (!Array.isArray(range)) return CHART_COLORS.muted;
+        return (range[1] - range[0]) >= 0 ? CHART_COLORS.accent : CHART_COLORS.danger;
     });
 
     if (canvas._chart) {
@@ -288,7 +302,7 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
                     ticks: {
                         ...baseOpts.scales.x.ticks,
                         color: '#234350',
-                        font: { family: 'Manrope', size: 11, weight: '700' },
+                        font: { family: 'Instrument Sans', size: 11, weight: '700' },
                         autoSkip: false,
                         maxRotation: 0,
                         minRotation: 0,
@@ -308,7 +322,7 @@ function renderBridgeWaterfall(canvas, payload, controls, diagnosticsEl, options
                     ticks: {
                         ...baseOpts.scales.y.ticks,
                         color: '#234350',
-                        font: { family: 'JetBrains Mono', size: 12, weight: '700' },
+                        font: { family: 'Geist Mono', size: 12, weight: '700' },
                         padding: 8,
                         maxTicksLimit: 6,
                         callback: (v) => formatBridgeAxisTick(v, controls.unit),
@@ -669,7 +683,7 @@ function renderMoicDistribution(data) {
         type: 'bar',
         data: {
             labels: data.map((d) => d.label),
-            datasets: [{ data: data.map((d) => d.count), backgroundColor: '#0e7c66', borderRadius: 5, maxBarThickness: 48 }],
+            datasets: [{ data: data.map((d) => d.count), backgroundColor: CHART_COLORS.accent, borderRadius: 5, maxBarThickness: 48 }],
         },
         options: {
             ...chartBaseOptions(),
@@ -685,19 +699,19 @@ function renderMoicHoldScatter(data) {
 
     const statusMeta = {
         'Fully Realized': {
-            color: 'rgba(14, 124, 102, 0.40)',
-            border: '#0e7c66',
+            color: CHART_COLORS.accentAlpha40,
+            border: CHART_COLORS.accent,
         },
         'Partially Realized': {
-            color: 'rgba(233, 180, 76, 0.40)',
+            color: CHART_COLORS.accent2Alpha40,
             border: '#c78c17',
         },
         Unrealized: {
-            color: 'rgba(47, 93, 80, 0.42)',
-            border: '#2f5d50',
+            color: CHART_COLORS.accent3Alpha42,
+            border: CHART_COLORS.accent3,
         },
         Other: {
-            color: 'rgba(120, 130, 142, 0.35)',
+            color: CHART_COLORS.mutedAlpha35,
             border: '#6f7a86',
         },
     };
@@ -774,11 +788,11 @@ function renderMoicHoldScatter(data) {
                 ...chartBaseOptions().scales,
                 x: {
                     ...chartBaseOptions().scales.x,
-                    title: { display: true, text: 'Hold Period (Years)', color: AXIS_TICK, font: { family: 'Manrope', size: 11, weight: '700' } },
+                    title: { display: true, text: 'Hold Period (Years)', color: AXIS_TICK, font: { family: 'Instrument Sans', size: 11, weight: '700' } },
                 },
                 y: {
                     ...chartBaseOptions().scales.y,
-                    title: { display: true, text: 'Gross MOIC', color: AXIS_TICK, font: { family: 'Manrope', size: 11, weight: '700' } },
+                    title: { display: true, text: 'Gross MOIC', color: AXIS_TICK, font: { family: 'Instrument Sans', size: 11, weight: '700' } },
                     ticks: {
                         ...chartBaseOptions().scales.y.ticks,
                         callback: (v) => formatBridgeValue(Number(v), 'moic'),
@@ -830,11 +844,11 @@ function renderValueCreationMix(payload) {
     const labels = series.labels || [];
     const drivers = series.drivers || {};
     const palette = {
-        revenue: '#0e7c66',
-        margin: '#2f5d50',
-        multiple: '#e9b44c',
+        revenue: CHART_COLORS.accent,
+        margin: CHART_COLORS.accent3,
+        multiple: CHART_COLORS.accent2,
         leverage: '#5e8f80',
-        other: '#b83c4a',
+        other: CHART_COLORS.danger,
     };
     const keys = ['revenue', 'margin', 'multiple', 'leverage', 'other'];
 
@@ -902,7 +916,7 @@ function renderRealizedUnrealizedExposure(payload) {
                 {
                     label: 'Realized Value',
                     data: realized,
-                    backgroundColor: '#0e7c66',
+                    backgroundColor: CHART_COLORS.accent,
                     stack: 'exposure',
                     borderRadius: 4,
                     maxBarThickness: 40,
@@ -910,7 +924,7 @@ function renderRealizedUnrealizedExposure(payload) {
                 {
                     label: 'Unrealized Value',
                     data: unrealized,
-                    backgroundColor: '#e9b44c',
+                    backgroundColor: CHART_COLORS.accent2,
                     stack: 'exposure',
                     borderRadius: 4,
                     maxBarThickness: 40,
@@ -961,7 +975,7 @@ function renderExitTypePerformance(payload) {
                 {
                     label: 'Calculated MOIC',
                     data: calculatedMoic,
-                    backgroundColor: '#0e7c66',
+                    backgroundColor: CHART_COLORS.accent,
                     yAxisID: 'y',
                     borderRadius: 4,
                     maxBarThickness: 36,
@@ -1101,11 +1115,11 @@ function renderBridgeAggregate() {
     const leverValues = displayRows.map((row) => row[unit]);
     const wf = buildWaterfallSeries(unit, leverLabels, leverValues, startEnd.start, startEnd.end);
     const colors = wf.kinds.map((kind, i) => {
-        if (kind === 'start') return '#2f5d50';
-        if (kind === 'end') return '#e9b44c';
+        if (kind === 'start') return CHART_COLORS.accent3;
+        if (kind === 'end') return CHART_COLORS.accent2;
         const range = wf.ranges[i];
         if (!Array.isArray(range)) return '#9aa8a4';
-        return (range[1] - range[0]) >= 0 ? '#0e7c66' : '#b83c4a';
+        return (range[1] - range[0]) >= 0 ? CHART_COLORS.accent : CHART_COLORS.danger;
     });
 
     const el = document.getElementById('bridgeChart');
@@ -1198,11 +1212,11 @@ function renderIcMemoBridgeChart(payload) {
     const values = displayRows.map((row) => row.moic);
     const wf = buildWaterfallSeries('moic', labels, values, startEnd.start, startEnd.end);
     const colors = wf.kinds.map((kind, i) => {
-        if (kind === 'start') return '#2f5d50';
-        if (kind === 'end') return '#e9b44c';
+        if (kind === 'start') return CHART_COLORS.accent3;
+        if (kind === 'end') return CHART_COLORS.accent2;
         const range = wf.ranges[i];
         if (!Array.isArray(range)) return '#9aa8a4';
-        return (range[1] - range[0]) >= 0 ? '#0e7c66' : '#b83c4a';
+        return (range[1] - range[0]) >= 0 ? CHART_COLORS.accent : CHART_COLORS.danger;
     });
 
     const chart = new Chart(el, {
@@ -1262,13 +1276,13 @@ function renderIcMemoLeverageCharts(payload) {
                     {
                         label: 'Entry',
                         data: [ndEbitda.entry_avg, ndEbitda.entry_wtd],
-                        backgroundColor: '#2f5d50',
+                        backgroundColor: CHART_COLORS.accent3,
                         borderRadius: 4,
                     },
                     {
                         label: 'Exit',
                         data: [ndEbitda.exit_avg, ndEbitda.exit_wtd],
-                        backgroundColor: '#0e7c66',
+                        backgroundColor: CHART_COLORS.accent,
                         borderRadius: 4,
                     },
                 ],
@@ -1300,13 +1314,13 @@ function renderIcMemoLeverageCharts(payload) {
                     {
                         label: 'Entry',
                         data: [ndTev.entry_avg, ndTev.entry_wtd],
-                        backgroundColor: '#e9b44c',
+                        backgroundColor: CHART_COLORS.accent2,
                         borderRadius: 4,
                     },
                     {
                         label: 'Exit',
                         data: [ndTev.exit_avg, ndTev.exit_wtd],
-                        backgroundColor: '#b83c4a',
+                        backgroundColor: CHART_COLORS.danger,
                         borderRadius: 4,
                     },
                 ],
@@ -1354,13 +1368,13 @@ function renderIcMemoOperatingCharts(payload) {
                     {
                         label: 'Entry Avg',
                         data: [multiples.tev_ebitda?.entry_avg, multiples.tev_revenue?.entry_avg],
-                        backgroundColor: '#2f5d50',
+                        backgroundColor: CHART_COLORS.accent3,
                         borderRadius: 4,
                     },
                     {
                         label: 'Exit Avg',
                         data: [multiples.tev_ebitda?.exit_avg, multiples.tev_revenue?.exit_avg],
-                        backgroundColor: '#0e7c66',
+                        backgroundColor: CHART_COLORS.accent,
                         borderRadius: 4,
                     },
                     {
@@ -1372,7 +1386,7 @@ function renderIcMemoOperatingCharts(payload) {
                     {
                         label: 'Exit Wtd',
                         data: [multiples.tev_ebitda?.exit_wtd, multiples.tev_revenue?.exit_wtd],
-                        backgroundColor: '#e9b44c',
+                        backgroundColor: CHART_COLORS.accent2,
                         borderRadius: 4,
                     },
                 ],
@@ -1405,13 +1419,13 @@ function renderIcMemoOperatingCharts(payload) {
                     {
                         label: 'Entry',
                         data: [m.entry_avg, m.entry_wtd],
-                        backgroundColor: '#2f5d50',
+                        backgroundColor: CHART_COLORS.accent3,
                         borderRadius: 4,
                     },
                     {
                         label: 'Exit',
                         data: [m.exit_avg, m.exit_wtd],
-                        backgroundColor: '#0e7c66',
+                        backgroundColor: CHART_COLORS.accent,
                         borderRadius: 4,
                     },
                 ],
@@ -1468,7 +1482,7 @@ function renderIcMemoOperatingCharts(payload) {
                             growth.revenue_cagr?.wavg,
                             growth.ebitda_cagr?.wavg,
                         ],
-                        backgroundColor: '#0e7c66',
+                        backgroundColor: CHART_COLORS.accent,
                         borderRadius: 4,
                     },
                 ],
@@ -1515,7 +1529,7 @@ function renderIcMemoSliceChart(canvasId, groups) {
                 {
                     label: 'Weighted MOIC',
                     data: rows.map((row) => row.weighted_moic),
-                    backgroundColor: '#0e7c66',
+                    backgroundColor: CHART_COLORS.accent,
                     borderRadius: 4,
                     maxBarThickness: 34,
                 },
