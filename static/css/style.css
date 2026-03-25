@@ -214,12 +214,12 @@ body.pe-app {
     box-shadow: var(--shadow-sm);
 }
 .takeaway-banner.tone-warning {
-    border-color: rgba(233, 180, 76, 0.5);
-    background: linear-gradient(145deg, rgba(255,252,246,0.94), rgba(247,240,222,0.86));
+    border-left: 4px solid var(--accent-2);
+    background: var(--accent-2-light);
 }
 .takeaway-banner.tone-risk {
     border-color: rgba(184, 60, 74, 0.34);
-    background: linear-gradient(145deg, rgba(255,248,248,0.95), rgba(249,234,236,0.9));
+    background: var(--danger-light);
 }
 .takeaway-label {
     margin: 0 0 8px;
@@ -315,10 +315,10 @@ body.pe-app {
 }
 .table-empty-state {
     padding: 18px;
-    border: 1px dashed rgba(148, 169, 162, 0.72);
+    border: 1px dashed var(--line);
     border-radius: var(--radius-lg);
     color: var(--muted);
-    background: rgba(247, 251, 249, 0.86);
+    background: var(--surface-alt);
 }
 .table-empty-state p {
     margin: 6px 0 0;
@@ -329,7 +329,7 @@ body.pe-app {
     gap: 12px;
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid rgba(201, 220, 214, 0.84);
+    border-top: 1px solid var(--line);
     color: var(--muted);
     font-size: 12px;
 }
@@ -540,7 +540,7 @@ body.pe-app {
 }
 
 .firm-picker-row:hover {
-    background: #f4faf8;
+    background: var(--surface-alt);
 }
 
 .firm-picker-row.is-highlighted {
@@ -559,7 +559,7 @@ body.pe-app {
 
 .firm-picker-row-status {
     border: 1px solid #8dbeb2;
-    color: #195347;
+    color: var(--accent);
     border-radius: 999px;
     padding: 1px 7px;
     font-size: 10px;
@@ -579,8 +579,8 @@ body.pe-app {
 }
 
 .firm-picker-pin:hover {
-    background: #f4faf8;
-    color: #426e63;
+    background: var(--surface-alt);
+    color: var(--accent-3);
 }
 
 .firm-picker-pin[aria-pressed="true"] {
@@ -670,7 +670,7 @@ body.pe-app {
     background: linear-gradient(180deg, #f7fcfa 0%, #ffffff 34%);
 }
 .stress-kpi-grid .kpi-card {
-    border-color: #c9ddd7;
+    border-color: var(--line);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 .stress-note {
@@ -740,7 +740,7 @@ body.pe-app {
     font-weight: 700;
 }
 .stress-subtotal-label {
-    color: #1f4a40;
+    color: var(--ink);
     text-transform: none;
     letter-spacing: 0.03em;
 }
@@ -760,7 +760,7 @@ body.pe-app {
     background: #fff8ec;
 }
 .stress-table td.stress-input-cell {
-    background: #eef5f3;
+    background: var(--accent-light);
 }
 .stress-table .analysis-input-sm {
     min-width: 86px;
@@ -911,7 +911,7 @@ body.pe-app {
     border-radius: var(--radius-md);
 }
 .btn-filter-clear {
-    background: #eef5f3;
+    background: var(--accent-light);
     color: var(--accent-3);
     border: 1px solid #c9ddd7;
     padding: 9px 14px;
@@ -1076,7 +1076,7 @@ body.pe-app {
     position: sticky;
     top: 0;
     z-index: 4;
-    background: #eef4f2;
+    background: var(--accent-light);
     border-bottom: 1px solid #bfd1cb;
 }
 .deals-grouped-table .deals-rollup td {
@@ -1654,7 +1654,7 @@ body.pe-app {
     padding: 3px 10px;
     border-radius: 12px;
     border: 1px solid var(--line);
-    background: #eef5f3;
+    background: var(--accent-light);
     color: var(--accent-3);
     font-size: 12px;
     font-weight: 600;
@@ -2056,7 +2056,7 @@ body.pe-app {
     border-radius: 999px;
     border: 1px solid var(--line);
     background: var(--accent-light);
-    color: #355951;
+    color: var(--accent-3);
     text-decoration: none;
     font-size: 10px;
     font-weight: 700;
@@ -2093,11 +2093,11 @@ textarea.analysis-input::placeholder {
     display: grid;
     gap: 6px;
     padding: 14px 16px;
-    border: 1px solid rgba(151, 177, 170, 0.52);
+    border: 1px solid var(--line);
     border-radius: 16px;
     background: rgba(255, 255, 255, 0.78);
     text-decoration: none;
-    color: #17332f;
+    color: var(--ink);
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .memo-tab-link:hover {
@@ -2123,7 +2123,7 @@ textarea.analysis-input::placeholder {
     gap: 20px;
     padding: 22px 22px 20px;
     background: linear-gradient(145deg, rgba(255,255,255,0.97), rgba(238,245,242,0.92));
-    border-color: rgba(151, 177, 170, 0.58);
+    border-color: var(--line);
 }
 .memo-hero h2,
 .memo-run-summary-card h2 {
@@ -2155,8 +2155,8 @@ textarea.analysis-input::placeholder {
 .memo-stepper-chip {
     text-decoration: none;
     color: #234b41;
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(151, 177, 170, 0.52);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-radius: 999px;
     padding: 9px 12px;
     font-size: 12px;
@@ -2167,9 +2167,9 @@ textarea.analysis-input::placeholder {
     gap: 10px;
 }
 .memo-hero-badge {
-    border: 1px solid rgba(179, 197, 191, 0.72);
+    border: 1px solid var(--line);
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.84);
+    background: var(--panel);
     padding: 16px;
 }
 .memo-hero-badge span,
@@ -2234,7 +2234,7 @@ textarea.analysis-input::placeholder {
     justify-content: space-between;
     gap: 10px;
     padding-bottom: 10px;
-    border-bottom: 1px solid rgba(210, 223, 218, 0.8);
+    border-bottom: 1px solid var(--line);
 }
 .memo-readiness-metric:last-of-type {
     padding-bottom: 0;
@@ -2266,8 +2266,8 @@ textarea.analysis-input::placeholder {
     width: 36px;
     height: 36px;
     border-radius: 12px;
-    background: linear-gradient(145deg, rgba(14,124,102,0.12), rgba(233,180,76,0.14));
-    color: #1e4d42;
+    background: linear-gradient(145deg, var(--accent-light), var(--accent-2-light));
+    color: var(--accent-3);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2289,9 +2289,9 @@ textarea.analysis-input::placeholder {
     display: grid;
     gap: 12px;
     padding: 16px;
-    border: 1px solid rgba(205, 220, 214, 0.9);
+    border: 1px solid var(--line);
     border-radius: 16px;
-    background: rgba(248, 251, 249, 0.86);
+    background: var(--surface-alt);
 }
 .memo-upload-form {
     display: grid;
@@ -2299,7 +2299,7 @@ textarea.analysis-input::placeholder {
 }
 .memo-drop-zone {
     min-height: 154px;
-    background: linear-gradient(180deg, rgba(251, 253, 252, 0.95), rgba(243, 248, 245, 0.92));
+    background: var(--panel);
     transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
 }
 .memo-drop-zone:hover {
@@ -2333,7 +2333,7 @@ textarea.analysis-input::placeholder {
     display: grid;
     gap: 14px;
     padding: 16px;
-    border: 1px solid rgba(199, 216, 210, 0.92);
+    border: 1px solid var(--line);
     border-radius: 16px;
     background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(246,250,248,0.9));
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
@@ -2369,8 +2369,8 @@ textarea.analysis-input::placeholder {
 .memo-choice-stats div {
     padding: 12px;
     border-radius: var(--radius-lg);
-    background: rgba(247, 250, 248, 0.95);
-    border: 1px solid rgba(214, 226, 222, 0.9);
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
 }
 .memo-choice-actions {
     display: flex;
@@ -2393,8 +2393,8 @@ textarea.analysis-input::placeholder {
     gap: 8px;
 }
 .memo-filter-pill {
-    border: 1px solid rgba(193, 211, 205, 0.92);
-    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--line);
+    background: var(--panel);
     color: #29473f;
     border-radius: 999px;
     padding: 8px 12px;
@@ -2419,7 +2419,7 @@ textarea.analysis-input::placeholder {
     gap: 12px;
     align-items: center;
     padding: 14px 16px;
-    border: 1px solid rgba(203, 219, 213, 0.92);
+    border: 1px solid var(--line);
     border-radius: 16px;
     background: rgba(255,255,255,0.95);
 }
@@ -2484,7 +2484,7 @@ textarea.analysis-input::placeholder {
     padding: 16px;
     border-radius: 16px;
     border: 1px solid rgba(205, 220, 214, 0.92);
-    background: rgba(249, 252, 250, 0.95);
+    background: var(--panel);
 }
 .memo-summary-card p {
     margin: 8px 0 0;
@@ -2510,7 +2510,7 @@ textarea.analysis-input::placeholder {
     color: #90a49f;
 }
 .memo-readiness-item.is-ready {
-    color: #174f42;
+    color: var(--accent-3);
 }
 .memo-readiness-item.is-ready i {
     color: var(--accent);
@@ -2674,7 +2674,7 @@ textarea.analysis-input::placeholder {
     border: 1px solid rgba(205, 220, 214, 0.92);
     border-radius: var(--radius-lg);
     background: rgba(249, 252, 250, 0.92);
-    color: #17332f;
+    color: var(--ink);
     text-decoration: none;
 }
 .memo-section-nav-link.is-active {
@@ -2690,7 +2690,7 @@ textarea.analysis-input::placeholder {
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    color: #195447;
+    color: var(--accent);
 }
 .memo-section-nav-copy strong {
     display: block;
@@ -2951,7 +2951,7 @@ textarea.analysis-input::placeholder {
 .method-section-title {
     font-size: 18px;
     font-weight: 600;
-    color: #1c443c;
+    color: var(--ink);
 }
 .method-section-subtitle {
     font-size: 13px;
@@ -2985,7 +2985,7 @@ textarea.analysis-input::placeholder {
 }
 .formula-chip {
     margin-top: 8px;
-    border: 1px solid #cfe0da;
+    border: 1px solid var(--line);
     background: #f2f8f5;
     border-radius: 8px;
     padding: 8px 10px;
@@ -3100,7 +3100,7 @@ textarea.analysis-input::placeholder {
     gap: 6px;
 }
 .chart-builder-field-chip {
-    border: 1px solid #cfe0da;
+    border: 1px solid var(--line);
     background: #f5fbf8;
     border-radius: var(--radius-md);
     padding: 7px 9px;
@@ -3110,7 +3110,7 @@ textarea.analysis-input::placeholder {
 }
 .chart-builder-field-chip span {
     display: block;
-    color: #1e443b;
+    color: var(--ink);
     font-weight: 700;
     font-size: 12px;
 }
@@ -3150,7 +3150,7 @@ textarea.analysis-input::placeholder {
 }
 .chart-builder-card-title strong {
     font-size: 15px;
-    color: #193c34;
+    color: var(--ink);
 }
 .chart-builder-card-title small {
     font-family: var(--mono);
@@ -3198,7 +3198,7 @@ textarea.analysis-input::placeholder {
 .chart-builder-assigned {
     font-size: 12px;
     font-weight: 700;
-    color: #1f453c;
+    color: var(--ink);
 }
 .chart-builder-y-row {
     display: grid;
@@ -3954,7 +3954,7 @@ textarea.analysis-input::placeholder {
     background: #d6e6df;
     font-weight: 700;
     font-size: 0.875rem;
-    color: #1a2e28;
+    color: var(--ink);
     padding: 8px 10px;
     border-bottom: 2px solid #b4cec3;
     border-top: 2px solid #b4cec3;
