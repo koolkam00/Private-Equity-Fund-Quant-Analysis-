@@ -5,6 +5,9 @@
 - Ingestion: Deal-level Excel parser (`services/deal_parser.py`)
 - Metrics Engine: Deal-only analytics modules (`services/metrics/*`)
 - Frontend: Jinja + Chart.js (`templates/*.html`, `static/js/app.js`)
+- Design System: `DESIGN.md` (typography, color, spacing tokens) + `static/css/style.css` (CSS custom properties)
+- Fonts: Self-hosted Instrument Serif, Instrument Sans, Geist Mono (`static/fonts/`)
+- Chart Colors: Centralized `CHART_COLORS` object in `static/js/app.js` — all Chart.js colors reference this config
 - Storage: SQLite (`instance/deals.db`)
 
 ## 2. Data Flow
