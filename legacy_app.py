@@ -252,6 +252,7 @@ ROUTE_BLUEPRINTS = {
     "team": "team",
     "create_team_invite": "team",
     "firms": "scope",
+    "export_firm_excel": "scope",
     "select_firm_scope": "scope",
     "funds": "scope",
     "select_fund_scope": "scope",
@@ -3295,6 +3296,30 @@ def firms():
         firm_rows=firm_rows,
         firm_stats=stats,
         active_firm_id=_active_firm_id_from_session(),
+    )
+
+
+@app.route("/firms/<int:firm_id>/export-excel")
+@login_required
+def export_firm_excel(firm_id):
+    membership = _require_team_scope()
+    accessible_ids = {f.id for f in _accessible_firms_for_team(membership.team_id)}
+    if firm_id not in accessible_ids:
+        flash("Firm not accessible.", "warning")
+        return redirect(url_for("firms"))
+
+    firm = db.session.get(Firm, firm_id)
+    if firm is None:
+        abort(404)
+
+    from services.excel_exporter import export_firm_to_excel
+
+    buffer = export_firm_to_excel(firm_id, membership.team_id)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"{firm.name} Data Export.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 

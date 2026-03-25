@@ -28,6 +28,9 @@
                 <td class="num">{{ stats.get("deal_count", 0) }}</td>
                 <td>{{ fmt_date_monyy(stats.get("last_updated")) if stats.get("last_updated") else "—" }}</td>
                 <td class="num">
+                    <a href="{{ url_for('export_firm_excel', firm_id=firm.id) }}"
+                       class="btn-upload btn-secondary btn-sm"
+                       title="Download all data as Excel">Export</a>
                     <form method="POST" action="{{ url_for('select_firm_scope', firm_id=firm.id) }}" class="inline-form">
                         {{ csrf_field() }}
                         <button type="submit" class="btn-upload btn-secondary btn-sm">
