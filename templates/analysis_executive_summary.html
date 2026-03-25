@@ -1,0 +1,599 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, fmt_date_mdy, coverage_badges, takeaway_banner, risk_flag_list, method_note_footer with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+
+{# --- Filters --- #}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <input type="hidden" name="rank_by" value="{{ analysis.rank_by or 'moic' }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund">
+                    <option value="">All Funds</option>
+                    {% for f in funds %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in statuses %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in sectors %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Geography</span>
+                <select name="geography">
+                    <option value="">All Geographies</option>
+                    {% for g in geographies %}<option value="{{ g }}" {% if current_geography == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
+            {% if current_fund or current_status or current_sector or current_geography %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{{ takeaway_banner(analysis.takeaway) }}
+{{ coverage_badges(analysis.coverage, analysis.confidence) }}
+{{ risk_flag_list(analysis.risk_flags) }}
+
+{# ================================================================ #}
+{# LLM Insights (loaded async)                                       #}
+{# ================================================================ #}
+<div id="llm-insights-panel" class="panel llm-insights-panel" style="display:none;">
+    <h3><i class="bi bi-lightbulb"></i> AI-Generated Insights</h3>
+    <div id="llm-insights-loading" class="llm-insights-loading">
+        <div class="shimmer-line"></div>
+        <div class="shimmer-line" style="width:85%"></div>
+        <div class="shimmer-line" style="width:92%"></div>
+        <div class="shimmer-line" style="width:78%"></div>
+        <div class="shimmer-line" style="width:88%"></div>
+    </div>
+    <ul id="llm-insights-list" class="llm-insights-list" style="display:none;"></ul>
+    <p id="llm-insights-disclaimer" class="llm-insights-disclaimer" style="display:none;">
+        <i>AI-generated insights — verify against the data above.</i>
+    </p>
+    <div id="llm-insights-disabled" class="llm-insights-disabled" style="display:none;">
+        <p><i class="bi bi-info-circle"></i> LLM insights are unavailable. Set <code>MEMO_LLM_PROVIDER=openai</code> and <code>OPENAI_API_KEY</code> to enable.</p>
+    </div>
+    <div id="llm-insights-error" class="llm-insights-error" style="display:none;">
+        <p><i class="bi bi-exclamation-triangle"></i> Could not generate insights. <a href="#" onclick="window._loadInsights(); return false;">Retry</a></p>
+    </div>
+</div>
+
+{# ================================================================ #}
+{# KPI Cards                                                         #}
+{# ================================================================ #}
+<div class="kpi-grid">
+    <div class="kpi-card"><span>Deals</span><strong>{{ analysis.total_deals }}</strong></div>
+    <div class="kpi-card"><span>Equity Invested</span><strong>{{ fmt_currency_symbol(analysis.total_equity) }}</strong></div>
+    <div class="kpi-card"><span>Gross MOIC</span><strong>{{ fmt_multiple(analysis.portfolio.returns.gross_moic.wavg) }}</strong></div>
+    <div class="kpi-card"><span>Gross IRR</span><strong>{{ fmt_pct_1dp(analysis.portfolio.returns.gross_irr.wavg) }}</strong></div>
+    <div class="kpi-card"><span>Value Created</span><strong>{{ fmt_currency_symbol(analysis.value_created) }}</strong></div>
+    <div class="kpi-card"><span>Realized</span><strong>{{ fmt_currency_symbol(analysis.total_realized) }}</strong></div>
+</div>
+
+{# ================================================================ #}
+{# Health Score + Exposure                                            #}
+{# ================================================================ #}
+<div class="exec-grid-2col">
+    <div class="panel">
+        <h3><i class="bi bi-heart-pulse"></i> Fund Health Score</h3>
+        <div class="health-score-display">
+            <div class="health-score-big {% if analysis.health_score.score >= 70 %}score-strong{% elif analysis.health_score.score >= 40 %}score-fair{% else %}score-risk{% endif %}">
+                {{ analysis.health_score.score }}
+            </div>
+            <div class="health-score-label">
+                {% if analysis.health_score.score >= 70 %}Strong{% elif analysis.health_score.score >= 40 %}Fair{% else %}At Risk{% endif %}
+                <span class="tiny"> / 100</span>
+            </div>
+        </div>
+        <div class="health-components">
+            <div class="health-row">
+                <span>Returns (MOIC)</span>
+                <div class="health-bar"><div class="health-fill" style="width: {{ (analysis.health_score.moic / 25 * 100)|round }}%"></div></div>
+                <span class="mono tiny">{{ analysis.health_score.moic }}/25</span>
+            </div>
+            <div class="health-row">
+                <span>Returns (IRR)</span>
+                <div class="health-bar"><div class="health-fill" style="width: {{ (analysis.health_score.irr / 25 * 100)|round }}%"></div></div>
+                <span class="mono tiny">{{ analysis.health_score.irr }}/25</span>
+            </div>
+            <div class="health-row">
+                <span>Diversification</span>
+                <div class="health-bar"><div class="health-fill" style="width: {{ (analysis.health_score.diversification / 25 * 100)|round }}%"></div></div>
+                <span class="mono tiny">{{ analysis.health_score.diversification }}/25</span>
+            </div>
+            <div class="health-row">
+                <span>Realization</span>
+                <div class="health-bar"><div class="health-fill" style="width: {{ (analysis.health_score.realization / 25 * 100)|round }}%"></div></div>
+                <span class="mono tiny">{{ analysis.health_score.realization }}/25</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3><i class="bi bi-pie-chart"></i> Portfolio Exposure</h3>
+        {% if analysis.exposure %}
+        <div class="exec-chart-container">
+            <canvas id="exposureChart" height="220"></canvas>
+        </div>
+        {% else %}
+        <p class="subtitle">No exposure data available.</p>
+        {% endif %}
+    </div>
+</div>
+
+{# ================================================================ #}
+{# Fund Comparison (if multi-fund)                                    #}
+{# ================================================================ #}
+{% if analysis.fund_breakdown %}
+<div class="panel">
+    <h3><i class="bi bi-arrow-left-right"></i> Fund Comparison</h3>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th class="num">Deals</th>
+                <th class="num">Equity</th>
+                <th class="num">MOIC</th>
+                <th class="num">IRR</th>
+                <th class="num">Realized</th>
+                <th class="num">Value Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fund_name, data in analysis.fund_breakdown.items() %}
+            <tr>
+                <td>{{ fund_name }}</td>
+                <td class="num mono">{{ data.deals }}</td>
+                <td class="num mono">{{ fmt_currency_symbol(data.total_equity) }}</td>
+                <td class="num mono">{{ fmt_multiple(data.wavg_moic) }}</td>
+                <td class="num mono">{{ fmt_pct_1dp(data.wavg_irr) }}</td>
+                <td class="num mono">{{ data.realized }}</td>
+                <td class="num mono">{{ fmt_currency_symbol(data.value_created) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{# ================================================================ #}
+{# Performance Attribution (Value Bridge)                             #}
+{# ================================================================ #}
+{% if analysis.bridge and analysis.bridge.display_drivers %}
+<div class="panel">
+    <h3><i class="bi bi-bar-chart-steps"></i> Value Creation Bridge</h3>
+    <p class="subtitle">Based on {{ analysis.bridge.ready_count }} of {{ analysis.total_deals }} deals with complete entry/exit data.</p>
+    <div class="exec-chart-container">
+        <canvas id="bridgeChart" height="280"></canvas>
+    </div>
+</div>
+{% endif %}
+
+{# ================================================================ #}
+{# Deal Ranking                                                       #}
+{# ================================================================ #}
+{% if analysis.deal_ranking and analysis.deal_ranking.ranking %}
+<div class="panel">
+    <h3>
+        <i class="bi bi-bar-chart-horizontal"></i> Deal Performance
+        <span class="exec-toggle">
+            <a href="{{ url_for('analysis_page', page=page_key, fund=current_fund, status=current_status, sector=current_sector, geography=current_geography, rank_by='moic') }}"
+               class="{% if analysis.rank_by == 'moic' %}active{% endif %}">MOIC</a>
+            <a href="{{ url_for('analysis_page', page=page_key, fund=current_fund, status=current_status, sector=current_sector, geography=current_geography, rank_by='irr') }}"
+               class="{% if analysis.rank_by == 'irr' %}active{% endif %}">IRR</a>
+        </span>
+    </h3>
+    <div class="exec-chart-container">
+        <canvas id="rankingChart" height="{{ [300, analysis.deal_ranking.ranking|length * 24]|max }}"></canvas>
+    </div>
+
+    {# Scatter: MOIC vs Hold Period #}
+    {% if analysis.scatter and analysis.scatter|length >= 2 %}
+    <div class="exec-chart-container" style="margin-top: 24px;">
+        <canvas id="scatterChart" height="300"></canvas>
+    </div>
+    {% endif %}
+
+    {# Top / Bottom 5 #}
+    <div class="exec-grid-2col" style="margin-top: 24px;">
+        {% if analysis.deal_ranking.top5 %}
+        <div>
+            <h4 class="subtitle" style="color: var(--accent);">Top 5 by {{ analysis.rank_by|upper }}</h4>
+            <table class="data-table compact">
+                <thead><tr><th>Company</th><th class="num">MOIC</th><th class="num">IRR</th><th class="num">Equity</th></tr></thead>
+                <tbody>
+                {% for r in analysis.deal_ranking.top5 %}
+                <tr>
+                    <td>{{ r.name }}{% if r.id in analysis.deal_ranking.outlier_ids %} <span class="badge-accent2">Outlier</span>{% endif %}</td>
+                    <td class="num mono">{{ fmt_multiple(r.moic) }}</td>
+                    <td class="num mono">{{ fmt_pct_1dp(r.irr / 100 if r.irr is not none else none) }}</td>
+                    <td class="num mono">{{ fmt_currency_symbol(r.equity) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% if analysis.deal_ranking.bottom5 %}
+        <div>
+            <h4 class="subtitle" style="color: var(--danger);">Bottom 5 by {{ analysis.rank_by|upper }}</h4>
+            <table class="data-table compact">
+                <thead><tr><th>Company</th><th class="num">MOIC</th><th class="num">IRR</th><th class="num">Equity</th></tr></thead>
+                <tbody>
+                {% for r in analysis.deal_ranking.bottom5 %}
+                <tr>
+                    <td>{{ r.name }}{% if r.id in analysis.deal_ranking.outlier_ids %} <span class="badge-accent2">Outlier</span>{% endif %}</td>
+                    <td class="num mono">{{ fmt_multiple(r.moic) }}</td>
+                    <td class="num mono">{{ fmt_pct_1dp(r.irr / 100 if r.irr is not none else none) }}</td>
+                    <td class="num mono">{{ fmt_currency_symbol(r.equity) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# ================================================================ #}
+{# Sector Concentration                                               #}
+{# ================================================================ #}
+{% if analysis.concentration and analysis.concentration.sectors %}
+<div class="panel">
+    <h3>
+        <i class="bi bi-diagram-3"></i> Sector Concentration
+        <span class="subtitle" style="float:right;">Top 3: {{ "%.0f"|format((analysis.concentration.top3_pct or 0) * 100) }}%</span>
+    </h3>
+    <div class="exec-grid-2col">
+        <div class="exec-chart-container">
+            <canvas id="sectorChart" height="280"></canvas>
+        </div>
+        <div>
+            <table class="data-table compact">
+                <thead><tr><th>Sector</th><th class="num">Deals</th><th class="num">Equity</th><th class="num">MOIC</th></tr></thead>
+                <tbody>
+                {% for name, data in analysis.concentration.sectors.items()|sort(attribute='1.equity', reverse=true) %}
+                <tr>
+                    <td>{{ name }}</td>
+                    <td class="num mono">{{ data.count }}</td>
+                    <td class="num mono">{{ fmt_currency_symbol(data.equity) }}</td>
+                    <td class="num mono">{{ fmt_multiple(data.avg_moic) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ================================================================ #}
+{# Vintage Year Analysis                                              #}
+{# ================================================================ #}
+{% if analysis.vintage and analysis.vintage|length > 0 %}
+<div class="panel">
+    <h3><i class="bi bi-calendar-range"></i> Vintage Year Analysis</h3>
+    <div class="exec-chart-container">
+        <canvas id="vintageChart" height="280"></canvas>
+    </div>
+</div>
+{% endif %}
+
+{{ method_note_footer("executive-summary") }}
+
+{# ================================================================ #}
+{# Chart.js Initialization                                            #}
+{# ================================================================ #}
+<script>
+// --- LLM Insights (async) ---
+(function() {
+    var panel = document.getElementById('llm-insights-panel');
+    if (!panel) return;
+    panel.style.display = '';
+
+    var CATEGORY_ICONS = {
+        returns: 'bi-graph-up-arrow',
+        value_creation: 'bi-bar-chart-steps',
+        concentration: 'bi-bullseye',
+        sector: 'bi-diagram-3',
+        vintage: 'bi-calendar-range',
+        fund_comparison: 'bi-arrow-left-right',
+        risk: 'bi-exclamation-triangle',
+        realization: 'bi-check2-circle'
+    };
+
+    window._loadInsights = function() {
+        var loading = document.getElementById('llm-insights-loading');
+        var list = document.getElementById('llm-insights-list');
+        var disclaimer = document.getElementById('llm-insights-disclaimer');
+        var disabled = document.getElementById('llm-insights-disabled');
+        var errDiv = document.getElementById('llm-insights-error');
+
+        loading.style.display = '';
+        list.style.display = 'none';
+        disclaimer.style.display = 'none';
+        disabled.style.display = 'none';
+        errDiv.style.display = 'none';
+
+        var params = new URLSearchParams(window.location.search);
+        fetch('/api/analysis/executive-summary/llm-insights?' + params.toString(), {
+            headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content }
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                loading.style.display = 'none';
+                if (data.status === 'disabled') {
+                    disabled.style.display = '';
+                } else if (data.status === 'ok' && data.insights && data.insights.length > 0) {
+                    list.innerHTML = '';
+                    data.insights.forEach(function(item) {
+                        var li = document.createElement('li');
+                        var icon = CATEGORY_ICONS[item.category] || 'bi-arrow-right';
+                        li.innerHTML = '<i class="bi ' + icon + '"></i> ' + item.text;
+                        list.appendChild(li);
+                    });
+                    list.style.display = '';
+                    disclaimer.style.display = '';
+                } else {
+                    errDiv.style.display = '';
+                }
+            })
+            .catch(function() {
+                loading.style.display = 'none';
+                errDiv.style.display = '';
+            });
+    };
+
+    window._loadInsights();
+})();
+
+// --- Charts ---
+(function() {
+    var C = window.CHART_COLORS || {
+        teal: '#0A6B58', gold: '#C9982E', danger: '#B83C4A',
+        ink: '#1A1A1A', muted: '#6B6B63', faint: '#B5B3AE',
+        surface: '#FFFFFF', bg: '#FAF9F6'
+    };
+    var PALETTE = ['#0A6B58', '#C9982E', '#3B7DD8', '#B83C4A', '#7C5CBF', '#2E8B8B', '#D4A045', '#5C8A3D'];
+
+    // --- Exposure Doughnut ---
+    {% if analysis.exposure %}
+    (function() {
+        var ctx = document.getElementById('exposureChart');
+        if (!ctx) return;
+        var exp = {{ analysis.exposure|tojson }};
+        var totalRealized = (exp.realized || []).reduce(function(a, b) { return a + b; }, 0);
+        var totalUnrealized = (exp.unrealized || []).reduce(function(a, b) { return a + b; }, 0);
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Realized', 'Unrealized'],
+                datasets: [{
+                    data: [totalRealized, totalUnrealized],
+                    backgroundColor: [C.teal || '#0A6B58', C.gold || '#C9982E'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '55%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: C.ink || '#1A1A1A', font: { family: 'Instrument Sans' } } }
+                }
+            }
+        });
+    })();
+    {% endif %}
+
+    // --- Bridge Waterfall ---
+    {% if analysis.bridge and analysis.bridge.display_drivers %}
+    (function() {
+        var ctx = document.getElementById('bridgeChart');
+        if (!ctx) return;
+        var drivers = {{ analysis.bridge.display_drivers|tojson }};
+        var labels = drivers.map(function(d) { return d.label || d.key; });
+        var values = drivers.map(function(d) { return d.dollar || 0; });
+        var colors = values.map(function(v) { return v >= 0 ? (C.teal || '#0A6B58') : (C.danger || '#B83C4A'); });
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { grid: { color: '#E8E6E1' }, ticks: { color: C.muted || '#6B6B63' } },
+                    x: { grid: { display: false }, ticks: { color: C.muted || '#6B6B63', font: { size: 11 } } }
+                }
+            }
+        });
+    })();
+    {% endif %}
+
+    // --- Deal Ranking Bar ---
+    {% if analysis.deal_ranking and analysis.deal_ranking.ranking %}
+    (function() {
+        var ctx = document.getElementById('rankingChart');
+        if (!ctx) return;
+        var data = {{ analysis.deal_ranking.ranking|tojson }};
+        var statusColors = {
+            'Fully Realized': C.teal || '#0A6B58',
+            'Partially Realized': C.gold || '#C9982E',
+            'Unrealized': '#3B7DD8'
+        };
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(function(d) { return d.name; }),
+                datasets: [{
+                    data: data.map(function(d) { return d.value; }),
+                    backgroundColor: data.map(function(d) { return statusColors[d.status] || '#6B6B63'; }),
+                    borderRadius: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: {
+                        title: { display: true, text: '{{ analysis.rank_by|upper }}', color: C.muted || '#6B6B63' },
+                        grid: { color: '#E8E6E1' }, ticks: { color: C.muted || '#6B6B63' }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: C.ink || '#1A1A1A', font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    })();
+    {% endif %}
+
+    // --- MOIC vs Hold Scatter ---
+    {% if analysis.scatter and analysis.scatter|length >= 2 %}
+    (function() {
+        var ctx = document.getElementById('scatterChart');
+        if (!ctx) return;
+        var pts = {{ analysis.scatter|tojson }};
+        var statusColors = {
+            'Realized': C.teal || '#0A6B58',
+            'Partially Realized': C.gold || '#C9982E',
+            'Unrealized': '#3B7DD8',
+            'Written Off': C.danger || '#B83C4A'
+        };
+
+        var datasets = {};
+        pts.forEach(function(p) {
+            var s = p.status || 'Unrealized';
+            if (!datasets[s]) datasets[s] = { label: s, data: [], backgroundColor: statusColors[s] || '#6B6B63', pointRadius: [] };
+            datasets[s].data.push({ x: p.x, y: p.y });
+            datasets[s].pointRadius.push(p.r || 6);
+        });
+
+        new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets: Object.values(datasets) },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: C.ink || '#1A1A1A' } } },
+                scales: {
+                    x: { title: { display: true, text: 'Hold Period (years)', color: C.muted }, grid: { color: '#E8E6E1' }, ticks: { color: C.muted } },
+                    y: { title: { display: true, text: 'Gross MOIC (x)', color: C.muted }, grid: { color: '#E8E6E1' }, ticks: { color: C.muted } }
+                }
+            }
+        });
+    })();
+    {% endif %}
+
+    // --- Sector Doughnut ---
+    {% if analysis.concentration and analysis.concentration.sectors %}
+    (function() {
+        var ctx = document.getElementById('sectorChart');
+        if (!ctx) return;
+        var sectors = {{ analysis.concentration.sectors|tojson }};
+        var labels = Object.keys(sectors);
+        var values = labels.map(function(k) { return sectors[k].equity; });
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: PALETTE.slice(0, labels.length),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '50%',
+                plugins: { legend: { position: 'bottom', labels: { color: C.ink || '#1A1A1A', font: { size: 11 } } } }
+            }
+        });
+    })();
+    {% endif %}
+
+    // --- Vintage Bar ---
+    {% if analysis.vintage and analysis.vintage|length > 0 %}
+    (function() {
+        var ctx = document.getElementById('vintageChart');
+        if (!ctx) return;
+        var raw = {{ analysis.vintage|tojson }};
+        var labels = raw.map(function(r) { return r.year; });
+        var moics = raw.map(function(r) { return r.avg_moic; });
+        var counts = raw.map(function(r) { return r.deal_count; });
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Avg MOIC',
+                        data: moics,
+                        backgroundColor: C.teal || '#0A6B58',
+                        borderRadius: 3,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Deal Count',
+                        data: counts,
+                        type: 'line',
+                        borderColor: C.gold || '#C9982E',
+                        pointBackgroundColor: C.gold || '#C9982E',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: C.ink || '#1A1A1A' } } },
+                scales: {
+                    y: { title: { display: true, text: 'Avg MOIC', color: C.muted }, grid: { color: '#E8E6E1' }, ticks: { color: C.muted } },
+                    y1: { title: { display: true, text: 'Deals', color: C.muted }, position: 'right', grid: { display: false }, ticks: { color: C.muted } },
+                    x: { grid: { display: false }, ticks: { color: C.muted } }
+                }
+            }
+        });
+    })();
+    {% endif %}
+})();
+</script>
+{% endblock %}
