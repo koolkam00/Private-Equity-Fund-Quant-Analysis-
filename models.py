@@ -690,6 +690,17 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "deals", "firm_id", "INTEGER")
     _ensure_column(engine, inspector, "deals", "team_id", "INTEGER")
 
+    # Acquired / bolt-on metrics
+    _ensure_column(engine, inspector, "deals", "acquired_revenue", "FLOAT")
+    _ensure_column(engine, inspector, "deals", "acquired_ebitda", "FLOAT")
+    _ensure_column(engine, inspector, "deals", "acquired_tev", "FLOAT")
+
+    # Currency conversion metadata
+    _ensure_column(engine, inspector, "deals", "performance_currency", "VARCHAR(3)")
+    _ensure_column(engine, inspector, "deals", "financial_metric_currency", "VARCHAR(3)")
+    _ensure_column(engine, inspector, "deals", "perf_fx_rate_to_usd", "FLOAT")
+    _ensure_column(engine, inspector, "deals", "fin_fx_rate_to_usd", "FLOAT")
+
     if "upload_issues" not in inspector.get_table_names():
         UploadIssue.__table__.create(bind=engine)
 
