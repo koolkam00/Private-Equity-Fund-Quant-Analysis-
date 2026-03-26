@@ -45,6 +45,11 @@ class Deal(db.Model):
     exit_enterprise_value = db.Column(db.Float, nullable=True)
     exit_net_debt = db.Column(db.Float, nullable=True)
 
+    # Acquired / bolt-on metrics (cumulative entry values at time of each acquisition)
+    acquired_revenue = db.Column(db.Float, nullable=True)
+    acquired_ebitda = db.Column(db.Float, nullable=True)
+    acquired_tev = db.Column(db.Float, nullable=True)
+
     # Performance metrics
     realized_value = db.Column(db.Float, nullable=True)
     unrealized_value = db.Column(db.Float, nullable=True)

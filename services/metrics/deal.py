@@ -137,6 +137,64 @@ def compute_deal_metrics(deal, as_of_date=None):
     m["exit_enterprise_value"] = deal.exit_enterprise_value
     m["exit_net_debt"] = deal.exit_net_debt
 
+    # Acquired / bolt-on metrics and organic derivations
+    m["acquired_revenue"] = getattr(deal, "acquired_revenue", None)
+    m["acquired_ebitda"] = getattr(deal, "acquired_ebitda", None)
+    m["acquired_tev"] = getattr(deal, "acquired_tev", None)
+
+    # Classify deal's acquisition data status for UI completeness indicator
+    has_any_acquired = any(
+        v is not None and v != 0
+        for v in (m["acquired_revenue"], m["acquired_ebitda"], m["acquired_tev"])
+    )
+    m["acquired_data_status"] = "acquired_data_provided" if has_any_acquired else "data_not_provided"
+
+    # Revenue: organic vs acquired decomposition
+    if deal.exit_revenue is not None and deal.entry_revenue is not None:
+        acq_rev = m["acquired_revenue"] or 0.0
+        m["total_revenue_growth"] = deal.exit_revenue - deal.entry_revenue
+        m["acquired_revenue_contribution"] = acq_rev
+        m["organic_revenue_growth"] = m["total_revenue_growth"] - acq_rev
+        m["organic_revenue_pct"] = safe_divide(m["organic_revenue_growth"], m["total_revenue_growth"])
+        m["acquired_revenue_pct"] = safe_divide(acq_rev, m["total_revenue_growth"])
+    else:
+        m["total_revenue_growth"] = None
+        m["acquired_revenue_contribution"] = None
+        m["organic_revenue_growth"] = None
+        m["organic_revenue_pct"] = None
+        m["acquired_revenue_pct"] = None
+
+    # EBITDA: organic vs acquired decomposition
+    if deal.exit_ebitda is not None and deal.entry_ebitda is not None:
+        acq_ebitda = m["acquired_ebitda"] or 0.0
+        m["total_ebitda_growth"] = deal.exit_ebitda - deal.entry_ebitda
+        m["acquired_ebitda_contribution"] = acq_ebitda
+        m["organic_ebitda_growth"] = m["total_ebitda_growth"] - acq_ebitda
+        m["organic_ebitda_pct"] = safe_divide(m["organic_ebitda_growth"], m["total_ebitda_growth"])
+        m["acquired_ebitda_pct"] = safe_divide(acq_ebitda, m["total_ebitda_growth"])
+    else:
+        m["total_ebitda_growth"] = None
+        m["acquired_ebitda_contribution"] = None
+        m["organic_ebitda_growth"] = None
+        m["organic_ebitda_pct"] = None
+        m["acquired_ebitda_pct"] = None
+
+    # Organic CAGR: compound growth of (exit - acquired) from entry base
+    # Note: assumes acquired revenue existed for full hold period. This is a
+    # simplification for cumulative bolt-on data; see methodology notes in UI.
+    hold = m["hold_period"]
+    if deal.exit_revenue is not None and deal.entry_revenue is not None and hold:
+        organic_exit_rev = deal.exit_revenue - (m["acquired_revenue"] or 0.0)
+        m["organic_revenue_cagr"] = _cagr_pct(organic_exit_rev, deal.entry_revenue, hold)
+    else:
+        m["organic_revenue_cagr"] = None
+
+    if deal.exit_ebitda is not None and deal.entry_ebitda is not None and hold:
+        organic_exit_ebitda = deal.exit_ebitda - (m["acquired_ebitda"] or 0.0)
+        m["organic_ebitda_cagr"] = _cagr_pct(organic_exit_ebitda, deal.entry_ebitda, hold)
+    else:
+        m["organic_ebitda_cagr"] = None
+
     # Entry ratios
     m["entry_tev_ebitda"] = _non_negative_multiple(
         safe_divide(deal.entry_enterprise_value, deal.entry_ebitda),

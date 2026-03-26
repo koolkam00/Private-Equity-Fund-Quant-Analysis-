@@ -88,6 +88,7 @@ from services.metrics import (
     compute_lp_liquidity_quality_analysis,
     compute_manager_consistency_analysis,
     compute_nav_at_risk_analysis,
+    compute_organic_growth_analysis,
     compute_portfolio_analytics,
     compute_public_market_comparison_analysis,
     compute_reporting_quality_analysis,
@@ -210,6 +211,10 @@ ANALYSIS_PAGES = {
         "title": "Deal Performance Comparison",
         "description": "Cross-firm deal-level comparison of gross returns, hold periods, and sector/geography patterns.",
     },
+    "organic-growth": {
+        "title": "Organic vs Acquired Growth",
+        "description": "Decomposition of revenue and EBITDA growth into organic vs bolt-on acquisition contributions with bridge integration.",
+    },
 }
 
 WORKFLOW_SIDEBAR_ITEMS = [
@@ -243,6 +248,7 @@ ANALYSIS_SIDEBAR_ITEMS = [
     {"page_key": "chart-builder", "label": "Chart Builder", "icon": "bi bi-bar-chart-line"},
     {"page_key": "fund-comparison", "label": "Fund Comparison", "icon": "bi bi-arrow-left-right"},
     {"page_key": "lp-due-diligence-memo", "label": "LP Due Diligence Memo", "icon": "bi bi-file-earmark-text"},
+    {"page_key": "organic-growth", "label": "Organic vs Acquired", "icon": "bi bi-diagram-3"},
 ]
 
 TEAM_ROLE_OWNER = "owner"
@@ -805,6 +811,40 @@ def _scale_analysis_payload(page, payload, scale):
         _scale_analysis_payload("fund-liquidity", payload.get("fund_liquidity") or {}, scale)
         _scale_analysis_payload("nav-at-risk", payload.get("nav_at_risk") or {}, scale)
         _scale_analysis_payload("public-market-comparison", payload.get("public_market_comparison") or {}, scale)
+        return
+
+    if page == "organic-growth":
+        money_keys = (
+            "entry_revenue", "exit_revenue", "acquired_revenue",
+            "organic_revenue_growth", "acquired_revenue_contribution", "total_revenue_growth",
+            "entry_ebitda", "exit_ebitda", "acquired_ebitda",
+            "organic_ebitda_growth", "acquired_ebitda_contribution", "total_ebitda_growth",
+            "acquired_tev", "entry_enterprise_value", "exit_enterprise_value",
+            "equity",
+        )
+        for row in payload.get("deal_rows") or []:
+            for k in money_keys:
+                if k in row:
+                    row[k] = _scale_money(row.get(k), scale)
+        cards = payload.get("summary_cards") or {}
+        for k in (
+            "portfolio_organic_revenue_growth", "portfolio_acquired_revenue_growth",
+            "portfolio_total_revenue_growth",
+            "portfolio_organic_ebitda_growth", "portfolio_acquired_ebitda_growth",
+            "portfolio_total_ebitda_growth",
+        ):
+            cards[k] = _scale_money(cards.get(k), scale)
+        for chart_key in ("organic_vs_acquired_revenue", "organic_vs_acquired_ebitda"):
+            chart = (payload.get("charts") or {}).get(chart_key) or {}
+            for series_key in ("organic", "acquired"):
+                vals = chart.get(series_key) or []
+                for i, v in enumerate(vals):
+                    vals[i] = _scale_money(v, scale)
+        for bd in payload.get("bridge_decomposition") or []:
+            for k in ("organic_revenue_contribution", "acquired_revenue_contribution",
+                       "total_revenue_driver", "margin_contribution",
+                       "multiple_contribution", "leverage_contribution"):
+                bd[k] = _scale_money(bd.get(k), scale)
         return
 
     if page == "vca-ebitda":
@@ -2807,6 +2847,8 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         return compute_vca_ebitda_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "vca-revenue":
         return compute_vca_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
+    if page == "organic-growth":
+        return compute_organic_growth_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "benchmarking":
         thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
         return compute_benchmarking_analysis(
@@ -3724,6 +3766,8 @@ def analysis_page(page):
         template_name = "analysis_public_market_comparison.html"
     elif page == "lp-due-diligence-memo":
         template_name = "analysis_lp_due_diligence_memo.html"
+    elif page == "organic-growth":
+        template_name = "analysis_organic_growth.html"
 
     return render_template(
         template_name,
