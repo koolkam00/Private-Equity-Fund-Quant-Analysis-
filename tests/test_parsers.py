@@ -893,3 +893,283 @@ def test_parse_deals_replace_mode_applies_per_firm_in_multi_firm_workbook(app_co
         assert Deal.query.filter_by(firm_id=firm_b.id, company_name="New B", fund_number="Fund Shared").count() == 1
     finally:
         os.remove(file_path)
+
+
+# ===========================================================================
+# Currency Conversion Tests
+# ===========================================================================
+
+class TestCurrencyConversion:
+    """Tests for deal-level currency conversion at upload time."""
+
+    def test_converts_perf_currency_to_usd(self, app_context):
+        """EUR equity_invested should be multiplied by EUR→USD rate (1.10)."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["AlphaCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["EUR"],
+            "Equity Invested": [100.0],
+            "Realized Value": [50.0],
+            "Unrealized Value": [80.0],
+        }, "FX Firm A")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="AlphaCo").first()
+        assert deal is not None
+        assert deal.performance_currency == "EUR"
+        assert deal.perf_fx_rate_to_usd == pytest.approx(1.10)
+        assert deal.equity_invested == pytest.approx(110.0)  # 100 * 1.10
+        assert deal.realized_value == pytest.approx(55.0)    # 50 * 1.10
+        assert deal.unrealized_value == pytest.approx(88.0)  # 80 * 1.10
+
+    def test_converts_fin_metric_currency_to_usd(self, app_context):
+        """GBP revenue/ebitda should be multiplied by GBP→USD rate (1.25)."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["BetaCo"],
+            "Fund": ["Fund I"],
+            "Financial Metric Currency": ["GBP"],
+            "Entry Revenue": [200.0],
+            "Entry EBITDA": [40.0],
+            "Entry EV": [500.0],
+            "Entry Net Debt": [100.0],
+            "Exit Revenue": [300.0],
+            "Exit EBITDA": [60.0],
+            "Exit EV": [750.0],
+            "Exit Net Debt": [120.0],
+        }, "FX Firm B")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="BetaCo").first()
+        assert deal is not None
+        assert deal.financial_metric_currency == "GBP"
+        assert deal.fin_fx_rate_to_usd == pytest.approx(1.25)
+        assert deal.entry_revenue == pytest.approx(250.0)    # 200 * 1.25
+        assert deal.entry_ebitda == pytest.approx(50.0)      # 40 * 1.25
+        assert deal.entry_enterprise_value == pytest.approx(625.0)
+        assert deal.exit_revenue == pytest.approx(375.0)
+
+    def test_different_fin_currency_per_deal(self, app_context):
+        """Two deals in same firm with EUR and GBP financial metric currencies."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["EurCo", "GbpCo"],
+            "Fund": ["Fund I", "Fund I"],
+            "Financial Metric Currency": ["EUR", "GBP"],
+            "Entry Revenue": [100.0, 100.0],
+            "Entry EBITDA": [20.0, 20.0],
+        }, "FX Firm C")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 2, result.get("errors")
+        eur_deal = Deal.query.filter_by(company_name="EurCo").first()
+        gbp_deal = Deal.query.filter_by(company_name="GbpCo").first()
+        assert eur_deal.financial_metric_currency == "EUR"
+        assert gbp_deal.financial_metric_currency == "GBP"
+        assert eur_deal.entry_revenue == pytest.approx(110.0)  # 100 * 1.10
+        assert gbp_deal.entry_revenue == pytest.approx(125.0)  # 100 * 1.25
+
+    def test_falls_back_to_firm_currency(self, app_context):
+        """No new columns → uses firm_currency for both perf and fin conversion."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["FallbackCo"],
+            "Fund": ["Fund I"],
+            "Firm Currency": ["EUR"],
+            "Equity Invested": [100.0],
+            "Entry Revenue": [200.0],
+        }, "FX Firm D")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="FallbackCo").first()
+        assert deal.performance_currency == "EUR"
+        assert deal.financial_metric_currency == "EUR"
+        assert deal.equity_invested == pytest.approx(110.0)   # 100 * 1.10
+        assert deal.entry_revenue == pytest.approx(220.0)     # 200 * 1.10
+
+    def test_defaults_to_usd(self, app_context):
+        """No currency columns at all → values unchanged, rates = 1.0."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["UsdCo"],
+            "Fund": ["Fund I"],
+            "Equity Invested": [100.0],
+            "Entry Revenue": [200.0],
+        }, "FX Firm E")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="UsdCo").first()
+        assert deal.performance_currency == "USD"
+        assert deal.perf_fx_rate_to_usd == pytest.approx(1.0)
+        assert deal.equity_invested == pytest.approx(100.0)  # unchanged
+        assert deal.entry_revenue == pytest.approx(200.0)    # unchanged
+
+    def test_fx_failure_stores_native_values(self, app_context):
+        """Mock FX failure → native values, NULL rates, warning recorded."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["FailCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["ZAR"],  # ZAR not in mock rates → failure
+            "Equity Invested": [100.0],
+        }, "FX Firm F")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="FailCo").first()
+        assert deal.performance_currency == "ZAR"
+        assert deal.perf_fx_rate_to_usd is None
+        assert deal.equity_invested == pytest.approx(100.0)  # native, not converted
+        # Should have a conversion warning
+        warnings = [e for e in result["errors"] if "FX lookup failed" in e]
+        assert len(warnings) >= 1
+
+    def test_rejects_invalid_perf_currency(self, app_context):
+        """Invalid ISO code in Performance Currency → parse error."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["BadCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["INVALID"],
+        }, "FX Firm G")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 0
+        assert any("Performance Currency" in e for e in result["errors"])
+
+    def test_rejects_mixed_perf_currencies(self, app_context):
+        """Two different perf currencies in same firm → error."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["MixA", "MixB"],
+            "Fund": ["Fund I", "Fund I"],
+            "Performance Currency": ["EUR", "GBP"],
+        }, "FX Firm H")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 0
+        assert any("Performance Currency" in e for e in result["errors"])
+
+    def test_allows_mixed_fin_currencies(self, app_context):
+        """Different fin currencies in same firm → accepted."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["MixFinA", "MixFinB"],
+            "Fund": ["Fund I", "Fund I"],
+            "Financial Metric Currency": ["EUR", "GBP"],
+        }, "FX Firm I")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 2, result.get("errors")
+
+    def test_export_includes_currency_columns(self, app_context):
+        """Excel export has Performance Currency and Financial Metric Currency columns."""
+        from services.excel_exporter import export_firm_to_excel
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["ExportCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["EUR"],
+            "Financial Metric Currency": ["GBP"],
+            "Equity Invested": [100.0],
+        }, "FX Firm J")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1
+        firm = Firm.query.filter_by(name="FX Firm J").first()
+        buf = export_firm_to_excel(firm.id, team.id)
+        from openpyxl import load_workbook
+        from io import BytesIO
+        wb = load_workbook(BytesIO(buf.getvalue()))
+        ws = wb["Deals"]
+        headers = [cell.value for cell in ws[1]]
+        assert "Performance Currency" in headers
+        assert "Financial Metric Currency" in headers
+
+    def test_cashflow_conversion_uses_deal_rate(self, app_context):
+        """Cashflow amount converted using deal's perf rate."""
+        team = create_team("FX Team")
+        sheets = {
+            "Deals": _with_firm_name({
+                "Company Name": ["CashCo"],
+                "Fund": ["Fund I"],
+                "Performance Currency": ["EUR"],
+                "Equity Invested": [100.0],
+            }, "FX Firm K"),
+            "Cashflows": {
+                "Firm Name": ["FX Firm K"],
+                "Company Name": ["CashCo"],
+                "Fund": ["Fund I"],
+                "Event Date": [date(2025, 6, 15)],
+                "Event Type": ["Distribution"],
+                "Amount": [50.0],
+            },
+        }
+        path = create_temp_workbook(sheets)
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        cf = DealCashflowEvent.query.first()
+        assert cf is not None
+        assert cf.amount == pytest.approx(55.0)  # 50 * 1.10 EUR rate
+
+    def test_deal_quarterly_conversion_uses_fin_rate(self, app_context):
+        """Quarterly revenue/ebitda converted using deal's fin rate."""
+        team = create_team("FX Team")
+        sheets = {
+            "Deals": _with_firm_name({
+                "Company Name": ["QuartCo"],
+                "Fund": ["Fund I"],
+                "Financial Metric Currency": ["GBP"],
+                "Entry Revenue": [100.0],
+            }, "FX Firm L"),
+            "Deal Quarterly": {
+                "Firm Name": ["FX Firm L"],
+                "Company Name": ["QuartCo"],
+                "Fund": ["Fund I"],
+                "Quarter End": [date(2025, 3, 31)],
+                "Revenue": [120.0],
+                "EBITDA": [30.0],
+            },
+        }
+        path = create_temp_workbook(sheets)
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        dq = DealQuarterSnapshot.query.first()
+        assert dq is not None
+        assert dq.revenue == pytest.approx(150.0)  # 120 * 1.25 GBP rate
+        assert dq.ebitda == pytest.approx(37.5)    # 30 * 1.25
+
+    def test_jpy_conversion_precision(self, app_context, monkeypatch):
+        """JPY has a small rate (~0.007). Verify precision."""
+        # Override the stub to add JPY
+        def _jpy_resolver(currency_code, as_of_date):
+            code = (currency_code or "USD").upper()
+            if code == "USD":
+                return {"ok": True, "rate": 1.0, "effective_date": as_of_date, "source": "Identity", "warning": None, "currency_code": code}
+            if code == "JPY":
+                return {"ok": True, "rate": 0.00667, "effective_date": as_of_date, "source": "Test", "warning": None, "currency_code": code}
+            return {"ok": True, "rate": 1.0, "effective_date": as_of_date, "source": "Test", "warning": None, "currency_code": code}
+
+        monkeypatch.setattr("services.deal_parser.resolve_rate_to_usd", _jpy_resolver)
+
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["JpyCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["JPY"],
+            "Financial Metric Currency": ["JPY"],
+            "Equity Invested": [15000.0],  # 15B JPY
+            "Entry Revenue": [50000.0],
+        }, "FX Firm JPY")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1, result.get("errors")
+        deal = Deal.query.filter_by(company_name="JpyCo").first()
+        assert deal.perf_fx_rate_to_usd == pytest.approx(0.00667)
+        assert deal.equity_invested == pytest.approx(15000.0 * 0.00667, rel=1e-4)
+        assert deal.entry_revenue == pytest.approx(50000.0 * 0.00667, rel=1e-4)

@@ -59,6 +59,12 @@ class Deal(db.Model):
     net_moic = db.Column(db.Float, nullable=True)  # optional fund-level net MOIC
     net_dpi = db.Column(db.Float, nullable=True)  # optional fund-level net DPI
 
+    # Currency conversion metadata (set at upload time)
+    performance_currency = db.Column(db.String(3), nullable=True)  # ISO code for equity/realized/unrealized
+    financial_metric_currency = db.Column(db.String(3), nullable=True)  # ISO code for revenue/ebitda/tev/debt
+    perf_fx_rate_to_usd = db.Column(db.Float, nullable=True)  # FX rate used at upload for performance values
+    fin_fx_rate_to_usd = db.Column(db.Float, nullable=True)  # FX rate used at upload for financial metric values
+
     # Metadata
     firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
     team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)

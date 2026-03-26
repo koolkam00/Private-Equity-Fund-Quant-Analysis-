@@ -4273,6 +4273,21 @@ textarea.analysis-input::placeholder {
     font-weight: 500;
 }
 
+/* Currency conversion badge (track record) */
+.currency-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    background: rgba(10, 107, 88, 0.10);
+    color: var(--ink-muted);
+    vertical-align: middle;
+    margin-left: 4px;
+    cursor: help;
+}
+
 /* Outlier badge */
 .badge-accent2 {
     display: inline-block;

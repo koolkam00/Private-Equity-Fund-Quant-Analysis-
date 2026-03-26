@@ -50,7 +50,7 @@
                 {% for row in fund.rows %}
                 <tr class="tr-detail">
                     <td class="num">{{ row.row_num }}</td>
-                    <td>{{ row.company_name }}</td>
+                    <td>{{ row.company_name }}{% if row.performance_currency and row.performance_currency != 'USD' %} <span class="currency-badge" title="Perf: {{ row.performance_currency }} @{{ '%.4f'|format(row.perf_fx_rate_to_usd or 0) }}{% if row.financial_metric_currency and row.financial_metric_currency != row.performance_currency %} | Fin: {{ row.financial_metric_currency }} @{{ '%.4f'|format(row.fin_fx_rate_to_usd or 0) }}{% endif %}">{{ row.performance_currency }}</span>{% elif row.financial_metric_currency and row.financial_metric_currency != 'USD' %} <span class="currency-badge" title="Fin: {{ row.financial_metric_currency }} @{{ '%.4f'|format(row.fin_fx_rate_to_usd or 0) }}">{{ row.financial_metric_currency }}</span>{% endif %}</td>
                     <td>{{ row.status }}</td>
                     <td>{{ fmt_date_monyy(row.investment_date) }}</td>
                     <td>{{ fmt_date_monyy(row.exit_date) }}</td>

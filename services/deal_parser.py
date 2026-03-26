@@ -41,6 +41,14 @@ COLUMN_MAP = {
     "firm currency": "firm_currency",
     "base currency": "firm_currency",
     "reporting currency": "firm_currency",
+    "performance currency": "performance_currency",
+    "perf currency": "performance_currency",
+    "equity currency": "performance_currency",
+    "investment currency": "performance_currency",
+    "financial metric currency": "financial_metric_currency",
+    "metric currency": "financial_metric_currency",
+    "operating currency": "financial_metric_currency",
+    "financials currency": "financial_metric_currency",
     "fund": "fund_number",
     "fund #": "fund_number",
     "fund number": "fund_number",
@@ -178,6 +186,16 @@ VALID_FIELDS = {
     "net_irr",
     "net_moic",
     "net_dpi",
+    "performance_currency",
+    "financial_metric_currency",
+}
+
+# Currency group constants — which Deal fields belong to each FX rate
+PERF_CURRENCY_COLS = {"equity_invested", "realized_value", "unrealized_value", "fund_size"}
+FIN_METRIC_CURRENCY_COLS = {
+    "entry_revenue", "entry_ebitda", "entry_enterprise_value", "entry_net_debt",
+    "exit_revenue", "exit_ebitda", "exit_enterprise_value", "exit_net_debt",
+    "acquired_revenue", "acquired_ebitda", "acquired_tev",
 }
 
 DATE_COLS = {"investment_date", "exit_date", "as_of_date"}
@@ -206,6 +224,7 @@ FLOAT_COLS = {
 INT_COLS = {"year_invested"}
 STR_COLS = {"company_name", "firm_name", "firm_currency", "fund_number", "sector", "geography", "status"}
 STR_COLS |= {"exit_type", "lead_partner", "security_type", "deal_type", "entry_channel"}
+STR_COLS |= {"performance_currency", "financial_metric_currency"}
 
 SHEET_ALIASES = {
     "deals": {"deals", "deal", "dealdata", "sheet1", "portfolio"},
@@ -582,12 +601,18 @@ def _parse_cashflows_sheet(
             _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
             continue
 
+        # Apply performance currency conversion (cashflow amounts are equity-level)
+        amount_val = float(amount)
+        perf_rate = getattr(deal, "perf_fx_rate_to_usd", None)
+        if perf_rate is not None and perf_rate != 1.0:
+            amount_val = amount_val * perf_rate
+
         db.session.add(
             DealCashflowEvent(
                 deal_id=deal.id,
                 event_date=event_date,
                 event_type=event_type,
-                amount=float(amount),
+                amount=amount_val,
                 notes=clean_str(row.get("notes")),
                 team_id=team_id,
                 firm_id=firm_id,
@@ -669,15 +694,23 @@ def _parse_deal_quarter_sheet(
             _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, deal.company_name, "warning", msg, row_payload)
             continue
 
+        # Apply financial metric currency conversion to quarterly snapshot values
+        fin_rate = getattr(deal, "fin_fx_rate_to_usd", None)
+        _apply_fin = fin_rate is not None and fin_rate != 1.0
+
+        def _fx_val(raw):
+            v = clean_val(raw)
+            return (v * fin_rate) if (v is not None and _apply_fin) else v
+
         db.session.add(
             DealQuarterSnapshot(
                 deal_id=deal.id,
                 quarter_end=quarter_end,
-                revenue=clean_val(row.get("revenue")),
-                ebitda=clean_val(row.get("ebitda")),
-                enterprise_value=clean_val(row.get("enterprise_value")),
-                net_debt=clean_val(row.get("net_debt")),
-                equity_value=clean_val(row.get("equity_value")),
+                revenue=_fx_val(row.get("revenue")),
+                ebitda=_fx_val(row.get("ebitda")),
+                enterprise_value=_fx_val(row.get("enterprise_value")),
+                net_debt=_fx_val(row.get("net_debt")),
+                equity_value=_fx_val(row.get("equity_value")),
                 valuation_basis=clean_str(row.get("valuation_basis")),
                 source=clean_str(row.get("source")),
                 team_id=team_id,
@@ -1492,6 +1525,8 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                     "row_indices": [],
                     "as_of_dates": set(),
                     "currency_values": [],
+                    "perf_currency_values": [],
+                    "fin_currency_by_row": {},
                     "missing_as_of_rows": [],
                 },
             )
@@ -1519,6 +1554,46 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                     }
                 if code:
                     group["currency_values"].append(code)
+
+            # Collect performance currency (must be uniform per firm)
+            if "performance_currency" in df.columns:
+                perf_code = normalize_currency_code(row.get("performance_currency"), default=None)
+                if perf_code is None and clean_str(row.get("performance_currency")) is not None:
+                    return {
+                        "success": 0,
+                        "errors": [
+                            "Performance Currency must be a valid ISO-3 code (e.g., USD, EUR, GBP) for all Deals rows."
+                        ],
+                        "batch_id": batch_id,
+                        "bridge_complete": 0,
+                        "duplicates_skipped": 0,
+                        "quarantined_count": 0,
+                        "issue_report_id": issue_report_id,
+                        "supplemental_counts": zero_supplemental,
+                        "replaced_funds": {},
+                    }
+                if perf_code:
+                    group["perf_currency_values"].append(perf_code)
+
+            # Collect financial metric currency (can vary per deal)
+            if "financial_metric_currency" in df.columns:
+                fin_code = normalize_currency_code(row.get("financial_metric_currency"), default=None)
+                if fin_code is None and clean_str(row.get("financial_metric_currency")) is not None:
+                    return {
+                        "success": 0,
+                        "errors": [
+                            "Financial Metric Currency must be a valid ISO-3 code (e.g., USD, EUR, GBP) for all Deals rows."
+                        ],
+                        "batch_id": batch_id,
+                        "bridge_complete": 0,
+                        "duplicates_skipped": 0,
+                        "quarantined_count": 0,
+                        "issue_report_id": issue_report_id,
+                        "supplemental_counts": zero_supplemental,
+                        "replaced_funds": {},
+                    }
+                if fin_code:
+                    group["fin_currency_by_row"][idx] = fin_code
         else:
             missing_firm_rows.append(idx + 2)
 
@@ -1601,18 +1676,63 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             }
         firm_currency = distinct_currencies[0] if distinct_currencies else DEFAULT_CURRENCY_CODE
         upload_as_of_date = next(iter(group["as_of_dates"]))
-        firm = _resolve_or_create_firm(group["firm_name"], base_currency=firm_currency)
+
+        # Resolve performance currency: performance_currency -> firm_currency -> USD
+        distinct_perf = sorted(set(group["perf_currency_values"]))
+        if len(distinct_perf) > 1:
+            return {
+                "success": 0,
+                "errors": [
+                    f"Deals rows for firm '{group['firm_name']}' must contain exactly one Performance Currency. "
+                    f"Found {len(distinct_perf)}: {', '.join(distinct_perf[:10])}"
+                ],
+                "batch_id": batch_id,
+                "bridge_complete": 0,
+                "duplicates_skipped": 0,
+                "quarantined_count": 0,
+                "issue_report_id": issue_report_id,
+                "supplemental_counts": zero_supplemental,
+                "replaced_funds": {},
+            }
+        perf_currency = distinct_perf[0] if distinct_perf else firm_currency
+
+        # Financial metric currency per row — fallback to perf_currency if not specified
+        fin_currency_by_row = group["fin_currency_by_row"]  # {row_idx: ISO code}
+
+        # Resolve FX rates: performance currency (once per firm)
+        perf_fx = resolve_rate_to_usd(perf_currency, date.today())
+        perf_rate = perf_fx.get("rate") if perf_fx.get("ok") else None
+
+        # Resolve FX rates: distinct financial metric currencies (cached per currency)
+        distinct_fin_currencies = sorted(set(fin_currency_by_row.values()))
+        fin_fx_by_currency = {}
+        for fin_code in distinct_fin_currencies:
+            if fin_code == perf_currency:
+                fin_fx_by_currency[fin_code] = perf_fx  # reuse
+            else:
+                fin_fx_by_currency[fin_code] = resolve_rate_to_usd(fin_code, date.today())
+        # Also resolve the default (perf_currency) for rows without explicit fin currency
+        if perf_currency not in fin_fx_by_currency:
+            fin_fx_by_currency[perf_currency] = perf_fx
+
+        firm = _resolve_or_create_firm(group["firm_name"], base_currency=perf_currency)
         _ensure_team_firm_access(team_id, firm.id, created_by_user_id=uploader_user_id)
         fx_meta = _refresh_firm_fx_metadata(firm, upload_date=date.today())
         firm_contexts[lookup_key] = {
             "firm_name": group["firm_name"],
             "firm_id": firm.id,
             "firm_currency": firm.base_currency or DEFAULT_CURRENCY_CODE,
+            "perf_currency": perf_currency,
+            "perf_rate": perf_rate,
+            "perf_fx": perf_fx,
+            "fin_currency_by_row": fin_currency_by_row,
+            "fin_fx_by_currency": fin_fx_by_currency,
             "as_of_date": upload_as_of_date,
             "fx_meta": fx_meta,
             "row_indices": list(group["row_indices"]),
             "replaced_funds": {},
             "success_count": 0,
+            "conversion_warnings": [],
         }
 
     if replace_mode == "replace_fund":
@@ -1737,8 +1857,52 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 net_irr=clean_val(row.get("net_irr")),
                 net_moic=clean_val(row.get("net_moic")),
                 net_dpi=clean_val(row.get("net_dpi")),
+                acquired_revenue=clean_val(row.get("acquired_revenue")),
+                acquired_ebitda=clean_val(row.get("acquired_ebitda")),
+                acquired_tev=clean_val(row.get("acquired_tev")),
                 upload_batch=batch_id,
             )
+
+            # --- Currency conversion (upload-time, to USD) ---
+            row_perf_currency = context["perf_currency"]
+            row_perf_rate = context["perf_rate"]
+            row_fin_currency = context["fin_currency_by_row"].get(idx, row_perf_currency)
+            row_fin_fx = context["fin_fx_by_currency"].get(row_fin_currency, context["perf_fx"])
+            row_fin_rate = row_fin_fx.get("rate") if row_fin_fx.get("ok") else None
+
+            # Store currency metadata on deal
+            deal.performance_currency = row_perf_currency
+            deal.financial_metric_currency = row_fin_currency
+            deal.perf_fx_rate_to_usd = row_perf_rate
+            deal.fin_fx_rate_to_usd = row_fin_rate
+
+            # Convert performance fields (equity, realized, unrealized, fund_size)
+            if row_perf_rate is not None and row_perf_rate != 1.0:
+                for _field in PERF_CURRENCY_COLS:
+                    _val = getattr(deal, _field, None)
+                    if _val is not None:
+                        setattr(deal, _field, _val * row_perf_rate)
+            elif row_perf_rate is None and row_perf_currency != DEFAULT_CURRENCY_CODE:
+                msg = (f"Row {row_num}: FX lookup failed for {row_perf_currency}→USD. "
+                       f"Performance values stored in native {row_perf_currency}.")
+                errors.append(msg)
+                _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num,
+                              deal.company_name, "warning", msg, row_payload)
+                context["conversion_warnings"].append(msg)
+
+            # Convert financial metric fields (revenue, ebitda, tev, net_debt, acquired_*)
+            if row_fin_rate is not None and row_fin_rate != 1.0:
+                for _field in FIN_METRIC_CURRENCY_COLS:
+                    _val = getattr(deal, _field, None)
+                    if _val is not None:
+                        setattr(deal, _field, _val * row_fin_rate)
+            elif row_fin_rate is None and row_fin_currency != DEFAULT_CURRENCY_CODE:
+                msg = (f"Row {row_num}: FX lookup failed for {row_fin_currency}→USD. "
+                       f"Financial metric values stored in native {row_fin_currency}.")
+                errors.append(msg)
+                _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num,
+                              deal.company_name, "warning", msg, row_payload)
+                context["conversion_warnings"].append(msg)
 
             if deal.equity_invested is not None and deal.equity_invested < 0:
                 msg = f"Row {row_num}: Quarantined — negative equity invested ({deal.equity_invested})."
@@ -1814,11 +1978,15 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
     firms_processed = []
     for context in sorted_contexts:
         fx_meta = context["fx_meta"] or {}
+        fin_currencies_used = sorted(set(context.get("fin_currency_by_row", {}).values()))
         firms_processed.append(
             {
                 "firm_name": context["firm_name"],
                 "firm_id": context["firm_id"],
                 "currency": context["firm_currency"],
+                "perf_currency": context.get("perf_currency", context["firm_currency"]),
+                "perf_fx_rate": context.get("perf_rate"),
+                "fin_currencies": fin_currencies_used if fin_currencies_used else [context.get("perf_currency", context["firm_currency"])],
                 "as_of_date": context["as_of_date"],
                 "success_count": context["success_count"],
                 "replaced_funds": context["replaced_funds"],
@@ -1826,6 +1994,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
                 "fx_rate_to_usd": fx_meta.get("fx_rate_to_usd"),
                 "fx_rate_date": fx_meta.get("fx_rate_date"),
                 "fx_warning": fx_meta.get("fx_warning"),
+                "conversion_warnings": context.get("conversion_warnings", []),
             }
         )
 

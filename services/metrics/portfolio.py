@@ -560,6 +560,11 @@ def compute_deal_track_record(deals, metrics_by_id=None, fund_vintage_lookup=Non
             # Backward compatibility aliases used by pre-existing tests.
             "moic": metric.get("moic"),
             "irr": gross_irr,
+            # Currency conversion metadata (for display badges)
+            "performance_currency": getattr(d, "performance_currency", None),
+            "financial_metric_currency": getattr(d, "financial_metric_currency", None),
+            "perf_fx_rate_to_usd": getattr(d, "perf_fx_rate_to_usd", None),
+            "fin_fx_rate_to_usd": getattr(d, "fin_fx_rate_to_usd", None),
         }
         grouped[fund].append(row)
 

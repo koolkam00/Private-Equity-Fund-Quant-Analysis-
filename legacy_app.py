@@ -2358,7 +2358,19 @@ def _handle_upload(parse_func, redirect_route):
                         if hasattr(upload_as_of_date, "isoformat")
                         else str(upload_as_of_date or "N/A")
                     )
-                    flash(f"{firm_name} | Currency: {firm_currency} | As Of Date: {as_of_text}", "info")
+                    # Show currency conversion info
+                    perf_ccy = firm_summary.get("perf_currency", firm_currency)
+                    fin_ccys = firm_summary.get("fin_currencies", [perf_ccy])
+                    perf_rate = firm_summary.get("perf_fx_rate")
+                    ccy_parts = [f"Perf: {perf_ccy}"]
+                    if perf_rate and perf_ccy != "USD":
+                        ccy_parts[0] += f" @{perf_rate:.4f}"
+                    if fin_ccys and fin_ccys != [perf_ccy]:
+                        ccy_parts.append(f"Fin: {', '.join(fin_ccys)}")
+                    flash(f"{firm_name} | {' | '.join(ccy_parts)} | As Of: {as_of_text}", "info")
+
+                    for cw in firm_summary.get("conversion_warnings", []):
+                        flash(str(cw).splitlines()[0].strip(), "warning")
                     fx_warning = firm_summary.get("fx_warning")
                     if fx_warning:
                         flash(

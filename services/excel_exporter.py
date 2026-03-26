@@ -37,8 +37,9 @@ def export_firm_to_excel(firm_id, team_id):
         "Equity Invested", "Ownership %", "Fund Size",
         "Entry Revenue", "Entry EBITDA", "Entry TEV", "Entry Net Debt",
         "Exit Revenue", "Exit EBITDA", "Exit TEV", "Exit Net Debt",
+        "Acquired Revenue", "Acquired EBITDA", "Acquired TEV",
         "Realized Value", "Unrealized Value", "IRR", "Net IRR", "Net MOIC", "DPI",
-        "Firm Currency",
+        "Firm Currency", "Performance Currency", "Financial Metric Currency",
     ]
     ws.append(deal_headers)
 
@@ -54,8 +55,11 @@ def export_firm_to_excel(firm_id, team_id):
             d.equity_invested, d.ownership_pct, d.fund_size,
             d.entry_revenue, d.entry_ebitda, d.entry_enterprise_value, d.entry_net_debt,
             d.exit_revenue, d.exit_ebitda, d.exit_enterprise_value, d.exit_net_debt,
+            d.acquired_revenue, d.acquired_ebitda, d.acquired_tev,
             d.realized_value, d.unrealized_value, d.irr, d.net_irr, d.net_moic, d.net_dpi,
             firm_currency,
+            getattr(d, "performance_currency", None),
+            getattr(d, "financial_metric_currency", None),
         ])
 
     # ── Sheet 2: Cashflows ───────────────────────────────────────────
