@@ -1,6 +1,9 @@
 """Organic vs Acquired Growth Analysis — decompose revenue and EBITDA growth
 into organic (operational) and acquired (bolt-on M&A) contributions.
 
+Only includes deals with add-on activity (non-zero acquired_revenue, acquired_ebitda,
+or acquired_tev). Deals without add-on data are excluded from this analysis.
+
 Methodology:
 - Organic Revenue Growth = Exit Revenue - Entry Revenue - Acquired Revenue
 - Acquired Revenue Contribution = Acquired Revenue (cumulative at bolt-on entry)
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 from services.metrics.common import EPS, safe_divide, resolve_analysis_as_of_date
 from services.metrics.deal import compute_deal_metrics
+from services.metrics.portfolio import compute_bridge_aggregate, compute_portfolio_analytics
 
 
 def _wavg(pairs):
@@ -32,23 +36,31 @@ def _wavg(pairs):
 
 
 def compute_organic_growth_analysis(deals, metrics_by_id=None):
-    """Build the full organic vs acquired analysis payload.
+    """Build the organic vs acquired analysis payload.
 
-    Returns a dict with summary_cards, deal_rows, charts, and bridge_decomposition.
+    Only includes deals with add-on activity (acquired_data_provided).
+    Returns a dict with summary_cards, deal_rows, charts, bridge_decomposition,
+    aggregate_bridge, and portfolio_metrics for the add-on subset.
     """
     if metrics_by_id is None:
         as_of = resolve_analysis_as_of_date(deals)
         metrics_by_id = {d.id: compute_deal_metrics(d, as_of_date=as_of) for d in deals}
 
-    deal_rows = []
-    has_any_acquired_data = False
+    # Filter to only deals with add-on activity
+    all_deal_count = len(deals)
+    acq_deals = [
+        d for d in deals
+        if metrics_by_id.get(d.id, {}).get("acquired_data_status") == "acquired_data_provided"
+    ]
+    has_any_acquired_data = len(acq_deals) > 0
 
-    # Accumulators for portfolio-level aggregates
+    deal_rows = []
+
+    # Accumulators for portfolio-level aggregates (add-on deals only)
     total_organic_rev = 0.0
     total_acquired_rev = 0.0
     total_organic_ebitda = 0.0
     total_acquired_ebitda = 0.0
-    deals_with_acquisitions = 0
     rev_count = 0
     ebitda_count = 0
 
@@ -61,16 +73,12 @@ def compute_organic_growth_analysis(deals, metrics_by_id=None):
     # Bridge decomposition rows
     bridge_rows = []
 
-    for deal in deals:
+    for deal in acq_deals:
         m = metrics_by_id.get(deal.id)
         if m is None:
             continue
 
         equity = m.get("equity") or 0
-        has_acq = m.get("acquired_data_status") == "acquired_data_provided"
-        if has_acq:
-            has_any_acquired_data = True
-            deals_with_acquisitions += 1
 
         row = {
             "deal_id": deal.id,
@@ -111,7 +119,7 @@ def compute_organic_growth_analysis(deals, metrics_by_id=None):
         }
         deal_rows.append(row)
 
-        # Accumulate portfolio totals
+        # Accumulate portfolio totals (add-on deals only)
         if m.get("organic_revenue_growth") is not None:
             total_organic_rev += m["organic_revenue_growth"]
             total_acquired_rev += m.get("acquired_revenue_contribution") or 0
@@ -136,7 +144,6 @@ def compute_organic_growth_analysis(deals, metrics_by_id=None):
         if (
             bridge.get("ready")
             and bridge.get("calculation_method") == "ebitda_additive"
-            and has_acq
         ):
             drivers = bridge.get("company_drivers_dollar") or {}
             total_rev_driver = drivers.get("revenue")
@@ -163,19 +170,16 @@ def compute_organic_growth_analysis(deals, metrics_by_id=None):
                     "leverage_contribution": (drivers.get("leverage") or 0) * ownership,
                 })
 
-    # Sort deal rows: deals with acquired data first, then by MOIC desc
-    deal_rows.sort(key=lambda r: (
-        0 if r["acquired_data_status"] == "acquired_data_provided" else 1,
-        -(r["moic"] or 0),
-    ))
+    # Sort deal rows by MOIC desc
+    deal_rows.sort(key=lambda r: -(r["moic"] or 0))
 
-    # Portfolio-level aggregates
+    # Portfolio-level aggregates (add-on deals only)
     total_rev_growth = total_organic_rev + total_acquired_rev
     total_ebitda_growth_sum = total_organic_ebitda + total_acquired_ebitda
 
     summary_cards = {
-        "deals_total": len(deals),
-        "deals_with_acquisitions": deals_with_acquisitions,
+        "deals_total": all_deal_count,
+        "deals_with_acquisitions": len(acq_deals),
         "deals_with_revenue_data": rev_count,
         "deals_with_ebitda_data": ebitda_count,
         # Revenue
@@ -198,39 +202,50 @@ def compute_organic_growth_analysis(deals, metrics_by_id=None):
         "portfolio_total_ebitda_cagr": _wavg(total_ebitda_cagr_pairs),
     }
 
-    # Chart data: only include deals with acquired data for meaningful comparison
-    chart_deals = [r for r in deal_rows if r["acquired_data_status"] == "acquired_data_provided"]
+    # Chart data (all deal_rows now have acquired data)
     charts = {
         "organic_vs_acquired_revenue": {
-            "labels": [r["company_name"] or "Unknown" for r in chart_deals],
-            "organic": [r.get("organic_revenue_growth") for r in chart_deals],
-            "acquired": [r.get("acquired_revenue_contribution") for r in chart_deals],
+            "labels": [r["company_name"] or "Unknown" for r in deal_rows],
+            "organic": [r.get("organic_revenue_growth") for r in deal_rows],
+            "acquired": [r.get("acquired_revenue_contribution") for r in deal_rows],
         },
         "organic_vs_acquired_ebitda": {
-            "labels": [r["company_name"] or "Unknown" for r in chart_deals],
-            "organic": [r.get("organic_ebitda_growth") for r in chart_deals],
-            "acquired": [r.get("acquired_ebitda_contribution") for r in chart_deals],
+            "labels": [r["company_name"] or "Unknown" for r in deal_rows],
+            "organic": [r.get("organic_ebitda_growth") for r in deal_rows],
+            "acquired": [r.get("acquired_ebitda_contribution") for r in deal_rows],
         },
         "cagr_comparison": {
-            "labels": [r["company_name"] or "Unknown" for r in chart_deals],
-            "organic_revenue_cagr": [r.get("organic_revenue_cagr") for r in chart_deals],
-            "total_revenue_cagr": [r.get("total_revenue_cagr") for r in chart_deals],
-            "organic_ebitda_cagr": [r.get("organic_ebitda_cagr") for r in chart_deals],
-            "total_ebitda_cagr": [r.get("total_ebitda_cagr") for r in chart_deals],
+            "labels": [r["company_name"] or "Unknown" for r in deal_rows],
+            "organic_revenue_cagr": [r.get("organic_revenue_cagr") for r in deal_rows],
+            "total_revenue_cagr": [r.get("total_revenue_cagr") for r in deal_rows],
+            "organic_ebitda_cagr": [r.get("organic_ebitda_cagr") for r in deal_rows],
+            "total_ebitda_cagr": [r.get("total_ebitda_cagr") for r in deal_rows],
         },
     }
+
+    # Aggregate value creation bridge for the add-on subset
+    acq_metrics = {d.id: metrics_by_id[d.id] for d in acq_deals if d.id in metrics_by_id}
+    aggregate_bridge = compute_bridge_aggregate(acq_deals, basis="fund") if acq_deals else {}
+
+    # Portfolio analytics for the add-on subset
+    portfolio_metrics = compute_portfolio_analytics(acq_deals, metrics_by_id=acq_metrics) if acq_deals else {}
 
     return {
         "meta": {
             "title": "Organic vs Acquired Growth",
             "as_of_date": str(resolve_analysis_as_of_date(deals)) if deals else None,
             "has_acquired_data": has_any_acquired_data,
+            "deals_shown": len(acq_deals),
+            "deals_total": all_deal_count,
         },
         "summary_cards": summary_cards,
         "deal_rows": deal_rows,
         "charts": charts,
         "bridge_decomposition": bridge_rows,
+        "aggregate_bridge": aggregate_bridge,
+        "portfolio_metrics": portfolio_metrics,
         "methodology_notes": [
+            "Only deals with add-on activity (non-zero acquired revenue, EBITDA, or TEV) are shown.",
             "Organic growth is derived as: Exit Total - Entry Base - Acquired bolt-on contribution.",
             "Organic CAGR assumes acquired revenue/EBITDA existed for the full hold period. "
             "For deals with mid-hold acquisitions, this may slightly overstate organic CAGR.",

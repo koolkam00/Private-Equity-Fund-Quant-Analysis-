@@ -55,13 +55,13 @@
 {% if not meta.has_acquired_data %}
 <div class="panel" style="text-align: center; padding: 48px 24px;">
     <i class="bi bi-diagram-3" style="font-size: 48px; color: var(--ink-muted);"></i>
-    <h3 style="margin-top: 16px;">No Acquired Data Uploaded</h3>
+    <h3 style="margin-top: 16px;">No Deals with Add-On Activity</h3>
     <p class="subtitle" style="max-width: 480px; margin: 8px auto 24px;">
-        Upload deal data with <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, and/or <strong>Acquired TEV</strong> columns to decompose growth into organic vs bolt-on contributions.
+        No deals have add-on activity data. Upload deal data with <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, and/or <strong>Acquired TEV</strong> columns to enable this analysis.
     </p>
     <a href="{{ url_for('download_deal_template') }}" class="btn-upload"><i class="bi bi-download"></i> Download Data Template</a>
     <p class="subtitle" style="margin-top: 24px; font-size: 12px;">
-        Without acquired data, all growth is treated as organic. Upload acquired metrics to unlock this analysis.
+        This page only shows deals with bolt-on acquisition data. {{ meta.deals_total }} deal{{ 's' if meta.deals_total != 1 else '' }} in portfolio, none with acquired metrics.
     </p>
 </div>
 {% else %}
@@ -71,8 +71,8 @@
 {# ================================================================ #}
 <div class="kpi-grid">
     <div class="kpi-card">
-        <span>Deals with Acquisitions</span>
-        <strong>{{ cards.deals_with_acquisitions }} <span class="tiny">/ {{ cards.deals_total }}</span></strong>
+        <span>Deals with Add-Ons</span>
+        <strong>{{ meta.deals_shown }} <span class="tiny">of {{ meta.deals_total }}</span></strong>
     </div>
     <div class="kpi-card">
         <span>Organic Revenue Growth</span>
@@ -137,7 +137,6 @@
                     <th>Organic %</th>
                     <th>Organic CAGR</th>
                     <th>Total CAGR</th>
-                    <th>Data</th>
                 </tr>
             </thead>
             <tbody>
@@ -156,13 +155,6 @@
                     <td>{{ fmt_pct_1dp(row.organic_revenue_pct) }}</td>
                     <td>{{ fmt_pct_1dp(row.organic_revenue_cagr / 100) if row.organic_revenue_cagr is not none else '—' }}</td>
                     <td>{{ fmt_pct_1dp(row.total_revenue_cagr / 100) if row.total_revenue_cagr is not none else '—' }}</td>
-                    <td>
-                        {% if row.acquired_data_status == 'acquired_data_provided' %}
-                        <span class="badge badge-success" title="Acquired data provided">Acq</span>
-                        {% else %}
-                        <span class="badge badge-muted" title="No acquired data uploaded">—</span>
-                        {% endif %}
-                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -214,7 +206,48 @@
 </div>
 
 {# ================================================================ #}
-{# Bridge Decomposition                                               #}
+{# Aggregate Value Creation Bridge                                     #}
+{# ================================================================ #}
+{% if analysis.aggregate_bridge and analysis.aggregate_bridge.get('ready_count', 0) > 0 %}
+{% set agg = analysis.aggregate_bridge %}
+{% set agg_drivers = (agg.get('drivers') or {}).get('dollar') or {} %}
+<div class="panel">
+    <h3><i class="bi bi-signpost-split"></i> Aggregate Value Creation Bridge (Add-On Deals)</h3>
+    <p class="subtitle">Aggregate bridge across {{ agg.get('ready_count', 0) }} deals with bridge-ready data. Shows how value was created across the add-on portfolio.</p>
+    <div class="exec-chart-container">
+        <canvas id="aggBridgeChart" height="260"></canvas>
+    </div>
+    <div class="kpi-grid" style="margin-top: 16px;">
+        <div class="kpi-card">
+            <span>Total Equity</span>
+            <strong>{{ fmt_currency_symbol(agg.get('total_equity')) }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Total Value Created</span>
+            <strong>{{ fmt_currency_symbol(agg.get('total_value_created')) }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Revenue Driver</span>
+            <strong>{{ fmt_currency_symbol(agg_drivers.get('revenue')) }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Margin Driver</span>
+            <strong>{{ fmt_currency_symbol(agg_drivers.get('margin')) }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Multiple Driver</span>
+            <strong>{{ fmt_currency_symbol(agg_drivers.get('multiple')) }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Leverage Driver</span>
+            <strong>{{ fmt_currency_symbol(agg_drivers.get('leverage')) }}</strong>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ================================================================ #}
+{# Per-Deal Bridge Decomposition                                       #}
 {# ================================================================ #}
 {% if analysis.bridge_decomposition %}
 <div class="panel">
@@ -320,6 +353,37 @@
                 indexAxis: 'y',
                 scales: { x: { stacked: true }, y: { stacked: true } },
                 plugins: { legend: { position: 'top' }, title: { display: false } }
+            })
+        });
+    }
+    // Aggregate Bridge waterfall chart
+    var aggBridgeCtx = document.getElementById('aggBridgeChart');
+    if (aggBridgeCtx) {
+        var aggBridge = {{ (analysis.aggregate_bridge or {}) | tojson }};
+        var drivers = (aggBridge.drivers || {}).dollar || {};
+        var labels = ['Revenue', 'Margin', 'Multiple', 'Leverage', 'Other'];
+        var values = [
+            drivers.revenue || 0,
+            drivers.margin || 0,
+            drivers.multiple || 0,
+            drivers.leverage || 0,
+            drivers.other || 0
+        ];
+        var colors = values.map(function(v) { return v >= 0 ? ORGANIC_COLOR : '#B83C4A'; });
+        new Chart(aggBridgeCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Value ($M)',
+                    data: values,
+                    backgroundColor: colors,
+                    borderRadius: 2,
+                }]
+            },
+            options: Object.assign({}, chartDefaults, {
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
             })
         });
     }

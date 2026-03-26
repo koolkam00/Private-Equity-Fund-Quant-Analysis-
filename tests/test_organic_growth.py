@@ -205,32 +205,67 @@ class TestOrganicGrowthAnalysis:
         assert cards["portfolio_organic_revenue_growth"] == 50
         assert cards["portfolio_acquired_revenue_growth"] == 30
 
-    def test_deals_without_acquired_show_all_organic(self):
+    def test_deals_without_acquired_excluded_from_rows(self):
+        """Deals without acquired data should NOT appear in deal_rows."""
         deals = [_make_deal(id=1, entry_revenue=50, exit_revenue=100)]
         result = compute_organic_growth_analysis(deals)
-        row = result["deal_rows"][0]
-        assert row["organic_revenue_growth"] == 50
-        assert row["acquired_revenue_contribution"] == 0
+        assert len(result["deal_rows"]) == 0
+        assert result["meta"]["has_acquired_data"] is False
+        assert result["meta"]["deals_shown"] == 0
+        assert result["meta"]["deals_total"] == 1
 
-    def test_chart_data_only_includes_acquired_deals(self):
+    def test_only_acquired_deals_in_rows_and_charts(self):
         deals = [
             _make_deal(id=1, acquired_revenue=20),  # Has acquired
             _make_deal(id=2),  # No acquired
         ]
         result = compute_organic_growth_analysis(deals)
+        # Only the deal with acquired data should be in deal_rows and charts
+        assert len(result["deal_rows"]) == 1
+        assert result["deal_rows"][0]["acquired_data_status"] == "acquired_data_provided"
         chart = result["charts"]["organic_vs_acquired_revenue"]
-        # Only the deal with acquired data should be in charts
         assert len(chart["labels"]) == 1
+        assert result["meta"]["deals_shown"] == 1
+        assert result["meta"]["deals_total"] == 2
 
-    def test_deal_rows_sorted_acquired_first(self):
+    def test_deal_rows_sorted_by_moic(self):
         deals = [
-            _make_deal(id=1),  # No acquired
-            _make_deal(id=2, acquired_revenue=20),  # Has acquired
+            _make_deal(id=1, acquired_revenue=10, equity_invested=100, realized_value=150, unrealized_value=0),
+            _make_deal(id=2, acquired_revenue=20, equity_invested=100, realized_value=300, unrealized_value=0),
         ]
         result = compute_organic_growth_analysis(deals)
         rows = result["deal_rows"]
-        assert rows[0]["acquired_data_status"] == "acquired_data_provided"
-        assert rows[1]["acquired_data_status"] == "data_not_provided"
+        assert len(rows) == 2
+        # Higher MOIC (3.0x) should be first
+        assert rows[0]["moic"] >= rows[1]["moic"]
+
+    def test_aggregate_bridge_present(self):
+        """Aggregate bridge should be returned for add-on deals."""
+        deal = _make_deal(
+            id=1, equity_invested=100,
+            entry_revenue=50, exit_revenue=100,
+            entry_ebitda=10, exit_ebitda=25,
+            entry_enterprise_value=200, exit_enterprise_value=400,
+            entry_net_debt=100, exit_net_debt=50,
+            acquired_revenue=20, acquired_ebitda=5, acquired_tev=80,
+            realized_value=200, unrealized_value=0,
+        )
+        result = compute_organic_growth_analysis([deal])
+        assert "aggregate_bridge" in result
+        assert "portfolio_metrics" in result
+
+    def test_empty_portfolio_no_acquired(self):
+        """All deals without acquired data → empty rows, has_acquired_data=False."""
+        deals = [
+            _make_deal(id=1, entry_revenue=50, exit_revenue=100),
+            _make_deal(id=2, entry_revenue=30, exit_revenue=60),
+        ]
+        result = compute_organic_growth_analysis(deals)
+        assert len(result["deal_rows"]) == 0
+        assert result["meta"]["has_acquired_data"] is False
+        assert result["meta"]["deals_shown"] == 0
+        assert result["meta"]["deals_total"] == 2
+        assert result["summary_cards"]["deals_with_acquisitions"] == 0
 
 
 # ---------------------------------------------------------------------------
