@@ -24,6 +24,12 @@ from services.metrics.portfolio import (
 )
 
 
+def _is_realized_status(status):
+    """Consistent realized-status check aligned with portfolio.py normalization."""
+    s = (status or "").strip().lower()
+    return s in ("fully realized", "realized", "full realization")
+
+
 def _get_moic(deal, metrics_by_id):
     """Get MOIC for a deal from pre-computed metrics."""
     m = metrics_by_id.get(deal.id, {})
@@ -66,7 +72,7 @@ def _compute_health_score(deals, portfolio, metrics_by_id):
 
     # Realization (0-25): % of deals fully realized
     n = len(deals)
-    realized = sum(1 for d in deals if (d.status or "").lower() in ("fully realized", "realized"))
+    realized = sum(1 for d in deals if _is_realized_status(d.status))
     real_score = (realized / n) * 25 if n > 0 else 0
 
     total = int(round(moic_score + irr_score + div_score + real_score))
@@ -102,26 +108,43 @@ def _compute_concentration(deals, metrics_by_id):
         for d in top3
     ]
 
-    sectors = defaultdict(lambda: {"count": 0, "equity": 0, "moics": [], "irrs": []})
+    sectors = defaultdict(lambda: {"count": 0, "equity": 0, "moic_pairs": [], "irr_pairs": []})
     for d in deals:
         s = d.sector or "Unclassified"
+        eq = d.equity_invested or 0
         sectors[s]["count"] += 1
-        sectors[s]["equity"] += d.equity_invested or 0
+        sectors[s]["equity"] += eq
         moic = _get_moic(d, metrics_by_id)
         irr = _get_irr(d, metrics_by_id)
         if moic is not None:
-            sectors[s]["moics"].append(moic)
+            sectors[s]["moic_pairs"].append((moic, eq))
         if irr is not None:
-            sectors[s]["irrs"].append(irr)
+            sectors[s]["irr_pairs"].append((irr, eq))
 
     sector_summary = {}
     for name, data in sectors.items():
+        # Equity-weighted averages for consistency with portfolio-level metrics.
+        # Falls back to simple average when equity weights are unavailable.
+        moic_w = [(v, w) for v, w in data["moic_pairs"] if w > 0]
+        irr_w = [(v, w) for v, w in data["irr_pairs"] if w > 0]
+        if moic_w:
+            wavg_moic = sum(v * w for v, w in moic_w) / sum(w for _, w in moic_w)
+        elif data["moic_pairs"]:
+            wavg_moic = sum(v for v, _ in data["moic_pairs"]) / len(data["moic_pairs"])
+        else:
+            wavg_moic = None
+        if irr_w:
+            wavg_irr = sum(v * w for v, w in irr_w) / sum(w for _, w in irr_w)
+        elif data["irr_pairs"]:
+            wavg_irr = sum(v for v, _ in data["irr_pairs"]) / len(data["irr_pairs"])
+        else:
+            wavg_irr = None
         sector_summary[name] = {
             "count": data["count"],
             "equity": data["equity"],
             "pct": safe_divide(data["equity"], total_equity, 0) * 100,
-            "avg_moic": safe_divide(sum(data["moics"]), len(data["moics"])),
-            "avg_irr": safe_divide(sum(data["irrs"]), len(data["irrs"])),
+            "avg_moic": wavg_moic,
+            "avg_irr": wavg_irr,
         }
 
     return {"top3_pct": top3_pct, "top3_deals": top3_deals, "sectors": sector_summary}
@@ -159,12 +182,13 @@ def _compute_deal_ranking(deals, metrics_by_id, rank_by="moic"):
     top5 = with_moic[:5]
     bottom5 = list(reversed(with_moic[-5:])) if len(with_moic) > 5 else []
 
-    # Outlier detection: 1.5 std devs from mean MOIC
+    # Outlier detection: 1.5 std devs from mean MOIC (sample std dev)
     outlier_ids = set()
     moic_vals = [r["moic"] for r in ranking if r["moic"] is not None]
     if len(moic_vals) >= 3:
         mean = sum(moic_vals) / len(moic_vals)
-        std = (sum((v - mean) ** 2 for v in moic_vals) / len(moic_vals)) ** 0.5
+        # Use sample std dev (N-1) for small portfolios to avoid underestimating spread.
+        std = (sum((v - mean) ** 2 for v in moic_vals) / (len(moic_vals) - 1)) ** 0.5
         if std > 0:
             for r in ranking:
                 if r["moic"] is not None and abs(r["moic"] - mean) > 1.5 * std:
@@ -230,7 +254,7 @@ def _generate_summary_text(deals, portfolio, concentration, bridge):
             parts.append(f"Portfolio is well-diversified — top 3 deals at {pct*100:.0f}% of equity.")
 
     # Realization
-    realized = sum(1 for d in deals if (d.status or "").lower() in ("fully realized", "realized"))
+    realized = sum(1 for d in deals if _is_realized_status(d.status))
     if n > 0:
         parts.append(f"{realized} of {n} deals ({realized/n*100:.0f}%) are fully realized.")
 
@@ -257,7 +281,7 @@ def _compute_fund_breakdown(deals, metrics_by_id):
         irr_pairs = [(d.irr, d.equity_invested or 0) for d in fd if d.irr is not None]
         tie = sum(w for _, w in irr_pairs)
         wavg_irr = safe_divide(sum(v * w for v, w in irr_pairs), tie)
-        realized = sum(1 for d in fd if (d.status or "").lower() in ("fully realized", "realized"))
+        realized = sum(1 for d in fd if _is_realized_status(d.status))
         value_created = total_val - total_eq
 
         result[fund] = {

@@ -12,10 +12,19 @@ from services.metrics.common import deal_hold_years, safe_divide, safe_power
 def _implied_irr(moic, hold_years):
     if moic is None or hold_years is None or hold_years <= 0 or moic <= 0:
         return None
+    # Guard against extremely short hold periods that produce meaningless IRRs.
+    # 30 days ≈ 0.082 years is the minimum for a credible annualized return.
+    if hold_years < 30 / 365.25:
+        return None
     root = safe_power(moic, 1.0 / hold_years)
     if root is None:
         return None
-    return root - 1
+    irr = root - 1
+    # Cap implied IRR at 10,000% (100x) to flag data issues rather than
+    # propagating implausible values through analytics.
+    if irr is not None and abs(irr) > 100:
+        return None
+    return irr
 
 
 def _growth_pct(exit_value, entry_value):
@@ -29,6 +38,18 @@ def _growth_pct(exit_value, entry_value):
 
 
 def _cagr_pct(exit_value, entry_value, hold_years):
+    """Annualized compound growth rate between entry and exit values.
+
+    Methodology for negative base values (e.g. negative EBITDA):
+    - Negative→negative: CAGR is computed on the absolute magnitude ratio
+      inverted (|entry|/|exit|), so loss reduction yields positive CAGR.
+      Example: EBITDA from -50 to -10 over 3y → CAGR = (50/10)^(1/3)-1 ≈ 71%.
+    - Sign-flip (positive→negative or vice versa): returns None because
+      compounding is undefined across sign changes.
+
+    This convention is standard in PE for tracking operational turnarounds
+    where EBITDA remains negative but is improving toward breakeven.
+    """
     if (
         entry_value is None
         or exit_value is None
@@ -42,8 +63,6 @@ def _cagr_pct(exit_value, entry_value, hold_years):
     if entry_value > 0 and exit_value > 0:
         ratio = exit_value / entry_value
     elif entry_value < 0 and exit_value < 0:
-        # For negative-to-negative EBITDA paths, define CAGR as the annualized
-        # change in loss magnitude: improving losses => positive CAGR.
         ratio = abs(entry_value) / abs(exit_value)
     else:
         # Sign-flip trajectories are not compounding-comparable.
@@ -89,12 +108,18 @@ def compute_deal_metrics(deal, as_of_date=None):
     m["unrealized_moic"] = safe_divide(unrealized, equity)
 
     m["hold_period"] = deal_hold_years(deal, as_of_date=as_of_date)
+    if m["hold_period"] is not None and m["hold_period"] > 20:
+        m["_warnings"].append(f"Hold period of {m['hold_period']:.1f} years appears unusually long")
     m["implied_irr"] = _implied_irr(m["moic"], m["hold_period"])
     # Primary IRR for analytics/reporting is uploaded gross IRR from the deal sheet.
     m["gross_irr"] = deal.irr
 
     if deal.equity_invested is not None and deal.equity_invested < 0:
         m["_warnings"].append("Negative equity invested")
+    if deal.realized_value is not None and deal.realized_value < 0:
+        m["_warnings"].append("Negative realized value")
+    if deal.unrealized_value is not None and deal.unrealized_value < 0:
+        m["_warnings"].append("Negative unrealized value")
 
     # Growth
     m["revenue_growth"] = _growth_pct(deal.exit_revenue, deal.entry_revenue)

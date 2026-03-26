@@ -228,6 +228,16 @@ def compute_additive_bridge(deal, warnings, basis="fund", unit="dollar"):
     subtotal = sum(base_map_canonical.values())
     other = target_value_created - subtotal if target_value_created is not None else None
 
+    # Flag large residual / "other" bucket — indicates bridge attribution
+    # may not be capturing the dominant value drivers.
+    if other is not None and target_value_created is not None and abs(target_value_created) > EPS:
+        residual_pct = abs(other / target_value_created)
+        if residual_pct > 0.25:
+            warnings.append(
+                f"Bridge residual is {residual_pct:.0%} of value created; "
+                "attribution may be incomplete."
+            )
+
     company_full_canonical = dict(company_canonical)
     fund_full_canonical = dict(fund_canonical)
     company_full_canonical["other"] = (

@@ -34,7 +34,13 @@ def _wavg(pairs):
 def _metric_aggregate(metrics, metric_key):
     vals = [m[metric_key] for m in metrics if m.get(metric_key) is not None]
     weighted = [(m[metric_key], m["equity"]) for m in metrics if m.get(metric_key) is not None and (m.get("equity") or 0) > 0]
-    return {"avg": _avg(vals), "wavg": _wavg(weighted) if weighted else _avg(vals)}
+    # When no equity-weighted pairs are available, return simple average as
+    # wavg fallback so downstream consumers always have a usable value.
+    # This is intentional: a simple average is preferable to None for display
+    # contexts, and consumers can check if weighted == avg to detect the
+    # fallback.
+    wavg = _wavg(weighted) if weighted else _avg(vals)
+    return {"avg": _avg(vals), "wavg": wavg}
 
 
 def _normalize_track_status(raw_status):

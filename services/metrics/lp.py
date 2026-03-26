@@ -889,8 +889,15 @@ def _quarter_end_from_date(value):
         return None
     quarter = ((value.month - 1) // 3) + 1
     month = quarter * 3
-    day = 31 if month in {3, 12} else 30
-    return date(value.year, month, day)
+    # Q1=Mar 31, Q2=Jun 30, Q3=Sep 30, Q4=Dec 31
+    day = 31 if month in (3, 12) else 30
+    try:
+        return date(value.year, month, day)
+    except ValueError:
+        # Defensive fallback for any invalid date construction
+        import calendar
+        day = calendar.monthrange(value.year, month)[1]
+        return date(value.year, month, day)
 
 
 def _next_quarter_end(value, offset=1):

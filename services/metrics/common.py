@@ -13,6 +13,11 @@ def safe_divide(numerator, denominator, default=None):
     if numerator is None or denominator is None:
         return default
     try:
+        # Guard against NaN/Inf inputs propagating through calculations.
+        if isinstance(numerator, float) and (math.isnan(numerator) or math.isinf(numerator)):
+            return default
+        if isinstance(denominator, float) and (math.isnan(denominator) or math.isinf(denominator)):
+            return default
         if denominator == 0:
             return default
         out = numerator / denominator
@@ -27,6 +32,10 @@ def safe_power(base, exponent, default=None):
     if base is None or exponent is None:
         return default
     try:
+        if isinstance(base, float) and (math.isnan(base) or math.isinf(base)):
+            return default
+        if isinstance(exponent, float) and (math.isnan(exponent) or math.isinf(exponent)):
+            return default
         out = base ** exponent
         if math.isnan(out) or math.isinf(out):
             return default
@@ -39,6 +48,8 @@ def safe_log(value, default=None):
     if value is None:
         return default
     try:
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return default
         if value <= 0:
             return default
         out = math.log(value)
