@@ -1,4 +1,9 @@
-"""Reconstruct a multi-sheet Excel workbook from DB data for a given firm."""
+"""Reconstruct a multi-sheet Excel workbook from DB data for a given firm.
+
+Values are stored in USD in the database (converted at upload time).
+On export, values are reverse-converted back to their original native currency
+so the downloaded file matches what was originally uploaded.
+"""
 
 from io import BytesIO
 
@@ -15,6 +20,14 @@ from models import (
     FundQuarterSnapshot,
     db,
 )
+from services.deal_parser import FIN_METRIC_CURRENCY_COLS, PERF_CURRENCY_COLS
+
+
+def _reverse_convert(value, fx_rate):
+    """Convert a USD value back to native currency using the stored FX rate."""
+    if value is None or fx_rate is None or fx_rate == 0 or fx_rate == 1.0:
+        return value
+    return value / fx_rate
 
 
 def export_firm_to_excel(firm_id, team_id):
@@ -47,19 +60,36 @@ def export_firm_to_excel(firm_id, team_id):
     deal_map = {d.id: d for d in deals}
 
     for d in deals:
+        # Reverse-convert USD values back to original native currency
+        perf_rate = getattr(d, "perf_fx_rate_to_usd", None)
+        fin_rate = getattr(d, "fin_fx_rate_to_usd", None)
+        perf_ccy = getattr(d, "performance_currency", None) or firm_currency
+        fin_ccy = getattr(d, "financial_metric_currency", None) or perf_ccy
+
         ws.append([
             firm_name, d.company_name, d.fund_number, d.sector, d.geography,
             d.status, d.exit_type, d.lead_partner, d.security_type,
             d.deal_type, d.entry_channel,
             d.investment_date, d.year_invested, d.exit_date, d.as_of_date,
-            d.equity_invested, d.ownership_pct, d.fund_size,
-            d.entry_revenue, d.entry_ebitda, d.entry_enterprise_value, d.entry_net_debt,
-            d.exit_revenue, d.exit_ebitda, d.exit_enterprise_value, d.exit_net_debt,
-            d.acquired_revenue, d.acquired_ebitda, d.acquired_tev,
-            d.realized_value, d.unrealized_value, d.irr, d.net_irr, d.net_moic, d.net_dpi,
-            "USD",  # Values are stored in USD after conversion; export as USD to prevent double-conversion on re-upload
-            "USD",  # Performance Currency: values already in USD
-            "USD",  # Financial Metric Currency: values already in USD
+            _reverse_convert(d.equity_invested, perf_rate), d.ownership_pct,
+            _reverse_convert(d.fund_size, perf_rate),
+            _reverse_convert(d.entry_revenue, fin_rate),
+            _reverse_convert(d.entry_ebitda, fin_rate),
+            _reverse_convert(d.entry_enterprise_value, fin_rate),
+            _reverse_convert(d.entry_net_debt, fin_rate),
+            _reverse_convert(d.exit_revenue, fin_rate),
+            _reverse_convert(d.exit_ebitda, fin_rate),
+            _reverse_convert(d.exit_enterprise_value, fin_rate),
+            _reverse_convert(d.exit_net_debt, fin_rate),
+            _reverse_convert(d.acquired_revenue, fin_rate),
+            _reverse_convert(d.acquired_ebitda, fin_rate),
+            _reverse_convert(d.acquired_tev, fin_rate),
+            _reverse_convert(d.realized_value, perf_rate),
+            _reverse_convert(d.unrealized_value, perf_rate),
+            d.irr, d.net_irr, d.net_moic, d.net_dpi,
+            perf_ccy,  # Firm Currency = performance currency
+            perf_ccy,  # Performance Currency: original currency
+            fin_ccy,   # Financial Metric Currency: original currency (may vary per deal)
         ])
 
     # ── Sheet 2: Cashflows ───────────────────────────────────────────
