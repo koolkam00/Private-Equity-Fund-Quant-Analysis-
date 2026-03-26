@@ -57,9 +57,9 @@ def export_firm_to_excel(firm_id, team_id):
             d.exit_revenue, d.exit_ebitda, d.exit_enterprise_value, d.exit_net_debt,
             d.acquired_revenue, d.acquired_ebitda, d.acquired_tev,
             d.realized_value, d.unrealized_value, d.irr, d.net_irr, d.net_moic, d.net_dpi,
-            firm_currency,
-            getattr(d, "performance_currency", None),
-            getattr(d, "financial_metric_currency", None),
+            "USD",  # Values are stored in USD after conversion; export as USD to prevent double-conversion on re-upload
+            "USD",  # Performance Currency: values already in USD
+            "USD",  # Financial Metric Currency: values already in USD
         ])
 
     # ── Sheet 2: Cashflows ───────────────────────────────────────────

@@ -1173,3 +1173,41 @@ class TestCurrencyConversion:
         assert deal.perf_fx_rate_to_usd == pytest.approx(0.00667)
         assert deal.equity_invested == pytest.approx(15000.0 * 0.00667, rel=1e-4)
         assert deal.entry_revenue == pytest.approx(50000.0 * 0.00667, rel=1e-4)
+
+    def test_export_reupload_no_double_conversion(self, app_context):
+        """Re-uploading exported file should NOT double-convert values."""
+        team = create_team("FX Team")
+        data = _with_firm_name({
+            "Company Name": ["RoundTripCo"],
+            "Fund": ["Fund I"],
+            "Performance Currency": ["EUR"],
+            "Equity Invested": [100.0],
+            "Entry Revenue": [200.0],
+        }, "FX Firm RT")
+        path = create_temp_excel(data, "Deals")
+        result = parse_deals(path, team.id)
+        assert result["success"] == 1
+
+        deal = Deal.query.filter_by(company_name="RoundTripCo").first()
+        first_equity = deal.equity_invested  # 100 * 1.10 = 110.0
+
+        # Export and re-upload
+        from services.excel_exporter import export_firm_to_excel
+        from io import BytesIO
+        firm = Firm.query.filter_by(name="FX Firm RT").first()
+        buf = export_firm_to_excel(firm.id, team.id)
+
+        # Write to temp file
+        import tempfile, os
+        fd, reupload_path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        with open(reupload_path, "wb") as f:
+            f.write(buf.getvalue())
+
+        # Re-upload
+        result2 = parse_deals(reupload_path, team.id)
+        assert result2["success"] == 1
+
+        deal2 = Deal.query.filter_by(company_name="RoundTripCo").first()
+        # Should be the same value, not double-converted
+        assert deal2.equity_invested == pytest.approx(first_equity, rel=1e-6)
