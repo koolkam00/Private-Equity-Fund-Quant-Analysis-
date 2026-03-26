@@ -2782,12 +2782,16 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         rank_by = (request.args.get("rank_by", "") or "moic").strip()
         if rank_by not in ("moic", "irr"):
             rank_by = "moic"
+        # Load benchmark thresholds for Performance and Peer Context signals
+        bench_thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
         return compute_executive_summary_analysis(
             filtered_deals,
             metrics_by_id=metrics_by_id,
             firm_id=firm_id,
             team_id=team_id,
             rank_by=rank_by,
+            benchmark_thresholds=bench_thresholds,
+            benchmark_asset_class=benchmark_asset_class,
         )
     if page == "chart-builder":
         return {}
