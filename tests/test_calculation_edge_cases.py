@@ -629,3 +629,57 @@ class TestRealizedStatusHelper:
     def test_case_insensitive(self):
         from services.metrics.executive_summary import _is_realized_status
         assert _is_realized_status("FULLY REALIZED") is True
+
+
+# ---------------------------------------------------------------------------
+# VCA percentage reconciliation regression test
+# ---------------------------------------------------------------------------
+
+class TestVcaPercentReconciliation:
+    def test_extreme_ratio_does_not_hang(self):
+        """Regression: tiny gross_profit with large drivers caused infinite loop."""
+        from services.metrics.vca_ebitda import _reconciled_display_percent_units
+        # Simulate: gross_profit=0.001, driver=100 => ratio=100000, raw_unit=100_000_000
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("_reconciled_display_percent_units hung")
+
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(2)  # 2 second timeout
+        try:
+            result = _reconciled_display_percent_units([100000000.0, -50000000.0, 50000000.0])
+            assert isinstance(result, list)
+            assert len(result) == 3
+        finally:
+            signal.alarm(0)
+
+    def test_normal_reconciliation_still_works(self):
+        """Normal case: units should sum to DISPLAY_PERCENT_UNITS (1000)."""
+        from services.metrics.vca_ebitda import _reconciled_display_percent_units, DISPLAY_PERCENT_UNITS
+        # 40% + 30% + 30% = 100% => 400 + 300 + 300 = 1000
+        result = _reconciled_display_percent_units([400.0, 300.0, 300.0])
+        assert sum(result) == DISPLAY_PERCENT_UNITS
+
+    def test_rounding_reconciliation(self):
+        """Rounding errors should be distributed correctly."""
+        from services.metrics.vca_ebitda import _reconciled_display_percent_units, DISPLAY_PERCENT_UNITS
+        # 333.33 + 333.33 + 333.33 = 999.99 => needs +1 adjustment
+        result = _reconciled_display_percent_units([333.33, 333.33, 333.34])
+        assert sum(result) == DISPLAY_PERCENT_UNITS
+
+    def test_revenue_vca_extreme_ratio_does_not_hang(self):
+        """Same regression test for VCA revenue module."""
+        from services.metrics.vca_revenue import _reconciled_display_percent_units
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("vca_revenue _reconciled_display_percent_units hung")
+
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(2)
+        try:
+            result = _reconciled_display_percent_units([100000000.0, -50000000.0, 50000000.0])
+            assert isinstance(result, list)
+        finally:
+            signal.alarm(0)

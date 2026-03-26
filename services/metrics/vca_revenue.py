@@ -272,6 +272,11 @@ def _reconciled_display_percent_units(raw_units):
     if delta == 0:
         return rounded_units
 
+    # Guard: if delta is unreasonably large (e.g., due to extreme ratios from
+    # tiny gross_profit denominators), skip reconciliation to avoid hanging.
+    if abs(delta) > DISPLAY_PERCENT_UNITS:
+        return rounded_units
+
     remainders = [raw - rounded for raw, rounded in zip(raw_units, rounded_units)]
     if delta > 0:
         order = sorted(range(len(remainders)), key=lambda idx: (remainders[idx], -idx), reverse=True)
