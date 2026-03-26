@@ -43,7 +43,7 @@ services:
     autoDeployTrigger: commit
     buildCommand: pip install -r requirements.txt
     preDeployCommand: python -m flask --app app db-upgrade
-    startCommand: gunicorn wsgi:app
+    startCommand: gunicorn wsgi:app --timeout 120
     healthCheckPath: /readyz
     envVars:
       - fromGroup: pe-portfolio-lab-runtime
