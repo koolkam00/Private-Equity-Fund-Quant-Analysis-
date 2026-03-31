@@ -196,9 +196,11 @@
                     <th class="data-cuts-sticky-col">{{ a.primary_dim_label }}</th>
                     <th class="text-right">Deals</th>
                     <th class="text-right">Invested ({{ fmt_currency_unit_label() }})</th>
+                    <th class="text-right">% Inv</th>
                     <th class="text-right">Realized</th>
                     <th class="text-right">Unrealized</th>
                     <th class="text-right">Total Value</th>
+                    <th class="text-right">% Val</th>
                     <th class="text-right">MOIC</th>
                     <th class="text-right">IRR</th>
                     <th class="text-right">Entry TEV/EBITDA</th>
@@ -208,8 +210,6 @@
                     <th class="text-right">Loss (Count)</th>
                     <th class="text-right">Loss (Capital)</th>
                     <th class="text-right">Hold (Yrs)</th>
-                    <th class="text-right">% Inv</th>
-                    <th class="text-right">% Val</th>
                     <th style="width:2rem;"></th>
                 </tr>
             </thead>
@@ -222,9 +222,11 @@
                     </td>
                     <td class="text-right mono">{{ group.deal_count }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.invested_equity) }}</td>
+                    <td class="text-right mono">{% if group.pct_of_invested is not none %}{{ fmt_pct_1dp(group.pct_of_invested) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.realized_value) }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.unrealized_value) }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.total_value) }}</td>
+                    <td class="text-right mono">{% if group.pct_of_total is not none %}{{ fmt_pct_1dp(group.pct_of_total) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.weighted_moic) }}</td>
                     <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.weighted_entry_tev_ebitda) }}</td>
@@ -234,8 +236,6 @@
                     <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.loss_ratio_capital is not none %}{{ fmt_pct_1dp(group.loss_ratio_capital) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_years_1dp(group.weighted_hold_years) }}</td>
-                    <td class="text-right mono">{% if group.pct_of_invested is not none %}{{ fmt_pct_1dp(group.pct_of_invested) }}{% else %}—{% endif %}</td>
-                    <td class="text-right mono">{% if group.pct_of_total is not none %}{{ fmt_pct_1dp(group.pct_of_total) }}{% else %}—{% endif %}</td>
                     <td class="text-center"><i class="bi bi-chevron-right data-cuts-chevron"></i></td>
                 </tr>
                 {# Drill-down row — MUST immediately follow expandable row (JS uses nextElementSibling) #}
@@ -285,9 +285,11 @@
                     <td class="data-cuts-sticky-col"><strong>Total</strong></td>
                     <td class="text-right mono"><strong>{{ a.totals.deal_count }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.invested_equity) }}</strong></td>
+                    <td class="text-right mono"><strong>100.0%</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.realized_value) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.unrealized_value) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.total_value) }}</strong></td>
+                    <td class="text-right mono"><strong>100.0%</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_moic) }}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_entry_tev_ebitda) }}</strong></td>
@@ -297,8 +299,6 @@
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_capital is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_capital) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.weighted_hold_years) }}</strong></td>
-                    <td class="text-right mono"><strong>100.0%</strong></td>
-                    <td class="text-right mono"><strong>100.0%</strong></td>
                     <td></td>
                 </tr>
             </tfoot>
