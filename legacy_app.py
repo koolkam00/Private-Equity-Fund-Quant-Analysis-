@@ -3902,10 +3902,12 @@ def data_cuts_export():
             # Flat grouped table export
             header = [
                 payload["primary_dim_label"], "Deals", "Invested Equity ($M)",
-                "Total Value ($M)", "Value Created ($M)", "Weighted MOIC",
-                "Weighted IRR", "Avg Entry TEV/EBITDA", "Avg Exit TEV/EBITDA",
-                "Avg Entry TEV/Rev", "Avg Exit TEV/Rev",
-                "Loss Ratio (Count)", "Loss Ratio (Capital)", "Avg Hold (Yrs)",
+                "Realized Value ($M)", "Unrealized Value ($M)", "Total Value ($M)",
+                "Weighted MOIC", "Weighted IRR",
+                "Entry TEV/EBITDA (Wtd)", "Exit TEV/EBITDA (Wtd)",
+                "Entry EBITDA Margin (Wtd)", "Exit EBITDA Margin (Wtd)",
+                "Loss Ratio (Count)", "Loss Ratio (Capital)",
+                "Hold Period (Wtd)", "% of Invested", "% of Total Value",
             ]
             ws.append(header)
 
@@ -3914,27 +3916,32 @@ def data_cuts_export():
                     group["label"],
                     group["deal_count"],
                     group["invested_equity"],
+                    group["realized_value"],
+                    group["unrealized_value"],
                     group["total_value"],
-                    group["value_created"],
                     group["weighted_moic"],
                     group["weighted_irr"],
-                    group["avg_entry_tev_ebitda"],
-                    group["avg_exit_tev_ebitda"],
-                    group["avg_entry_tev_revenue"],
-                    group["avg_exit_tev_revenue"],
+                    group["weighted_entry_tev_ebitda"],
+                    group["weighted_exit_tev_ebitda"],
+                    group["weighted_entry_ebitda_margin"],
+                    group["weighted_exit_ebitda_margin"],
                     group["loss_ratio_count"],
                     group["loss_ratio_capital"],
-                    group["avg_hold_years"],
+                    group["weighted_hold_years"],
+                    group["pct_of_invested"],
+                    group["pct_of_total"],
                 ])
 
             # Totals row
             t = payload["totals"]
             ws.append([
-                "Total", t["deal_count"], t["invested_equity"], t["total_value"],
-                t["value_created"], t["weighted_moic"], t["weighted_irr"],
-                t["avg_entry_tev_ebitda"], t["avg_exit_tev_ebitda"],
-                t["avg_entry_tev_revenue"], t["avg_exit_tev_revenue"],
-                t["loss_ratio_count"], t["loss_ratio_capital"], t["avg_hold_years"],
+                "Total", t["deal_count"], t["invested_equity"],
+                t["realized_value"], t["unrealized_value"], t["total_value"],
+                t["weighted_moic"], t["weighted_irr"],
+                t["weighted_entry_tev_ebitda"], t["weighted_exit_tev_ebitda"],
+                t["weighted_entry_ebitda_margin"], t["weighted_exit_ebitda_margin"],
+                t["loss_ratio_count"], t["loss_ratio_capital"],
+                t["weighted_hold_years"], 1.0, 1.0,
             ])
 
         buf = BytesIO()

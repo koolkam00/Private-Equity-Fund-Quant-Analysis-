@@ -416,3 +416,72 @@ class TestGroupSortOrder:
 
         labels = [g["label"] for g in result["groups"]]
         assert labels == ["Consumer", "Tech", "Unknown"]
+
+
+class TestWeightedMetrics:
+    def test_realized_unrealized_values(self):
+        """Groups should have realized_value and unrealized_value fields."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=150, unrealized_value=50)
+        deals = [d1]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        assert tech["realized_value"] == 150
+        assert tech["unrealized_value"] == 50
+        assert tech["total_value"] == 200
+
+    def test_weighted_entry_tev_ebitda(self):
+        """Entry TEV/EBITDA should be equity-weighted."""
+        # Deal 1: equity=100, entry TEV/EBITDA = 200/10 = 20x
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100,
+                        entry_enterprise_value=200, entry_ebitda=10)
+        # Deal 2: equity=300, entry TEV/EBITDA = 300/15 = 20x... make different
+        # Deal 2: equity=300, entry TEV/EBITDA = 600/20 = 30x
+        d2 = _make_deal(id=2, sector="Tech", equity_invested=300,
+                        entry_enterprise_value=600, entry_ebitda=20)
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        # Equity-weighted: (20*100 + 30*300) / (100+300) = (2000+9000)/400 = 27.5
+        assert abs(tech["weighted_entry_tev_ebitda"] - 27.5) < 0.01
+
+    def test_weighted_hold_years(self):
+        """Hold period should be equity-weighted."""
+        # Deal 1: equity=100, hold=2 yrs (2020-2022)
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100,
+                        investment_date=date(2020, 1, 1), exit_date=date(2022, 1, 1))
+        # Deal 2: equity=300, hold=4 yrs (2020-2024)
+        d2 = _make_deal(id=2, sector="Tech", equity_invested=300,
+                        investment_date=date(2020, 1, 1), exit_date=date(2024, 1, 1))
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        # Equity-weighted: (2*100 + 4*300) / (100+300) = 1400/400 = 3.5
+        assert tech["weighted_hold_years"] is not None
+        assert abs(tech["weighted_hold_years"] - 3.5) < 0.1
+
+    def test_weighted_ebitda_margin(self):
+        """EBITDA margins should be equity-weighted."""
+        # Deal 1: equity=100, entry margin=20% (10/50), exit margin=25% (25/100)
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100,
+                        entry_revenue=50, entry_ebitda=10, exit_revenue=100, exit_ebitda=25)
+        # Deal 2: equity=300, entry margin=30% (30/100), exit margin=40% (40/100)
+        d2 = _make_deal(id=2, sector="Tech", equity_invested=300,
+                        entry_revenue=100, entry_ebitda=30, exit_revenue=100, exit_ebitda=40)
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        # Entry margin: deal.py computes 20.0 and 30.0 (already *100)
+        # Equity-weighted: (20*100 + 30*300) / (100+300) = 11000/400 = 27.5
+        assert tech["weighted_entry_ebitda_margin"] is not None
+        assert abs(tech["weighted_entry_ebitda_margin"] - 27.5) < 0.1
+        # Exit margin: (25*100 + 40*300) / (100+300) = 14500/400 = 36.25
+        assert tech["weighted_exit_ebitda_margin"] is not None
+        assert abs(tech["weighted_exit_ebitda_margin"] - 36.25) < 0.1

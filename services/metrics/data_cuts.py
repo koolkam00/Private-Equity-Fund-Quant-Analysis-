@@ -70,15 +70,17 @@ ALLOWED_METRICS = [
     "weighted_moic",
     "weighted_irr",
     "invested_equity",
+    "realized_value",
+    "unrealized_value",
     "total_value",
     "value_created",
-    "avg_entry_tev_ebitda",
-    "avg_exit_tev_ebitda",
-    "avg_entry_tev_revenue",
-    "avg_exit_tev_revenue",
+    "weighted_entry_tev_ebitda",
+    "weighted_exit_tev_ebitda",
+    "weighted_entry_ebitda_margin",
+    "weighted_exit_ebitda_margin",
+    "weighted_hold_years",
     "loss_ratio_count",
     "loss_ratio_capital",
-    "avg_hold_years",
     "pct_of_invested",
     "pct_of_total",
 ]
@@ -109,18 +111,23 @@ def _new_bucket():
     return {
         "deal_count": 0,
         "invested_equity": 0.0,
+        "realized_value": 0.0,
+        "unrealized_value": 0.0,
         "total_value": 0.0,
         "value_created": 0.0,
-        # Weighted IRR accumulators
+        # Equity-weighted accumulators (numerator = metric * equity, denominator = equity)
         "_irr_num": 0.0,
         "_irr_den": 0.0,
-        # Entry/exit multiple accumulators (simple avg)
-        "_entry_tev_ebitda_vals": [],
-        "_exit_tev_ebitda_vals": [],
-        "_entry_tev_revenue_vals": [],
-        "_exit_tev_revenue_vals": [],
-        # Hold period accumulator
-        "_hold_years_vals": [],
+        "_entry_tev_ebitda_num": 0.0,
+        "_entry_tev_ebitda_den": 0.0,
+        "_exit_tev_ebitda_num": 0.0,
+        "_exit_tev_ebitda_den": 0.0,
+        "_entry_ebitda_margin_num": 0.0,
+        "_entry_ebitda_margin_den": 0.0,
+        "_exit_ebitda_margin_num": 0.0,
+        "_exit_ebitda_margin_den": 0.0,
+        "_hold_years_num": 0.0,
+        "_hold_years_den": 0.0,
         # Loss tracking
         "_loss_count": 0,
         "_loss_capital": 0.0,
@@ -133,6 +140,8 @@ def _new_bucket():
 
 def _add_to_bucket(bucket, deal, metrics):
     equity = metrics.get("equity") or 0.0
+    realized = metrics.get("realized") or 0.0
+    unrealized = metrics.get("unrealized") or 0.0
     value_total = metrics.get("value_total") or 0.0
     value_created = metrics.get("value_created") or 0.0
     irr = metrics.get("gross_irr")
@@ -140,24 +149,35 @@ def _add_to_bucket(bucket, deal, metrics):
 
     bucket["deal_count"] += 1
     bucket["invested_equity"] += equity
+    bucket["realized_value"] += realized
+    bucket["unrealized_value"] += unrealized
     bucket["total_value"] += value_total
     bucket["value_created"] += value_created
     bucket["_deal_ids"].append(deal.id)
 
+    # All equity-weighted metrics use the same pattern: num += val * equity, den += equity
     if irr is not None and equity > 0:
         bucket["_irr_num"] += irr * equity
         bucket["_irr_den"] += equity
 
-    # Entry/exit multiples (collect for averaging)
-    for key in ("entry_tev_ebitda", "exit_tev_ebitda", "entry_tev_revenue", "exit_tev_revenue"):
+    for key in ("entry_tev_ebitda", "exit_tev_ebitda"):
         val = metrics.get(key)
-        if val is not None:
-            bucket[f"_{key}_vals"].append(val)
+        if val is not None and equity > 0:
+            bucket[f"_{key}_num"] += val * equity
+            bucket[f"_{key}_den"] += equity
 
-    # Hold period
+    # EBITDA margins (already in percentage form 0-100 from deal.py)
+    for key in ("entry_ebitda_margin", "exit_ebitda_margin"):
+        val = metrics.get(key)
+        if val is not None and equity > 0:
+            bucket[f"_{key}_num"] += val * equity
+            bucket[f"_{key}_den"] += equity
+
+    # Hold period (equity-weighted)
     hold = metrics.get("hold_period")
-    if hold is not None:
-        bucket["_hold_years_vals"].append(hold)
+    if hold is not None and equity > 0:
+        bucket["_hold_years_num"] += hold * equity
+        bucket["_hold_years_den"] += equity
 
     # Loss tracking
     if moic is not None and moic < 1.0 and equity > 0:
@@ -185,22 +205,21 @@ def _finalize_bucket(label, bucket, portfolio_invested=None, portfolio_total_val
     invested = bucket["invested_equity"]
     deal_count = bucket["deal_count"]
 
-    def _avg(vals):
-        return sum(vals) / len(vals) if vals else None
-
     return {
         "label": label,
         "deal_count": deal_count,
         "invested_equity": invested,
+        "realized_value": bucket["realized_value"],
+        "unrealized_value": bucket["unrealized_value"],
         "total_value": bucket["total_value"],
         "value_created": bucket["value_created"],
         "weighted_moic": safe_divide(bucket["total_value"], invested),
         "weighted_irr": safe_divide(bucket["_irr_num"], bucket["_irr_den"]),
-        "avg_entry_tev_ebitda": _avg(bucket["_entry_tev_ebitda_vals"]),
-        "avg_exit_tev_ebitda": _avg(bucket["_exit_tev_ebitda_vals"]),
-        "avg_entry_tev_revenue": _avg(bucket["_entry_tev_revenue_vals"]),
-        "avg_exit_tev_revenue": _avg(bucket["_exit_tev_revenue_vals"]),
-        "avg_hold_years": _avg(bucket["_hold_years_vals"]),
+        "weighted_entry_tev_ebitda": safe_divide(bucket["_entry_tev_ebitda_num"], bucket["_entry_tev_ebitda_den"]),
+        "weighted_exit_tev_ebitda": safe_divide(bucket["_exit_tev_ebitda_num"], bucket["_exit_tev_ebitda_den"]),
+        "weighted_entry_ebitda_margin": safe_divide(bucket["_entry_ebitda_margin_num"], bucket["_entry_ebitda_margin_den"]),
+        "weighted_exit_ebitda_margin": safe_divide(bucket["_exit_ebitda_margin_num"], bucket["_exit_ebitda_margin_den"]),
+        "weighted_hold_years": safe_divide(bucket["_hold_years_num"], bucket["_hold_years_den"]),
         "loss_ratio_count": safe_divide(bucket["_loss_count"], deal_count) if deal_count > 0 else None,
         "loss_ratio_capital": safe_divide(bucket["_loss_capital"], invested) if invested > 0 else None,
         "pct_of_invested": safe_divide(invested, portfolio_invested) if portfolio_invested else None,

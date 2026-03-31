@@ -38,9 +38,15 @@
                     <option value="weighted_moic" {% if current_metric == 'weighted_moic' %}selected{% endif %}>Weighted MOIC</option>
                     <option value="weighted_irr" {% if current_metric == 'weighted_irr' %}selected{% endif %}>Weighted IRR</option>
                     <option value="invested_equity" {% if current_metric == 'invested_equity' %}selected{% endif %}>Invested Equity</option>
+                    <option value="realized_value" {% if current_metric == 'realized_value' %}selected{% endif %}>Realized Value</option>
+                    <option value="unrealized_value" {% if current_metric == 'unrealized_value' %}selected{% endif %}>Unrealized Value</option>
+                    <option value="total_value" {% if current_metric == 'total_value' %}selected{% endif %}>Total Value</option>
                     <option value="value_created" {% if current_metric == 'value_created' %}selected{% endif %}>Value Created</option>
-                    <option value="avg_entry_tev_ebitda" {% if current_metric == 'avg_entry_tev_ebitda' %}selected{% endif %}>Avg Entry TEV/EBITDA</option>
-                    <option value="avg_exit_tev_ebitda" {% if current_metric == 'avg_exit_tev_ebitda' %}selected{% endif %}>Avg Exit TEV/EBITDA</option>
+                    <option value="weighted_entry_tev_ebitda" {% if current_metric == 'weighted_entry_tev_ebitda' %}selected{% endif %}>Entry TEV/EBITDA</option>
+                    <option value="weighted_exit_tev_ebitda" {% if current_metric == 'weighted_exit_tev_ebitda' %}selected{% endif %}>Exit TEV/EBITDA</option>
+                    <option value="weighted_entry_ebitda_margin" {% if current_metric == 'weighted_entry_ebitda_margin' %}selected{% endif %}>Entry EBITDA Margin</option>
+                    <option value="weighted_exit_ebitda_margin" {% if current_metric == 'weighted_exit_ebitda_margin' %}selected{% endif %}>Exit EBITDA Margin</option>
+                    <option value="weighted_hold_years" {% if current_metric == 'weighted_hold_years' %}selected{% endif %}>Hold Period</option>
                     <option value="loss_ratio_count" {% if current_metric == 'loss_ratio_count' %}selected{% endif %}>Loss Ratio (Count)</option>
                     <option value="loss_ratio_capital" {% if current_metric == 'loss_ratio_capital' %}selected{% endif %}>Loss Ratio (Capital)</option>
                 </select>
@@ -106,11 +112,13 @@
                     {% set cell = ct_row.get(sec) %}
                     <td class="text-right mono">
                         {% if cell %}
-                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                        {% if current_metric in ('weighted_moic', 'weighted_entry_tev_ebitda', 'weighted_exit_tev_ebitda') %}
                             {{ fmt_multiple(cell.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                        {% elif current_metric in ('weighted_entry_ebitda_margin', 'weighted_exit_ebitda_margin') %}
+                            {% if cell.get(current_metric) is not none %}{{ "%.1f%%"|format(cell.get(current_metric)) }}{% else %}—{% endif %}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(cell.get(current_metric)) }}
-                        {% elif current_metric == 'avg_hold_years' %}
+                        {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(cell.get(current_metric)) }}
                         {% else %}
                             {{ fmt_currency_symbol(cell.get(current_metric)) }}
@@ -120,11 +128,13 @@
                     </td>
                     {% endfor %}
                     <td class="text-right mono data-cuts-totals-col">
-                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                        {% if current_metric in ('weighted_moic', 'weighted_entry_tev_ebitda', 'weighted_exit_tev_ebitda') %}
                             {{ fmt_multiple(group.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                        {% elif current_metric in ('weighted_entry_ebitda_margin', 'weighted_exit_ebitda_margin') %}
+                            {% if group.get(current_metric) is not none %}{{ "%.1f%%"|format(group.get(current_metric)) }}{% else %}—{% endif %}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(group.get(current_metric)) }}
-                        {% elif current_metric == 'avg_hold_years' %}
+                        {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(group.get(current_metric)) }}
                         {% else %}
                             {{ fmt_currency_symbol(group.get(current_metric)) }}
@@ -140,11 +150,13 @@
                     {% set ct = (a.col_totals or {}).get(sec) %}
                     <td class="text-right mono">
                         {% if ct %}
-                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                        {% if current_metric in ('weighted_moic', 'weighted_entry_tev_ebitda', 'weighted_exit_tev_ebitda') %}
                             <strong>{{ fmt_multiple(ct.get(current_metric)) }}</strong>
-                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                        {% elif current_metric in ('weighted_entry_ebitda_margin', 'weighted_exit_ebitda_margin') %}
+                            <strong>{% if ct.get(current_metric) is not none %}{{ "%.1f%%"|format(ct.get(current_metric)) }}{% else %}—{% endif %}</strong>
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             <strong>{{ fmt_pct_1dp(ct.get(current_metric)) }}</strong>
-                        {% elif current_metric == 'avg_hold_years' %}
+                        {% elif current_metric == 'weighted_hold_years' %}
                             <strong>{{ fmt_years_1dp(ct.get(current_metric)) }}</strong>
                         {% else %}
                             <strong>{{ fmt_currency_symbol(ct.get(current_metric)) }}</strong>
@@ -154,11 +166,13 @@
                     {% endfor %}
                     <td class="text-right mono data-cuts-totals-col">
                         <strong>
-                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                        {% if current_metric in ('weighted_moic', 'weighted_entry_tev_ebitda', 'weighted_exit_tev_ebitda') %}
                             {{ fmt_multiple(a.totals.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                        {% elif current_metric in ('weighted_entry_ebitda_margin', 'weighted_exit_ebitda_margin') %}
+                            {% if a.totals.get(current_metric) is not none %}{{ "%.1f%%"|format(a.totals.get(current_metric)) }}{% else %}—{% endif %}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(a.totals.get(current_metric)) }}
-                        {% elif current_metric == 'avg_hold_years' %}
+                        {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(a.totals.get(current_metric)) }}
                         {% else %}
                             {{ fmt_currency_symbol(a.totals.get(current_metric)) }}
@@ -182,12 +196,15 @@
                     <th class="data-cuts-sticky-col">{{ a.primary_dim_label }}</th>
                     <th class="text-right">Deals</th>
                     <th class="text-right">Invested ({{ fmt_currency_unit_label() }})</th>
+                    <th class="text-right">Realized</th>
+                    <th class="text-right">Unrealized</th>
                     <th class="text-right">Total Value</th>
-                    <th class="text-right">Value Created</th>
                     <th class="text-right">MOIC</th>
                     <th class="text-right">IRR</th>
                     <th class="text-right">Entry TEV/EBITDA</th>
                     <th class="text-right">Exit TEV/EBITDA</th>
+                    <th class="text-right">Entry Margin</th>
+                    <th class="text-right">Exit Margin</th>
                     <th class="text-right">Loss (Count)</th>
                     <th class="text-right">Loss (Capital)</th>
                     <th class="text-right">Hold (Yrs)</th>
@@ -205,22 +222,25 @@
                     </td>
                     <td class="text-right mono">{{ group.deal_count }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.invested_equity) }}</td>
+                    <td class="text-right mono">{{ fmt_currency_symbol(group.realized_value) }}</td>
+                    <td class="text-right mono">{{ fmt_currency_symbol(group.unrealized_value) }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.total_value) }}</td>
-                    <td class="text-right mono">{{ fmt_currency_symbol(group.value_created) }}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.weighted_moic) }}</td>
                     <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr) }}{% else %}—{% endif %}</td>
-                    <td class="text-right mono">{{ fmt_multiple(group.avg_entry_tev_ebitda) }}</td>
-                    <td class="text-right mono">{{ fmt_multiple(group.avg_exit_tev_ebitda) }}</td>
+                    <td class="text-right mono">{{ fmt_multiple(group.weighted_entry_tev_ebitda) }}</td>
+                    <td class="text-right mono">{{ fmt_multiple(group.weighted_exit_tev_ebitda) }}</td>
+                    <td class="text-right mono">{% if group.weighted_entry_ebitda_margin is not none %}{{ "%.1f%%"|format(group.weighted_entry_ebitda_margin) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.weighted_exit_ebitda_margin is not none %}{{ "%.1f%%"|format(group.weighted_exit_ebitda_margin) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.loss_ratio_capital is not none %}{{ fmt_pct_1dp(group.loss_ratio_capital) }}{% else %}—{% endif %}</td>
-                    <td class="text-right mono">{{ fmt_years_1dp(group.avg_hold_years) }}</td>
+                    <td class="text-right mono">{{ fmt_years_1dp(group.weighted_hold_years) }}</td>
                     <td class="text-right mono">{% if group.pct_of_invested is not none %}{{ fmt_pct_1dp(group.pct_of_invested) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.pct_of_total is not none %}{{ fmt_pct_1dp(group.pct_of_total) }}{% else %}—{% endif %}</td>
                     <td class="text-center"><i class="bi bi-chevron-right data-cuts-chevron"></i></td>
                 </tr>
                 {# Drill-down row — MUST immediately follow expandable row (JS uses nextElementSibling) #}
                 <tr class="data-cuts-drilldown" style="display:none;">
-                    <td colspan="15" style="padding:0;">
+                    <td colspan="18" style="padding:0;">
                         <div class="data-cuts-drilldown-inner">
                         <table class="table-dense" style="margin:0;">
                             <thead>
@@ -265,15 +285,18 @@
                     <td class="data-cuts-sticky-col"><strong>Total</strong></td>
                     <td class="text-right mono"><strong>{{ a.totals.deal_count }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.invested_equity) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.realized_value) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.unrealized_value) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.total_value) }}</strong></td>
-                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.value_created) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_moic) }}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr) }}{% else %}—{% endif %}</strong></td>
-                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_entry_tev_ebitda) }}</strong></td>
-                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_exit_tev_ebitda) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_entry_tev_ebitda) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_exit_tev_ebitda) }}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_entry_ebitda_margin is not none %}{{ "%.1f%%"|format(a.totals.weighted_entry_ebitda_margin) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_exit_ebitda_margin is not none %}{{ "%.1f%%"|format(a.totals.weighted_exit_ebitda_margin) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_capital is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_capital) }}{% else %}—{% endif %}</strong></td>
-                    <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.avg_hold_years) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.weighted_hold_years) }}</strong></td>
                     <td class="text-right mono"><strong>100.0%</strong></td>
                     <td class="text-right mono"><strong>100.0%</strong></td>
                     <td></td>
@@ -327,17 +350,21 @@
 
     var METRIC_LABELS = {
         'weighted_moic': 'Weighted MOIC (x)',
-        'weighted_irr': 'Weighted IRR',
+        'weighted_irr': 'Weighted IRR (%)',
         'invested_equity': 'Invested Equity ($M)',
-        'value_created': 'Value Created ($M)',
+        'realized_value': 'Realized Value ($M)',
+        'unrealized_value': 'Unrealized Value ($M)',
         'total_value': 'Total Value ($M)',
-        'avg_entry_tev_ebitda': 'Avg Entry TEV/EBITDA (x)',
-        'avg_exit_tev_ebitda': 'Avg Exit TEV/EBITDA (x)',
-        'avg_entry_tev_revenue': 'Avg Entry TEV/Revenue (x)',
-        'avg_exit_tev_revenue': 'Avg Exit TEV/Revenue (x)',
+        'value_created': 'Value Created ($M)',
+        'weighted_entry_tev_ebitda': 'Entry TEV/EBITDA (x)',
+        'weighted_exit_tev_ebitda': 'Exit TEV/EBITDA (x)',
+        'weighted_entry_ebitda_margin': 'Entry EBITDA Margin (%)',
+        'weighted_exit_ebitda_margin': 'Exit EBITDA Margin (%)',
+        'weighted_hold_years': 'Hold Period (Years)',
         'loss_ratio_count': 'Loss Ratio (Count %)',
         'loss_ratio_capital': 'Loss Ratio (Capital %)',
-        'avg_hold_years': 'Avg Hold Period (Years)'
+        'pct_of_invested': '% of Invested',
+        'pct_of_total': '% of Total Value'
     };
 
     var canvas = document.getElementById('dataCutsChart');
@@ -374,8 +401,10 @@
                                 if (v == null) return '—';
                                 if (metricKey.indexOf('moic') >= 0 || metricKey.indexOf('tev') >= 0)
                                     return v.toFixed(2) + 'x';
-                                if (metricKey.indexOf('irr') >= 0 || metricKey.indexOf('loss') >= 0)
+                                if (metricKey.indexOf('irr') >= 0 || metricKey.indexOf('loss') >= 0 || metricKey.indexOf('pct_of') >= 0)
                                     return (v * 100).toFixed(1) + '%';
+                                if (metricKey.indexOf('margin') >= 0)
+                                    return v.toFixed(1) + '%';
                                 if (metricKey.indexOf('hold') >= 0)
                                     return v.toFixed(1) + ' yrs';
                                 return '$' + v.toFixed(1) + 'M';
