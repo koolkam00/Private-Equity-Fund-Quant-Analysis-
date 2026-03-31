@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}Slice portfolio performance by any dimension.{% if analysis.as_of_date %} <span class="text-muted" style="font-size:var(--text-xs);">Portfolio data as of {{ analysis.as_of_date }}</span>{% endif %}{% endblock %}
+
+{% set a = analysis %}
+{% set current_dim = request.args.get('dim', 'sector') %}
+{% set current_dim2 = request.args.get('dim2', '') %}
+{% set current_metric = request.args.get('metric', 'weighted_moic') %}
+
+{% block content %}
+
+{# --- Controls Bar --- #}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Group by</span>
+                <select name="dim">
+                    {% for key, label in a.dimension_labels.items() %}
+                    <option value="{{ key }}" {% if current_dim == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Cross-tab by (optional)</span>
+                <select name="dim2">
+                    <option value="">— None —</option>
+                    {% for key, label in a.dimension_labels.items() %}
+                    <option value="{{ key }}" {% if current_dim2 == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Chart metric</span>
+                <select name="metric" id="dataCutsMetricSelect">
+                    <option value="weighted_moic" {% if current_metric == 'weighted_moic' %}selected{% endif %}>Weighted MOIC</option>
+                    <option value="weighted_irr" {% if current_metric == 'weighted_irr' %}selected{% endif %}>Weighted IRR</option>
+                    <option value="invested_equity" {% if current_metric == 'invested_equity' %}selected{% endif %}>Invested Equity</option>
+                    <option value="value_created" {% if current_metric == 'value_created' %}selected{% endif %}>Value Created</option>
+                    <option value="avg_entry_tev_ebitda" {% if current_metric == 'avg_entry_tev_ebitda' %}selected{% endif %}>Avg Entry TEV/EBITDA</option>
+                    <option value="avg_exit_tev_ebitda" {% if current_metric == 'avg_exit_tev_ebitda' %}selected{% endif %}>Avg Exit TEV/EBITDA</option>
+                    <option value="loss_ratio_count" {% if current_metric == 'loss_ratio_count' %}selected{% endif %}>Loss Ratio (Count)</option>
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Update</button>
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Reset</a>
+        </div>
+    </form>
+</div>
+
+{% if a.deal_count == 0 %}
+{# --- Empty State --- #}
+<div class="panel" style="text-align:center; padding:3rem;">
+    <p style="font-size:var(--text-lg); color:var(--ink-muted);">No deals match this portfolio. Upload deals to begin analysis.</p>
+</div>
+{% else %}
+
+{# --- Data Quality Warning --- #}
+{% if a.data_quality_warning %}
+<div class="panel" style="background:var(--warning-light); border-left:3px solid var(--accent-2); padding:0.75rem 1rem; margin-bottom:1rem;">
+    <span style="font-size:var(--text-sm); color:var(--ink);">
+        <i class="bi bi-exclamation-triangle" style="color:var(--accent-2);"></i>
+        {{ a.data_quality_warning.count }} deals ({{ "%.0f"|format(a.data_quality_warning.pct * 100) }}%) are missing {{ a.data_quality_warning.dimension }} data. Update deal records for complete analysis.
+    </span>
+</div>
+{% endif %}
+
+{# --- Cross-tab Truncation Notice --- #}
+{% if a.cross_tab_truncated %}
+<div class="panel" style="background:var(--primary-light); padding:0.5rem 1rem; margin-bottom:0.5rem; font-size:var(--text-sm);">
+    Showing top {{ a.secondary_labels|length - 1 }} {{ a.secondary_dim_label }} groups by invested equity. {{ a.truncated_count }} groups combined into "Other".
+</div>
+{% endif %}
+
+{# --- Metrics Table (or Cross-Tab Matrix) --- #}
+{% if a.cross_tab %}
+{# Cross-tab matrix view #}
+<div class="panel data-cuts-table-wrap">
+    <h3>{{ a.primary_dim_label }} × {{ a.secondary_dim_label }}</h3>
+    <div class="data-cuts-scroll-container">
+        <table class="table-dense data-cuts-cross-tab">
+            <thead>
+                <tr>
+                    <th class="data-cuts-sticky-col">{{ a.primary_dim_label }}</th>
+                    {% for sec in a.secondary_labels %}
+                    <th title="{{ sec }}">{{ sec[:12] }}{% if sec|length > 12 %}…{% endif %}</th>
+                    {% endfor %}
+                    <th class="data-cuts-totals-col">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in a.groups %}
+                <tr class="data-cuts-row" data-group="{{ group.label }}">
+                    <td class="data-cuts-sticky-col">
+                        {{ group.label }}
+                        {% if group.small_n %}<span class="data-cuts-small-n" title="N < 3, interpret with caution"><i class="bi bi-info-circle"></i></span>{% endif %}
+                        <span class="text-muted" style="font-size:var(--text-xs);">({{ group.deal_count }})</span>
+                    </td>
+                    {% set ct_row = a.cross_tab.get(group.label, {}) %}
+                    {% for sec in a.secondary_labels %}
+                    {% set cell = ct_row.get(sec) %}
+                    <td class="text-right mono">
+                        {% if cell %}
+                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                            {{ fmt_multiple(cell.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                            {{ fmt_pct_1dp(cell.get(current_metric) * 100 if cell.get(current_metric) is not none else none) }}
+                        {% elif current_metric == 'avg_hold_years' %}
+                            {{ fmt_years_1dp(cell.get(current_metric)) }}
+                        {% else %}
+                            {{ fmt_currency_symbol(cell.get(current_metric)) }}
+                        {% endif %}
+                        {% if cell.small_n %}<span class="data-cuts-small-n" title="N < 3"><i class="bi bi-info-circle"></i></span>{% endif %}
+                        {% else %}—{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-right mono data-cuts-totals-col">
+                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                            {{ fmt_multiple(group.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                            {{ fmt_pct_1dp(group.get(current_metric) * 100 if group.get(current_metric) is not none else none) }}
+                        {% elif current_metric == 'avg_hold_years' %}
+                            {{ fmt_years_1dp(group.get(current_metric)) }}
+                        {% else %}
+                            {{ fmt_currency_symbol(group.get(current_metric)) }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="data-cuts-totals-row">
+                    <td class="data-cuts-sticky-col"><strong>Total</strong></td>
+                    {% for sec in a.secondary_labels %}
+                    {% set ct = (a.col_totals or {}).get(sec) %}
+                    <td class="text-right mono">
+                        {% if ct %}
+                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                            <strong>{{ fmt_multiple(ct.get(current_metric)) }}</strong>
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                            <strong>{{ fmt_pct_1dp(ct.get(current_metric) * 100 if ct.get(current_metric) is not none else none) }}</strong>
+                        {% elif current_metric == 'avg_hold_years' %}
+                            <strong>{{ fmt_years_1dp(ct.get(current_metric)) }}</strong>
+                        {% else %}
+                            <strong>{{ fmt_currency_symbol(ct.get(current_metric)) }}</strong>
+                        {% endif %}
+                        {% else %}—{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-right mono data-cuts-totals-col">
+                        <strong>
+                        {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
+                            {{ fmt_multiple(a.totals.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
+                            {{ fmt_pct_1dp(a.totals.get(current_metric) * 100 if a.totals.get(current_metric) is not none else none) }}
+                        {% elif current_metric == 'avg_hold_years' %}
+                            {{ fmt_years_1dp(a.totals.get(current_metric)) }}
+                        {% else %}
+                            {{ fmt_currency_symbol(a.totals.get(current_metric)) }}
+                        {% endif %}
+                        </strong>
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+
+{% else %}
+{# Flat grouped table view #}
+<div class="panel">
+    <h3>Performance by {{ a.primary_dim_label }}</h3>
+    <div class="data-cuts-scroll-container">
+        <table class="table-dense data-cuts-table">
+            <thead>
+                <tr>
+                    <th class="data-cuts-sticky-col">{{ a.primary_dim_label }}</th>
+                    <th class="text-right">Deals</th>
+                    <th class="text-right">Invested ({{ fmt_currency_unit_label() }})</th>
+                    <th class="text-right">Total Value</th>
+                    <th class="text-right">Value Created</th>
+                    <th class="text-right">MOIC</th>
+                    <th class="text-right">IRR</th>
+                    <th class="text-right">Entry TEV/EBITDA</th>
+                    <th class="text-right">Exit TEV/EBITDA</th>
+                    <th class="text-right">Loss Ratio</th>
+                    <th class="text-right">Hold (Yrs)</th>
+                    <th style="width:2rem;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in a.groups %}
+                <tr class="data-cuts-row data-cuts-expandable" data-group="{{ group.label }}">
+                    <td class="data-cuts-sticky-col">
+                        {{ group.label }}
+                        {% if group.small_n %}<span class="data-cuts-small-n" title="N < 3, interpret with caution"><i class="bi bi-info-circle"></i></span>{% endif %}
+                    </td>
+                    <td class="text-right mono">{{ group.deal_count }}</td>
+                    <td class="text-right mono">{{ fmt_currency_symbol(group.invested_equity) }}</td>
+                    <td class="text-right mono">{{ fmt_currency_symbol(group.total_value) }}</td>
+                    <td class="text-right mono">{{ fmt_currency_symbol(group.value_created) }}</td>
+                    <td class="text-right mono">{{ fmt_multiple(group.weighted_moic) }}</td>
+                    <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{{ fmt_multiple(group.avg_entry_tev_ebitda) }}</td>
+                    <td class="text-right mono">{{ fmt_multiple(group.avg_exit_tev_ebitda) }}</td>
+                    <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{{ fmt_years_1dp(group.avg_hold_years) }}</td>
+                    <td class="text-center"><i class="bi bi-chevron-right data-cuts-chevron"></i></td>
+                </tr>
+                {# Drill-down row (hidden by default) #}
+                <tr class="data-cuts-drilldown" data-group="{{ group.label }}" style="display:none;">
+                    <td colspan="12" style="padding:0;">
+                        <div class="data-cuts-drilldown-inner">
+                        <table class="table-dense" style="margin:0;">
+                            <thead>
+                                <tr>
+                                    <th>Company</th>
+                                    <th>Fund</th>
+                                    <th>Status</th>
+                                    <th class="text-right">Invested</th>
+                                    <th class="text-right">MOIC</th>
+                                    <th class="text-right">IRR</th>
+                                    <th class="text-right">Hold (Yrs)</th>
+                                    <th class="text-right">Entry TEV/EBITDA</th>
+                                    <th class="text-right">Exit TEV/EBITDA</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for deal in group.deals %}
+                                <tr>
+                                    <td>{{ deal.company_name }}</td>
+                                    <td>{{ deal.fund_number }}</td>
+                                    <td>{{ deal.status }}</td>
+                                    <td class="text-right mono">{{ fmt_currency_symbol(deal.equity_invested) }}</td>
+                                    <td class="text-right mono">{{ fmt_multiple(deal.moic) }}</td>
+                                    <td class="text-right mono">{% if deal.irr is not none %}{{ fmt_pct_1dp(deal.irr * 100) }}{% else %}—{% endif %}</td>
+                                    <td class="text-right mono">{{ fmt_years_1dp(deal.hold_years) }}</td>
+                                    <td class="text-right mono">{{ fmt_multiple(deal.entry_tev_ebitda) }}</td>
+                                    <td class="text-right mono">{{ fmt_multiple(deal.exit_tev_ebitda) }}</td>
+                                </tr>
+                                {% endfor %}
+                                {% if group.deals|length == 0 %}
+                                <tr><td colspan="9" class="text-center text-muted">No deals in this group.</td></tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="data-cuts-totals-row">
+                    <td class="data-cuts-sticky-col"><strong>Total</strong></td>
+                    <td class="text-right mono"><strong>{{ a.totals.deal_count }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.invested_equity) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.total_value) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.value_created) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_moic) }}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr * 100) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_entry_tev_ebitda) }}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_exit_tev_ebitda) }}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count * 100) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.avg_hold_years) }}</strong></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{# --- Chart --- #}
+<div class="panel" id="dataCutsChartPanel">
+    <h3>{{ a.primary_dim_label }} — <span id="dataCutsChartMetricLabel">{{ current_metric|replace('_', ' ')|title }}</span></h3>
+    {% if a.chart_secondary and a.chart_secondary.truncated %}
+    <p style="font-size:var(--text-xs); color:var(--ink-muted);">Chart showing top {{ a.chart_secondary.secondary_labels|length }} of {{ a.chart_secondary.total_secondary }} {{ a.secondary_dim_label }} groups.</p>
+    {% endif %}
+    <canvas id="dataCutsChart" height="300"></canvas>
+</div>
+
+{# --- Export --- #}
+<div style="text-align:right; margin-top:1rem;">
+    <a id="dataCutsExportBtn" class="btn-upload" href="{{ url_for('data_cuts_export', dim=current_dim, dim2=current_dim2, metric=current_metric) }}">
+        <i class="bi bi-download"></i> Export to Excel
+    </a>
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    // --- Drill-down accordion ---
+    document.querySelectorAll('.data-cuts-expandable').forEach(function(row) {
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', function() {
+            var group = this.dataset.group;
+            var drilldown = document.querySelector('.data-cuts-drilldown[data-group="' + group + '"]');
+            var chevron = this.querySelector('.data-cuts-chevron');
+            if (drilldown) {
+                var isOpen = drilldown.style.display !== 'none';
+                drilldown.style.display = isOpen ? 'none' : '';
+                if (chevron) chevron.classList.toggle('bi-chevron-down', !isOpen);
+                if (chevron) chevron.classList.toggle('bi-chevron-right', isOpen);
+            }
+        });
+    });
+
+    // --- Chart ---
+    var chartLabels = {{ a.chart_labels | tojson }};
+    var chartDatasets = {{ a.chart_datasets | tojson }};
+    var currentMetric = '{{ current_metric }}';
+
+    var METRIC_LABELS = {
+        'weighted_moic': 'Weighted MOIC (x)',
+        'weighted_irr': 'Weighted IRR',
+        'invested_equity': 'Invested Equity ($M)',
+        'value_created': 'Value Created ($M)',
+        'total_value': 'Total Value ($M)',
+        'avg_entry_tev_ebitda': 'Avg Entry TEV/EBITDA (x)',
+        'avg_exit_tev_ebitda': 'Avg Exit TEV/EBITDA (x)',
+        'avg_entry_tev_revenue': 'Avg Entry TEV/Revenue (x)',
+        'avg_exit_tev_revenue': 'Avg Exit TEV/Revenue (x)',
+        'loss_ratio_count': 'Loss Ratio (Count %)',
+        'loss_ratio_capital': 'Loss Ratio (Capital %)',
+        'avg_hold_years': 'Avg Hold Period (Years)'
+    };
+
+    var canvas = document.getElementById('dataCutsChart');
+    var chart = null;
+
+    function buildChart(metricKey) {
+        var data = chartDatasets[metricKey] || [];
+        var colors = (typeof CHART_COLORS !== 'undefined') ? CHART_COLORS : [
+            '#0A6B58','#C9982E','#3B82C4','#D4553A','#6B5B95','#88B04B',
+            '#F7CAC9','#92A8D1','#955251','#B565A7'
+        ];
+        var bgColors = chartLabels.map(function(_, i) { return colors[i % colors.length]; });
+
+        if (chart) chart.destroy();
+        chart = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: chartLabels,
+                datasets: [{
+                    label: METRIC_LABELS[metricKey] || metricKey,
+                    data: data,
+                    backgroundColor: bgColors,
+                    borderWidth: 0,
+                    borderRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                var v = ctx.parsed.y;
+                                if (v == null) return '—';
+                                if (metricKey.indexOf('moic') >= 0 || metricKey.indexOf('tev') >= 0)
+                                    return v.toFixed(2) + 'x';
+                                if (metricKey.indexOf('irr') >= 0 || metricKey.indexOf('loss') >= 0)
+                                    return (v * 100).toFixed(1) + '%';
+                                if (metricKey.indexOf('hold') >= 0)
+                                    return v.toFixed(1) + ' yrs';
+                                return '$' + v.toFixed(1) + 'M';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            maxRotation: chartLabels.length > 6 ? 45 : 0,
+                            font: { size: 11 }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: METRIC_LABELS[metricKey] || metricKey,
+                            font: { size: 12 }
+                        },
+                        ticks: { font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    }
+
+    if (chartLabels.length > 0) {
+        buildChart(currentMetric);
+    } else {
+        canvas.parentElement.innerHTML = '<p style="text-align:center;color:var(--ink-muted);padding:2rem;">No data available for chart.</p>';
+    }
+
+    // --- Metric selector sync (updates URL + chart) ---
+    var metricSelect = document.getElementById('dataCutsMetricSelect');
+    if (metricSelect) {
+        metricSelect.addEventListener('change', function() {
+            var url = new URL(window.location.href);
+            url.searchParams.set('metric', this.value);
+            window.history.replaceState(null, '', url.toString());
+            // Update export link
+            var exportBtn = document.getElementById('dataCutsExportBtn');
+            if (exportBtn) {
+                var exportUrl = new URL(exportBtn.href);
+                exportUrl.searchParams.set('metric', this.value);
+                exportBtn.href = exportUrl.toString();
+            }
+            // Rebuild chart
+            buildChart(this.value);
+            // Update chart title
+            var label = document.getElementById('dataCutsChartMetricLabel');
+            if (label) label.textContent = METRIC_LABELS[this.value] || this.value;
+        });
+    }
+
+    // --- Export loading state ---
+    var exportBtn = document.getElementById('dataCutsExportBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            var btn = this;
+            var origHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Exporting...';
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.6';
+            setTimeout(function() {
+                btn.innerHTML = origHTML;
+                btn.style.pointerEvents = '';
+                btn.style.opacity = '';
+            }, 3000);
+        });
+    }
+})();
+</script>
+{% endblock %}

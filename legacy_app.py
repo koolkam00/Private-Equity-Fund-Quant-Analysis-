@@ -67,6 +67,7 @@ from services.metrics import (
     compute_benchmark_confidence_analysis,
     compute_bridge_aggregate,
     compute_bridge_view,
+    compute_data_cuts_analytics,
     compute_data_quality,
     compute_deals_rollup_details,
     compute_deal_trajectory_analysis,
@@ -215,6 +216,10 @@ ANALYSIS_PAGES = {
         "title": "Organic vs Acquired Growth",
         "description": "Decomposition of revenue and EBITDA growth into organic vs bolt-on acquisition contributions with bridge integration.",
     },
+    "data-cuts": {
+        "title": "Data Cuts",
+        "description": "Slice portfolio performance by any qualitative dimension with grouped metrics, charts, and drill-down.",
+    },
 }
 
 WORKFLOW_SIDEBAR_ITEMS = [
@@ -249,6 +254,7 @@ ANALYSIS_SIDEBAR_ITEMS = [
     {"page_key": "fund-comparison", "label": "Fund Comparison", "icon": "bi bi-arrow-left-right"},
     {"page_key": "lp-due-diligence-memo", "label": "LP Due Diligence Memo", "icon": "bi bi-file-earmark-text"},
     {"page_key": "organic-growth", "label": "Organic vs Acquired", "icon": "bi bi-diagram-3"},
+    {"page_key": "data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
 ]
 
 TEAM_ROLE_OWNER = "owner"
@@ -2865,6 +2871,14 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         return compute_vca_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "organic-growth":
         return compute_organic_growth_analysis(filtered_deals, metrics_by_id=metrics_by_id)
+    if page == "data-cuts":
+        primary_dim = request.args.get("dim", "sector")
+        secondary_dim = request.args.get("dim2", "")
+        return compute_data_cuts_analytics(
+            filtered_deals, metrics_by_id,
+            primary_dim=primary_dim,
+            secondary_dim=secondary_dim or None,
+        )
     if page == "benchmarking":
         thresholds = _load_team_benchmark_thresholds(team_id, benchmark_asset_class)
         return compute_benchmarking_analysis(
@@ -3784,6 +3798,8 @@ def analysis_page(page):
         template_name = "analysis_lp_due_diligence_memo.html"
     elif page == "organic-growth":
         template_name = "analysis_organic_growth.html"
+    elif page == "data-cuts":
+        template_name = "analysis_data_cuts.html"
 
     return render_template(
         template_name,
@@ -3826,6 +3842,112 @@ def analysis_series_api(page):
             "payload": payload,
         }
     )
+
+
+@app.route("/api/data-cuts/export")
+@login_required
+def data_cuts_export():
+    from io import BytesIO
+    from openpyxl import Workbook
+    from services.metrics.data_cuts import ALLOWED_METRICS
+
+    try:
+        filter_ctx = _build_filtered_deals_context()
+        metrics_by_id = filter_ctx.get("metrics_by_id") or {d.id: compute_deal_metrics(d) for d in filter_ctx["deals"]}
+
+        primary_dim = request.args.get("dim", "sector")
+        secondary_dim = request.args.get("dim2", "")
+        metric = request.args.get("metric", "weighted_moic")
+        if metric not in ALLOWED_METRICS:
+            metric = "weighted_moic"
+
+        payload = compute_data_cuts_analytics(
+            filter_ctx["deals"], metrics_by_id,
+            primary_dim=primary_dim,
+            secondary_dim=secondary_dim or None,
+        )
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Data Cuts"
+
+        # Header row with as-of date
+        if payload.get("as_of_date"):
+            ws.append([f"Data Cuts — {payload['primary_dim_label']}", "", f"As of {payload['as_of_date']}"])
+            ws.append([])
+
+        if payload.get("cross_tab") and payload.get("secondary_labels"):
+            # Cross-tab export: rows = primary dim, columns = secondary dim, cells = selected metric
+            header = [payload["primary_dim_label"]] + payload["secondary_labels"] + ["Total"]
+            ws.append(header)
+
+            for group in payload["groups"]:
+                row_data = [group["label"]]
+                ct_row = payload["cross_tab"].get(group["label"], {})
+                for sec_label in payload["secondary_labels"]:
+                    cell = ct_row.get(sec_label)
+                    row_data.append(cell.get(metric) if cell else None)
+                row_data.append(group.get(metric))
+                ws.append(row_data)
+
+            # Totals row
+            totals_row = ["Total"]
+            col_totals = payload.get("col_totals") or {}
+            for sec_label in payload["secondary_labels"]:
+                ct = col_totals.get(sec_label)
+                totals_row.append(ct.get(metric) if ct else None)
+            totals_row.append(payload["totals"].get(metric))
+            ws.append(totals_row)
+        else:
+            # Flat grouped table export
+            header = [
+                payload["primary_dim_label"], "Deals", "Invested Equity ($M)",
+                "Total Value ($M)", "Value Created ($M)", "Weighted MOIC",
+                "Weighted IRR", "Avg Entry TEV/EBITDA", "Avg Exit TEV/EBITDA",
+                "Avg Entry TEV/Rev", "Avg Exit TEV/Rev",
+                "Loss Ratio (Count)", "Loss Ratio (Capital)", "Avg Hold (Yrs)",
+            ]
+            ws.append(header)
+
+            for group in payload["groups"]:
+                ws.append([
+                    group["label"],
+                    group["deal_count"],
+                    group["invested_equity"],
+                    group["total_value"],
+                    group["value_created"],
+                    group["weighted_moic"],
+                    group["weighted_irr"],
+                    group["avg_entry_tev_ebitda"],
+                    group["avg_exit_tev_ebitda"],
+                    group["avg_entry_tev_revenue"],
+                    group["avg_exit_tev_revenue"],
+                    group["loss_ratio_count"],
+                    group["loss_ratio_capital"],
+                    group["avg_hold_years"],
+                ])
+
+            # Totals row
+            t = payload["totals"]
+            ws.append([
+                "Total", t["deal_count"], t["invested_equity"], t["total_value"],
+                t["value_created"], t["weighted_moic"], t["weighted_irr"],
+                t["avg_entry_tev_ebitda"], t["avg_exit_tev_ebitda"],
+                t["avg_entry_tev_revenue"], t["avg_exit_tev_revenue"],
+                t["loss_ratio_count"], t["loss_ratio_capital"], t["avg_hold_years"],
+            ])
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        return Response(
+            buf.getvalue(),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="data-cuts-export.xlsx"'},
+        )
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Data cuts export failed")
 
 
 @app.route("/api/analysis/executive-summary/llm-insights")

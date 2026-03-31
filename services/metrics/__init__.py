@@ -48,6 +48,7 @@ from services.metrics.benchmarking import compute_benchmarking_analysis, rank_be
 from services.metrics.fund_comparison import compute_fund_performance_comparison
 from services.metrics.executive_summary import compute_executive_summary_analysis
 from services.metrics.organic_growth import compute_organic_growth_analysis
+from services.metrics.data_cuts import compute_data_cuts_analytics
 
 __all__ = [
     "DRIVERS",
@@ -95,4 +96,5 @@ __all__ = [
     "rank_benchmark_metric",
     "compute_fund_performance_comparison",
     "compute_organic_growth_analysis",
+    "compute_data_cuts_analytics",
 ]

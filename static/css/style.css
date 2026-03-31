@@ -4300,3 +4300,106 @@ textarea.analysis-input::placeholder {
     vertical-align: middle;
     margin-left: 4px;
 }
+
+/* ── Data Cuts ─────────────────────────────────────── */
+
+.data-cuts-scroll-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.data-cuts-table,
+.data-cuts-cross-tab {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-cuts-table th,
+.data-cuts-cross-tab th {
+    font-family: var(--font-body);
+    font-size: var(--text-label);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--ink-muted);
+    padding: 6px 10px;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--line);
+}
+
+.data-cuts-table td,
+.data-cuts-cross-tab td {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.data-cuts-sticky-col {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    font-family: var(--font-body) !important;
+    font-weight: 500;
+}
+
+.data-cuts-totals-row td,
+.data-cuts-totals-col {
+    background: var(--surface-alt) !important;
+    font-weight: 600;
+}
+
+.data-cuts-expandable {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.data-cuts-expandable:hover {
+    background: var(--surface-alt);
+}
+
+.data-cuts-chevron {
+    font-size: 12px;
+    color: var(--ink-muted);
+    transition: transform 0.2s ease;
+}
+
+.data-cuts-expandable:hover .data-cuts-chevron {
+    color: var(--primary);
+}
+
+.data-cuts-drilldown-inner {
+    padding: 0 0 0 24px;
+    background: var(--surface-alt);
+    border-left: 3px solid var(--primary);
+}
+
+.data-cuts-drilldown-inner .table-dense td {
+    font-size: var(--text-xs);
+    padding: 4px 8px;
+}
+
+.data-cuts-drilldown-inner .table-dense th {
+    font-size: 10px;
+    padding: 4px 8px;
+}
+
+.data-cuts-small-n {
+    color: var(--accent2);
+    font-size: 11px;
+    margin-left: 3px;
+    cursor: help;
+}
+
+.data-cuts-table-wrap h3 {
+    margin-bottom: 0.5rem;
+}
+
+#dataCutsChartPanel {
+    position: relative;
+}
+
+#dataCutsChart {
+    max-height: 300px;
+}
