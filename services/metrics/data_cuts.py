@@ -46,6 +46,8 @@ ALLOWED_METRICS = [
     "loss_ratio_count",
     "loss_ratio_capital",
     "avg_hold_years",
+    "pct_of_invested",
+    "pct_of_total",
 ]
 
 DIMENSION_LABELS = {
@@ -146,7 +148,7 @@ def _add_to_bucket(bucket, deal, metrics):
     })
 
 
-def _finalize_bucket(label, bucket):
+def _finalize_bucket(label, bucket, portfolio_invested=None, portfolio_total_value=None):
     invested = bucket["invested_equity"]
     deal_count = bucket["deal_count"]
 
@@ -168,6 +170,8 @@ def _finalize_bucket(label, bucket):
         "avg_hold_years": _avg(bucket["_hold_years_vals"]),
         "loss_ratio_count": safe_divide(bucket["_loss_count"], deal_count) if deal_count > 0 else None,
         "loss_ratio_capital": safe_divide(bucket["_loss_capital"], invested) if invested > 0 else None,
+        "pct_of_invested": safe_divide(invested, portfolio_invested) if portfolio_invested else None,
+        "pct_of_total": safe_divide(bucket["total_value"], portfolio_total_value) if portfolio_total_value else None,
         "deals": sorted(bucket["_deals"], key=lambda d: d.get("equity_invested") or 0, reverse=True),
         "small_n": deal_count < 3,
     }
@@ -227,13 +231,17 @@ def compute_data_cuts_analytics(deals, metrics_by_id, primary_dim="sector", seco
             secondary_val = _resolve_dim_value(deal, secondary_dim)
             _add_to_bucket(cross_tab[primary_val][secondary_val], deal, m)
 
+    # Portfolio totals for percentage-of-portfolio calculations
+    portfolio_invested = totals_bucket["invested_equity"]
+    portfolio_total_value = totals_bucket["total_value"]
+
     # Finalize primary groups
     finalized_groups = []
     for label, bucket in groups.items():
-        finalized_groups.append(_finalize_bucket(label, bucket))
+        finalized_groups.append(_finalize_bucket(label, bucket, portfolio_invested, portfolio_total_value))
     finalized_groups.sort(key=lambda g: g["invested_equity"], reverse=True)
 
-    totals = _finalize_bucket("Total", totals_bucket)
+    totals = _finalize_bucket("Total", totals_bucket, portfolio_invested, portfolio_total_value)
 
     # Unknown group data quality check
     total_deals = totals["deal_count"]

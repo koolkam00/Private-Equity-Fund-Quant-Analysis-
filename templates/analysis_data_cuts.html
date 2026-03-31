@@ -42,6 +42,7 @@
                     <option value="avg_entry_tev_ebitda" {% if current_metric == 'avg_entry_tev_ebitda' %}selected{% endif %}>Avg Entry TEV/EBITDA</option>
                     <option value="avg_exit_tev_ebitda" {% if current_metric == 'avg_exit_tev_ebitda' %}selected{% endif %}>Avg Exit TEV/EBITDA</option>
                     <option value="loss_ratio_count" {% if current_metric == 'loss_ratio_count' %}selected{% endif %}>Loss Ratio (Count)</option>
+                    <option value="loss_ratio_capital" {% if current_metric == 'loss_ratio_capital' %}selected{% endif %}>Loss Ratio (Capital)</option>
                 </select>
             </label>
         </div>
@@ -108,7 +109,7 @@
                         {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
                             {{ fmt_multiple(cell.get(current_metric)) }}
                         {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
-                            {{ fmt_pct_1dp(cell.get(current_metric) * 100 if cell.get(current_metric) is not none else none) }}
+                            {{ fmt_pct_1dp(cell.get(current_metric)) }}
                         {% elif current_metric == 'avg_hold_years' %}
                             {{ fmt_years_1dp(cell.get(current_metric)) }}
                         {% else %}
@@ -122,7 +123,7 @@
                         {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
                             {{ fmt_multiple(group.get(current_metric)) }}
                         {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
-                            {{ fmt_pct_1dp(group.get(current_metric) * 100 if group.get(current_metric) is not none else none) }}
+                            {{ fmt_pct_1dp(group.get(current_metric)) }}
                         {% elif current_metric == 'avg_hold_years' %}
                             {{ fmt_years_1dp(group.get(current_metric)) }}
                         {% else %}
@@ -142,7 +143,7 @@
                         {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
                             <strong>{{ fmt_multiple(ct.get(current_metric)) }}</strong>
                         {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
-                            <strong>{{ fmt_pct_1dp(ct.get(current_metric) * 100 if ct.get(current_metric) is not none else none) }}</strong>
+                            <strong>{{ fmt_pct_1dp(ct.get(current_metric)) }}</strong>
                         {% elif current_metric == 'avg_hold_years' %}
                             <strong>{{ fmt_years_1dp(ct.get(current_metric)) }}</strong>
                         {% else %}
@@ -156,7 +157,7 @@
                         {% if current_metric in ('weighted_moic', 'avg_entry_tev_ebitda', 'avg_exit_tev_ebitda', 'avg_entry_tev_revenue', 'avg_exit_tev_revenue') %}
                             {{ fmt_multiple(a.totals.get(current_metric)) }}
                         {% elif current_metric in ('weighted_irr', 'loss_ratio_count', 'loss_ratio_capital') %}
-                            {{ fmt_pct_1dp(a.totals.get(current_metric) * 100 if a.totals.get(current_metric) is not none else none) }}
+                            {{ fmt_pct_1dp(a.totals.get(current_metric)) }}
                         {% elif current_metric == 'avg_hold_years' %}
                             {{ fmt_years_1dp(a.totals.get(current_metric)) }}
                         {% else %}
@@ -187,8 +188,11 @@
                     <th class="text-right">IRR</th>
                     <th class="text-right">Entry TEV/EBITDA</th>
                     <th class="text-right">Exit TEV/EBITDA</th>
-                    <th class="text-right">Loss Ratio</th>
+                    <th class="text-right">Loss (Count)</th>
+                    <th class="text-right">Loss (Capital)</th>
                     <th class="text-right">Hold (Yrs)</th>
+                    <th class="text-right">% Inv</th>
+                    <th class="text-right">% Val</th>
                     <th style="width:2rem;"></th>
                 </tr>
             </thead>
@@ -204,16 +208,19 @@
                     <td class="text-right mono">{{ fmt_currency_symbol(group.total_value) }}</td>
                     <td class="text-right mono">{{ fmt_currency_symbol(group.value_created) }}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.weighted_moic) }}</td>
-                    <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.avg_entry_tev_ebitda) }}</td>
                     <td class="text-right mono">{{ fmt_multiple(group.avg_exit_tev_ebitda) }}</td>
-                    <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.loss_ratio_capital is not none %}{{ fmt_pct_1dp(group.loss_ratio_capital) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_years_1dp(group.avg_hold_years) }}</td>
+                    <td class="text-right mono">{% if group.pct_of_invested is not none %}{{ fmt_pct_1dp(group.pct_of_invested) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.pct_of_total is not none %}{{ fmt_pct_1dp(group.pct_of_total) }}{% else %}—{% endif %}</td>
                     <td class="text-center"><i class="bi bi-chevron-right data-cuts-chevron"></i></td>
                 </tr>
-                {# Drill-down row (hidden by default) #}
-                <tr class="data-cuts-drilldown" data-group="{{ group.label }}" style="display:none;">
-                    <td colspan="12" style="padding:0;">
+                {# Drill-down row — MUST immediately follow expandable row (JS uses nextElementSibling) #}
+                <tr class="data-cuts-drilldown" style="display:none;">
+                    <td colspan="15" style="padding:0;">
                         <div class="data-cuts-drilldown-inner">
                         <table class="table-dense" style="margin:0;">
                             <thead>
@@ -237,7 +244,7 @@
                                     <td>{{ deal.status }}</td>
                                     <td class="text-right mono">{{ fmt_currency_symbol(deal.equity_invested) }}</td>
                                     <td class="text-right mono">{{ fmt_multiple(deal.moic) }}</td>
-                                    <td class="text-right mono">{% if deal.irr is not none %}{{ fmt_pct_1dp(deal.irr * 100) }}{% else %}—{% endif %}</td>
+                                    <td class="text-right mono">{% if deal.irr is not none %}{{ fmt_pct_1dp(deal.irr) }}{% else %}—{% endif %}</td>
                                     <td class="text-right mono">{{ fmt_years_1dp(deal.hold_years) }}</td>
                                     <td class="text-right mono">{{ fmt_multiple(deal.entry_tev_ebitda) }}</td>
                                     <td class="text-right mono">{{ fmt_multiple(deal.exit_tev_ebitda) }}</td>
@@ -261,11 +268,14 @@
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.total_value) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_currency_symbol(a.totals.value_created) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.weighted_moic) }}</strong></td>
-                    <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr * 100) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_entry_tev_ebitda) }}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_multiple(a.totals.avg_exit_tev_ebitda) }}</strong></td>
-                    <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count * 100) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.loss_ratio_capital is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_capital) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.avg_hold_years) }}</strong></td>
+                    <td class="text-right mono"><strong>100.0%</strong></td>
+                    <td class="text-right mono"><strong>100.0%</strong></td>
                     <td></td>
                 </tr>
             </tfoot>
@@ -297,18 +307,18 @@
 {% block extra_js %}
 <script>
 (function() {
-    // --- Drill-down accordion ---
+    // --- Drill-down accordion (uses nextElementSibling, not querySelector) ---
     document.querySelectorAll('.data-cuts-expandable').forEach(function(row) {
         row.style.cursor = 'pointer';
         row.addEventListener('click', function() {
-            var group = this.dataset.group;
-            var drilldown = document.querySelector('.data-cuts-drilldown[data-group="' + group + '"]');
+            var drilldown = this.nextElementSibling;
+            if (!drilldown || !drilldown.classList.contains('data-cuts-drilldown')) return;
             var chevron = this.querySelector('.data-cuts-chevron');
-            if (drilldown) {
-                var isOpen = drilldown.style.display !== 'none';
-                drilldown.style.display = isOpen ? 'none' : '';
-                if (chevron) chevron.classList.toggle('bi-chevron-down', !isOpen);
-                if (chevron) chevron.classList.toggle('bi-chevron-right', isOpen);
+            var isOpen = drilldown.style.display !== 'none';
+            drilldown.style.display = isOpen ? 'none' : '';
+            if (chevron) {
+                chevron.classList.toggle('bi-chevron-down', !isOpen);
+                chevron.classList.toggle('bi-chevron-right', isOpen);
             }
         });
     });
@@ -336,13 +346,11 @@
     var canvas = document.getElementById('dataCutsChart');
     var chart = null;
 
+    var BAR_COLORS = ['#0A6B58','#C9982E','#4A8A7A','#B83C4A','#085A4A','#C27B32','#7A6FA0','#2563EB','#8E6C4F','#2563C9'];
+
     function buildChart(metricKey) {
         var data = chartDatasets[metricKey] || [];
-        var colors = (typeof CHART_COLORS !== 'undefined') ? CHART_COLORS : [
-            '#0A6B58','#C9982E','#3B82C4','#D4553A','#6B5B95','#88B04B',
-            '#F7CAC9','#92A8D1','#955251','#B565A7'
-        ];
-        var bgColors = chartLabels.map(function(_, i) { return colors[i % colors.length]; });
+        var bgColors = chartLabels.map(function(_, i) { return BAR_COLORS[i % BAR_COLORS.length]; });
 
         if (chart) chart.destroy();
         chart = new Chart(canvas, {

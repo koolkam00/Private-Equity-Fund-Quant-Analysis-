@@ -289,3 +289,68 @@ class TestDataQualityWarning:
         result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
 
         assert result["data_quality_warning"] is None
+
+
+class TestPctOfPortfolio:
+    def test_pct_of_invested(self):
+        """Group with half the portfolio equity → pct_of_invested = 0.5."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=200, unrealized_value=0)
+        d2 = _make_deal(id=2, sector="Healthcare", equity_invested=100, realized_value=300, unrealized_value=0)
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        hc = next(g for g in result["groups"] if g["label"] == "Healthcare")
+        assert abs(tech["pct_of_invested"] - 0.5) < 1e-6
+        assert abs(hc["pct_of_invested"] - 0.5) < 1e-6
+
+    def test_pct_of_total_value(self):
+        """Group total value as fraction of portfolio total value."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=300, unrealized_value=0)
+        d2 = _make_deal(id=2, sector="Healthcare", equity_invested=100, realized_value=100, unrealized_value=0)
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        # Tech total_value=300, portfolio total_value=400, pct = 0.75
+        assert abs(tech["pct_of_total"] - 0.75) < 1e-6
+
+    def test_pct_totals_row_is_one(self):
+        """Totals row pct_of_invested should be 1.0 (100%)."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=200, unrealized_value=0)
+        deals = [d1]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        assert abs(result["totals"]["pct_of_invested"] - 1.0) < 1e-6
+        assert abs(result["totals"]["pct_of_total"] - 1.0) < 1e-6
+
+    def test_empty_deals_no_crash(self):
+        """Empty portfolio → pct fields are None, no ZeroDivisionError."""
+        result = compute_data_cuts_analytics([], {}, primary_dim="sector")
+        assert result["totals"]["pct_of_invested"] is None
+        assert result["totals"]["pct_of_total"] is None
+
+    def test_loss_ratio_capital_populated(self):
+        """Losing deal → loss_ratio_capital is populated."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=50, unrealized_value=0)
+        deals = [d1]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        assert tech["loss_ratio_capital"] is not None
+        assert tech["loss_ratio_capital"] > 0
+
+    def test_chart_datasets_include_new_metrics(self):
+        """Chart datasets include pct_of_invested, pct_of_total, loss_ratio_capital."""
+        d1 = _make_deal(id=1, sector="Tech", equity_invested=100, realized_value=200, unrealized_value=0)
+        deals = [d1]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        assert "pct_of_invested" in result["chart_datasets"]
+        assert "pct_of_total" in result["chart_datasets"]
+        assert "loss_ratio_capital" in result["chart_datasets"]
