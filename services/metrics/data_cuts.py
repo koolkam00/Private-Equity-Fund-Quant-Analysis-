@@ -21,6 +21,39 @@ def _deal_vintage_year(deal):
     return None
 
 
+import re
+
+
+def _fund_sort_key(label):
+    """Sort fund labels by Roman numeral: Fund I, Fund II, ... Fund X."""
+    roman_map = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+                 "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+                 "XI": 11, "XII": 12, "XIII": 13, "XIV": 14, "XV": 15}
+    m = re.search(r'\b([IVX]+)\b', label or "")
+    if m and m.group(1) in roman_map:
+        return (0, roman_map[m.group(1)], label)
+    # Fallback: sort after roman-numbered funds, alphabetically
+    return (1, 0, label or "")
+
+
+def _sort_groups(groups, dim_key):
+    """Sort finalized groups by dimension-appropriate order."""
+    if dim_key == "vintage_year":
+        # Chronological: earliest year first, "Unknown" last
+        def _year_key(g):
+            try:
+                return (0, int(g["label"]))
+            except (ValueError, TypeError):
+                return (1, 0)
+        return sorted(groups, key=_year_key)
+    elif dim_key == "fund":
+        return sorted(groups, key=lambda g: _fund_sort_key(g["label"]))
+    else:
+        # Alphabetical, with fallback labels (Unknown, Unassigned, etc.) last
+        fallback = DIMENSIONS.get(dim_key, {}).get("fallback", "Unknown")
+        return sorted(groups, key=lambda g: (g["label"] == fallback, g["label"] or ""))
+
+
 DIMENSIONS = {
     "sector": {"field": "sector", "fallback": "Unknown"},
     "geography": {"field": "geography", "fallback": "Unknown"},
@@ -239,7 +272,7 @@ def compute_data_cuts_analytics(deals, metrics_by_id, primary_dim="sector", seco
     finalized_groups = []
     for label, bucket in groups.items():
         finalized_groups.append(_finalize_bucket(label, bucket, portfolio_invested, portfolio_total_value))
-    finalized_groups.sort(key=lambda g: g["invested_equity"], reverse=True)
+    finalized_groups = _sort_groups(finalized_groups, primary_dim)
 
     totals = _finalize_bucket("Total", totals_bucket, portfolio_invested, portfolio_total_value)
 

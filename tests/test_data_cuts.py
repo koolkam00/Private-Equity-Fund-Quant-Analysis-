@@ -354,3 +354,65 @@ class TestPctOfPortfolio:
         assert "pct_of_invested" in result["chart_datasets"]
         assert "pct_of_total" in result["chart_datasets"]
         assert "loss_ratio_capital" in result["chart_datasets"]
+
+
+class TestGroupSortOrder:
+    def test_vintage_year_chronological(self):
+        """Vintage year groups should be sorted oldest to newest."""
+        d1 = _make_deal(id=1, year_invested=2022)
+        d2 = _make_deal(id=2, year_invested=2019)
+        d3 = _make_deal(id=3, year_invested=2021)
+        deals = [d1, d2, d3]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="vintage_year")
+
+        labels = [g["label"] for g in result["groups"]]
+        assert labels == ["2019", "2021", "2022"]
+
+    def test_vintage_year_unknown_last(self):
+        """Unknown vintage year should sort after all known years."""
+        d1 = _make_deal(id=1, year_invested=2020)
+        d2 = _make_deal(id=2, year_invested=None, investment_date=None)
+        deals = [d1, d2]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="vintage_year")
+
+        labels = [g["label"] for g in result["groups"]]
+        assert labels == ["2020", "Unknown"]
+
+    def test_fund_roman_numeral_order(self):
+        """Funds should sort by Roman numeral: Fund I, II, III, IV, V."""
+        d1 = _make_deal(id=1, fund_number="Fund III")
+        d2 = _make_deal(id=2, fund_number="Fund I")
+        d3 = _make_deal(id=3, fund_number="Fund V")
+        d4 = _make_deal(id=4, fund_number="Fund II")
+        deals = [d1, d2, d3, d4]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="fund")
+
+        labels = [g["label"] for g in result["groups"]]
+        assert labels == ["Fund I", "Fund II", "Fund III", "Fund V"]
+
+    def test_sector_alphabetical(self):
+        """Sectors should be sorted alphabetically."""
+        d1 = _make_deal(id=1, sector="Tech")
+        d2 = _make_deal(id=2, sector="Consumer")
+        d3 = _make_deal(id=3, sector="Healthcare")
+        deals = [d1, d2, d3]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        labels = [g["label"] for g in result["groups"]]
+        assert labels == ["Consumer", "Healthcare", "Tech"]
+
+    def test_alphabetical_unknown_last(self):
+        """Unknown/fallback labels should sort after real values."""
+        d1 = _make_deal(id=1, sector="Tech")
+        d2 = _make_deal(id=2, sector=None)
+        d3 = _make_deal(id=3, sector="Consumer")
+        deals = [d1, d2, d3]
+        metrics = {d.id: compute_deal_metrics(d) for d in deals}
+        result = compute_data_cuts_analytics(deals, metrics, primary_dim="sector")
+
+        labels = [g["label"] for g in result["groups"]]
+        assert labels == ["Consumer", "Tech", "Unknown"]
