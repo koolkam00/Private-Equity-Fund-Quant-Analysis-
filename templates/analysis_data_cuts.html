@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}Slice portfolio performance by any dimension.{% if analysis.as_of_date %} <span class="text-muted" style="font-size:var(--text-xs);">Portfolio data as of {{ analysis.as_of_date }}</span>{% endif %}{% endblock %}
