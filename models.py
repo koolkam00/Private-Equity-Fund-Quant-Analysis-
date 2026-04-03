@@ -624,6 +624,126 @@ class MemoJob(db.Model):
         return f"<MemoJob id={self.id} type={self.job_type} status={self.status}>"
 
 
+# ---------------------------------------------------------------------------
+# Private Credit
+# ---------------------------------------------------------------------------
+
+
+class CreditLoan(db.Model):
+    __tablename__ = "credit_loans"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+
+    # Investment & fund details
+    company_name = db.Column(db.String(255), nullable=False)
+    fund_name = db.Column(db.String(255), nullable=False)
+    vintage_year = db.Column(db.Integer, nullable=True)
+    close_date = db.Column(db.Date, nullable=False)
+    exit_date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.String(50), nullable=False, default="Unrealized")
+    as_of_date = db.Column(db.Date, nullable=True)
+
+    # Credit structure & terms
+    instrument = db.Column(db.String(100), nullable=True)  # e.g. Term Loan B, Revolver
+    tranche = db.Column(db.String(100), nullable=True)  # e.g. First Lien, Second Lien
+    security_type = db.Column(db.String(100), nullable=True)  # e.g. Senior Secured, Unitranche
+    issue_size = db.Column(db.Float, nullable=True)  # total issue size
+    hold_size = db.Column(db.Float, nullable=True)  # PCOF's portion
+    coupon_rate = db.Column(db.Float, nullable=True)  # decimal, e.g. 0.05 = 5%
+    spread_bps = db.Column(db.Integer, nullable=True)  # basis points over reference rate
+    floor_rate = db.Column(db.Float, nullable=True)  # rate floor, decimal
+    fee_oid = db.Column(db.Float, nullable=True)  # OID as decimal
+    fee_upfront = db.Column(db.Float, nullable=True)
+    fee_exit = db.Column(db.Float, nullable=True)
+    maturity_date = db.Column(db.Date, nullable=True)
+    fixed_or_floating = db.Column(db.String(20), nullable=True)  # Fixed, Floating
+    reference_rate = db.Column(db.String(20), nullable=True)  # SOFR, EURIBOR, Prime
+    pik_toggle = db.Column(db.Boolean, nullable=False, default=False)
+    pik_rate = db.Column(db.Float, nullable=True)  # decimal, null if pik_toggle=False
+    call_protection_months = db.Column(db.Integer, nullable=True)
+    make_whole_premium = db.Column(db.Float, nullable=True)  # decimal
+    amortization_type = db.Column(db.String(50), nullable=True)  # Bullet, Amortizing, IO
+    payment_frequency = db.Column(db.String(20), nullable=True)  # Monthly, Quarterly
+
+    # Credit metrics
+    entry_ltv = db.Column(db.Float, nullable=True)  # decimal 0-1 (0.65 = 65%)
+    current_ltv = db.Column(db.Float, nullable=True)  # decimal 0-1
+    entry_revenue = db.Column(db.Float, nullable=True)
+    entry_ebitda = db.Column(db.Float, nullable=True)
+    current_revenue = db.Column(db.Float, nullable=True)
+    current_ebitda = db.Column(db.Float, nullable=True)
+    interest_coverage_ratio = db.Column(db.Float, nullable=True)
+    dscr = db.Column(db.Float, nullable=True)  # Debt Service Coverage Ratio
+    internal_credit_rating = db.Column(db.Integer, nullable=True)  # 1 (best) to 5 (worst)
+    default_status = db.Column(db.String(50), nullable=False, default="Performing")  # Performing, Watch List, Default, Restructured
+    covenant_type = db.Column(db.String(50), nullable=True)  # Maintenance, Incurrence, None
+    covenant_compliant = db.Column(db.Boolean, nullable=True)
+
+    # Performance metrics
+    gross_irr = db.Column(db.Float, nullable=True)  # decimal
+    moic = db.Column(db.Float, nullable=True)
+    realized_value = db.Column(db.Float, nullable=True)
+    unrealized_value = db.Column(db.Float, nullable=True)
+    cumulative_interest_income = db.Column(db.Float, nullable=True)
+    cumulative_fee_income = db.Column(db.Float, nullable=True)
+    fair_value = db.Column(db.Float, nullable=True)  # mark-to-market
+    yield_to_maturity = db.Column(db.Float, nullable=True)  # decimal
+    recovery_rate = db.Column(db.Float, nullable=True)  # decimal 0-1, for impaired loans
+    original_par = db.Column(db.Float, nullable=True)  # original face amount
+    current_outstanding = db.Column(db.Float, nullable=True)  # current principal balance
+    accrued_interest = db.Column(db.Float, nullable=True)
+
+    # Classification
+    sector = db.Column(db.String(100), nullable=True)
+    geography = db.Column(db.String(100), nullable=True)
+    sponsor = db.Column(db.String(255), nullable=True)  # PE sponsor backing borrower
+
+    # Currency
+    currency = db.Column(db.String(3), nullable=True, default="USD")
+    fx_rate_to_usd = db.Column(db.Float, nullable=True)
+
+    # Metadata
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<CreditLoan {self.company_name} ({self.default_status})>"
+
+
+class CreditLoanSnapshot(db.Model):
+    __tablename__ = "credit_loan_snapshots"
+    __table_args__ = (
+        UniqueConstraint("credit_loan_id", "snapshot_date", "upload_batch", name="uq_credit_snapshot_loan_date_batch"),
+        Index("ix_credit_loan_snapshots_loan_date", "credit_loan_id", "snapshot_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    credit_loan_id = db.Column(db.Integer, ForeignKey("credit_loans.id"), nullable=False, index=True)
+    snapshot_date = db.Column(db.Date, nullable=False)
+    current_ltv = db.Column(db.Float, nullable=True)
+    fair_value = db.Column(db.Float, nullable=True)
+    current_revenue = db.Column(db.Float, nullable=True)
+    current_ebitda = db.Column(db.Float, nullable=True)
+    interest_coverage_ratio = db.Column(db.Float, nullable=True)
+    dscr = db.Column(db.Float, nullable=True)
+    default_status = db.Column(db.String(50), nullable=True)
+    internal_credit_rating = db.Column(db.Integer, nullable=True)
+    covenant_compliant = db.Column(db.Boolean, nullable=True)
+    current_outstanding = db.Column(db.Float, nullable=True)
+    accrued_interest = db.Column(db.Float, nullable=True)
+
+    # Metadata
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<CreditLoanSnapshot loan_id={self.credit_loan_id} date={self.snapshot_date}>"
+
+
 def _column_exists(inspector, table_name, column_name):
     return any(c["name"] == column_name for c in inspector.get_columns(table_name))
 
@@ -996,6 +1116,18 @@ def ensure_schema_updates():
     )
     _ensure_index(engine, "ix_chart_builder_templates_team_id", "chart_builder_templates", "team_id")
     _ensure_index(engine, "ix_chart_builder_templates_source", "chart_builder_templates", "source")
+
+    # Private Credit tables
+    CreditLoan.__table__.create(bind=engine, checkfirst=True)
+    CreditLoanSnapshot.__table__.create(bind=engine, checkfirst=True)
+    _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
+    _ensure_index(engine, "ix_credit_loans_team_id", "credit_loans", "team_id")
+    _ensure_index(engine, "ix_credit_loans_fund_name", "credit_loans", "fund_name")
+    _ensure_index(engine, "ix_credit_loans_default_status", "credit_loans", "default_status")
+    _ensure_index(engine, "ix_credit_loan_snapshots_firm_id", "credit_loan_snapshots", "firm_id")
+    _ensure_index(engine, "ix_credit_loan_snapshots_team_id", "credit_loan_snapshots", "team_id")
+    _ensure_index(engine, "ix_credit_loan_snapshots_credit_loan_id", "credit_loan_snapshots", "credit_loan_id")
+    _ensure_index_columns(engine, "ix_credit_loan_snapshots_loan_date", "credit_loan_snapshots", ["credit_loan_id", "snapshot_date"])
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Total Hold Size</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_hold) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">HHI (Sector)</div>
+        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_sector) if analysis.hhi_sector else '—' }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">HHI (Geography)</div>
+        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_geography) if analysis.hhi_geography else '—' }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">HHI (Sponsor)</div>
+        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_sponsor) if analysis.hhi_sponsor else '—' }}</div>
+    </div>
+</div>
+
+{# --- Top 10 Single-Name Exposures --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Top 10 Single-Name Exposures</h3>
+    <table class="data-table">
+        <thead><tr><th>#</th><th>Company</th><th style="text-align:right;">Hold Size</th><th style="text-align:right;">% Portfolio</th></tr></thead>
+        <tbody>
+        {% for row in analysis.top_10 %}
+        <tr>
+            <td style="font-family: var(--font-mono); color: var(--ink-muted);">{{ loop.index }}</td>
+            <td style="font-weight: 500;">{{ row.company }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.hold) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(row.pct) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# --- Breakdowns Grid --- #}
+{% macro breakdown_table(title, data, chart_id) %}
+<div class="panel">
+    <h3>{{ title }}</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;">
+        <table class="data-table" style="font-size: 13px;">
+            <thead><tr><th>Name</th><th style="text-align:right;">Hold</th><th style="text-align:right;">%</th></tr></thead>
+            <tbody>
+            {% for row in data[:8] %}
+            <tr>
+                <td>{{ row.name }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.hold) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(row.pct) }}</td>
+            </tr>
+            {% endfor %}
+            {% if data|length > 8 %}
+            <tr style="color: var(--ink-muted);">
+                <td>Other ({{ data|length - 8 }})</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='hold')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(data[8:]|map(attribute='pct')|sum) }}</td>
+            </tr>
+            {% endif %}
+            </tbody>
+        </table>
+        <div><canvas id="{{ chart_id }}" height="200"
+            data-labels='{{ data[:8]|map(attribute="name")|list|tojson }}'
+            data-values='{{ data[:8]|map(attribute="hold")|list|tojson }}'></canvas></div>
+    </div>
+</div>
+{% endmacro %}
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    {{ breakdown_table("By Sector", analysis.by_sector, "sectorChart") }}
+    {{ breakdown_table("By Geography", analysis.by_geography, "geoChart") }}
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    {{ breakdown_table("By Sponsor", analysis.by_sponsor, "sponsorChart") }}
+    {{ breakdown_table("By Security Type", analysis.by_security, "securityChart") }}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var COLORS = ['#0A6B58','#085A4A','#C9982E','#2563EB','#B83C4A','#6B6B63','#9AADA5','#B5B3AE'];
+    ['sectorChart','geoChart','sponsorChart','securityChart'].forEach(function(id) {
+        var c = document.getElementById(id);
+        if (!c) return;
+        var labels = JSON.parse(c.dataset.labels || '[]');
+        var values = JSON.parse(c.dataset.values || '[]');
+        if (!labels.length) return;
+        new Chart(c.getContext('2d'), {
+            type: 'doughnut',
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: COLORS.slice(0, labels.length), borderWidth: 0 }] },
+            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { font: { family: "'Instrument Sans'", size: 11 } } } } }
+        });
+    });
+});
+</script>
+{% endblock %}

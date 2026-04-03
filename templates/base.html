@@ -82,6 +82,15 @@
             <a href="{{ url_for('analysis_page', page=item.page_key) }}" class="nav-item nav-sub {% if active_analysis == item.page_key %}active{% endif %}"><i
                     class="{{ item.icon }}"></i> {{ item.label }}</a>
             {% endfor %}
+            {% if app_credit_sidebar_items is defined and app_credit_sidebar_items %}
+            <div class="nav-section">Private Credit</div>
+            {% for item in app_credit_sidebar_items %}
+            <a href="{{ url_for('credit_analysis_page', page=item.page_key) }}" class="nav-item nav-sub {% if page_key is defined and page_key == item.page_key %}active{% endif %}"><i
+                    class="{{ item.icon }}"></i> {{ item.label }}</a>
+            {% endfor %}
+            <a href="{{ url_for('upload_credit_loans') }}" class="nav-item nav-sub {% if request.endpoint == 'upload_credit_loans' %}active{% endif %}"><i
+                    class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+            {% endif %}
             <div class="nav-section">Admin</div>
             <a href="{{ url_for('methodology') }}" class="nav-item {% if request.endpoint == 'methodology' %}active{% endif %}"><i
                     class="bi bi-journal-text"></i> Methodology &amp; Audit</a>

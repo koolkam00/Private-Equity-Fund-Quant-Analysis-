@@ -104,6 +104,15 @@ from services.metrics import (
     rank_benchmark_metric,
     run_chart_query,
 )
+from services.metrics.credit import (
+    compute_credit_concentration,
+    compute_credit_loan_metrics,
+    compute_credit_maturity_profile,
+    compute_credit_portfolio_analytics,
+    compute_credit_stress_scenarios,
+    compute_credit_vintage_comparison,
+    compute_credit_yield_attribution,
+)
 from services.metrics.common import resolve_analysis_as_of_date
 from services.utils import (
     DEFAULT_CURRENCY_CODE,
@@ -257,6 +266,47 @@ ANALYSIS_SIDEBAR_ITEMS = [
     {"page_key": "data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
 ]
 
+CREDIT_ANALYSIS_PAGES = {
+    "credit-dashboard": {
+        "title": "Credit Portfolio Dashboard",
+        "description": "Portfolio KPIs, loan table, traffic-light health signals, and top concerns.",
+    },
+    "credit-yield": {
+        "title": "Yield Analysis & Attribution",
+        "description": "Decompose returns into coupon, fee, PIK, and price components with waterfall chart.",
+    },
+    "credit-risk": {
+        "title": "Credit Risk & Watch List",
+        "description": "LTV distribution, coverage ratios, default tracking, credit rating migration.",
+    },
+    "credit-maturity": {
+        "title": "Maturity & Duration Profile",
+        "description": "Maturity wall chart, weighted average life, reinvestment risk analysis.",
+    },
+    "credit-concentration": {
+        "title": "Credit Concentration",
+        "description": "Sector, geography, sponsor, and security type breakdowns with HHI.",
+    },
+    "credit-stress": {
+        "title": "Credit Stress Testing Lab",
+        "description": "Scenario analysis with default, recovery, and rate shock parameters.",
+    },
+    "credit-vintage": {
+        "title": "Credit Fund Vintage Comparison",
+        "description": "Side-by-side comparison of credit fund performance across vintages.",
+    },
+}
+
+CREDIT_SIDEBAR_ITEMS = [
+    {"page_key": "credit-dashboard", "label": "Credit Dashboard", "icon": "bi bi-bank2"},
+    {"page_key": "credit-yield", "label": "Yield Attribution", "icon": "bi bi-cash-stack"},
+    {"page_key": "credit-risk", "label": "Risk & Watch List", "icon": "bi bi-shield-exclamation"},
+    {"page_key": "credit-maturity", "label": "Maturity Profile", "icon": "bi bi-calendar-range"},
+    {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
+    {"page_key": "credit-stress", "label": "Stress Lab", "icon": "bi bi-lightning"},
+    {"page_key": "credit-vintage", "label": "Vintage Comparison", "icon": "bi bi-arrow-left-right"},
+]
+
 TEAM_ROLE_OWNER = "owner"
 TEAM_ROLE_ADMIN = "admin"
 TEAM_ROLE_MEMBER = "member"
@@ -280,6 +330,9 @@ ROUTE_BLUEPRINTS = {
     "select_fund_scope": "scope",
     "delete_fund": "scope",
     "analysis_page": "analysis",
+    "credit_analysis_page": "credit",
+    "credit_analysis_series_api": "credit",
+    "upload_credit_loans": "uploads",
     "analysis_series_api": "analysis",
     "ic_memo": "analysis",
     "methodology": "analysis",
@@ -1413,6 +1466,10 @@ def inject_global_scope_context():
             item for item in ANALYSIS_SIDEBAR_ITEMS
             if item.get("page_key") in ANALYSIS_PAGES
         ]
+        credit_sidebar_items = [
+            item for item in CREDIT_SIDEBAR_ITEMS
+            if item.get("page_key") in CREDIT_ANALYSIS_PAGES
+        ]
         return {
             "app_firms": firms,
             "app_active_firm": active_firm,
@@ -1435,6 +1492,7 @@ def inject_global_scope_context():
             "app_team_is_admin": _is_team_admin(membership) if membership is not None else False,
             "app_workflow_sidebar_items": workflow_sidebar_items,
             "app_analysis_sidebar_items": analysis_sidebar_items,
+            "app_credit_sidebar_items": credit_sidebar_items,
         }
     except SQLAlchemyError as exc:
         _handle_db_exception(exc, "Global scope context load failed")
@@ -3840,6 +3898,177 @@ def analysis_page(page):
         analysis=payload,
         **filter_ctx,
     )
+
+
+# ---------------------------------------------------------------------------
+# Private Credit routes
+# ---------------------------------------------------------------------------
+
+
+@app.route("/credit/analysis/<page>")
+@login_required
+def credit_analysis_page(page):
+    if page not in CREDIT_ANALYSIS_PAGES:
+        abort(404)
+
+    try:
+        from peqa.services.credit_filtering import build_credit_analysis_context
+
+        membership = _current_membership()
+        if membership is None:
+            abort(403)
+        team_id = membership.team_id
+        firm_id = _active_firm_id_from_session(team_id)
+
+        # Check TeamFirmAccess
+        if firm_id:
+            access = TeamFirmAccess.query.filter_by(team_id=team_id, firm_id=firm_id).first()
+            if not access:
+                abort(403)
+
+        filters = {k: request.args.getlist(k) for k in request.args if request.args.getlist(k)}
+        ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
+        loans = ctx["loans"]
+        metrics_by_id = ctx["metrics_by_id"]
+        snapshots_by_loan = ctx["snapshots_by_loan"]
+
+        payload = {}
+        if page == "credit-dashboard":
+            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+        elif page == "credit-yield":
+            payload = compute_credit_yield_attribution(loans, metrics_by_id)
+        elif page == "credit-risk":
+            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+            payload["snapshots_by_loan"] = snapshots_by_loan
+        elif page == "credit-maturity":
+            payload = compute_credit_maturity_profile(loans)
+        elif page == "credit-concentration":
+            payload = compute_credit_concentration(loans, metrics_by_id)
+        elif page == "credit-stress":
+            scenario = {
+                "default_rate_shock": float(request.args.get("default_shock", 0.05)),
+                "recovery_rate_shock": float(request.args.get("recovery_rate", 0.40)),
+                "rate_shock_bps": int(request.args.get("rate_shock", 0)),
+            }
+            payload = compute_credit_stress_scenarios(loans, scenario)
+        elif page == "credit-vintage":
+            payload = compute_credit_vintage_comparison(loans)
+
+        template_map = {
+            "credit-dashboard": "analysis_credit_dashboard.html",
+            "credit-yield": "analysis_credit_yield.html",
+            "credit-risk": "analysis_credit_risk.html",
+            "credit-maturity": "analysis_credit_maturity.html",
+            "credit-concentration": "analysis_credit_concentration.html",
+            "credit-stress": "analysis_credit_stress.html",
+            "credit-vintage": "analysis_credit_vintage.html",
+        }
+
+        return render_template(
+            template_map[page],
+            page_key=page,
+            page_meta=CREDIT_ANALYSIS_PAGES[page],
+            analysis=payload,
+            loans=loans,
+            metrics_by_id=metrics_by_id,
+            filter_options=ctx["filter_options"],
+            active_filters=filters,
+            loan_count=ctx["loan_count"],
+        )
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, f"Credit analysis page '{page}' failed")
+
+
+@app.route("/credit/api/analysis/<page>/series")
+@login_required
+def credit_analysis_series_api(page):
+    if page not in CREDIT_ANALYSIS_PAGES:
+        abort(404)
+
+    try:
+        from peqa.services.credit_filtering import build_credit_analysis_context
+
+        membership = _current_membership()
+        if membership is None:
+            return jsonify({"error": "Not authenticated"}), 403
+        team_id = membership.team_id
+        firm_id = _active_firm_id_from_session(team_id)
+        filters = {k: request.args.getlist(k) for k in request.args if request.args.getlist(k)}
+        ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
+        loans = ctx["loans"]
+        metrics_by_id = ctx["metrics_by_id"]
+
+        payload = {}
+        if page == "credit-dashboard":
+            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+        elif page == "credit-yield":
+            payload = compute_credit_yield_attribution(loans, metrics_by_id)
+        elif page == "credit-maturity":
+            payload = compute_credit_maturity_profile(loans)
+        elif page == "credit-concentration":
+            payload = compute_credit_concentration(loans, metrics_by_id)
+        elif page == "credit-stress":
+            scenario = {
+                "default_rate_shock": float(request.args.get("default_shock", 0.05)),
+                "recovery_rate_shock": float(request.args.get("recovery_rate", 0.40)),
+                "rate_shock_bps": int(request.args.get("rate_shock", 0)),
+            }
+            payload = compute_credit_stress_scenarios(loans, scenario)
+        elif page == "credit-vintage":
+            payload = compute_credit_vintage_comparison(loans)
+
+        return jsonify({"page": page, "title": CREDIT_ANALYSIS_PAGES[page]["title"], "payload": payload})
+    except SQLAlchemyError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/upload/credit-loans", methods=["GET", "POST"])
+@login_required
+def upload_credit_loans():
+    if request.method == "GET":
+        return render_template("upload_credit.html")
+
+    try:
+        from services.credit_parser import parse_credit_loan_tape
+
+        membership = _current_membership()
+        if membership is None:
+            abort(403)
+        team_id = membership.team_id
+        firm_id = _active_firm_id_from_session(team_id)
+
+        # Check TeamFirmAccess
+        if firm_id:
+            access = TeamFirmAccess.query.filter_by(team_id=team_id, firm_id=firm_id).first()
+            if not access:
+                flash("You do not have access to upload to this firm.", "danger")
+                return redirect(url_for("upload_credit_loans"))
+
+        file = request.files.get("file")
+        if not file or not file.filename:
+            flash("No file selected.", "danger")
+            return redirect(url_for("upload_credit_loans"))
+
+        result = parse_credit_loan_tape(
+            file_stream=file,
+            firm_id=firm_id,
+            team_id=team_id,
+        )
+
+        msg = f"Uploaded {result['loans']} credit loans across {len(result['funds'])} fund(s)."
+        if result.get("snapshots", 0) > 0:
+            msg += f" {result['snapshots']} quarterly snapshots imported."
+        if result.get("warnings", 0) > 0:
+            msg += f" {result['warnings']} warning(s)."
+        flash(msg, "success")
+        return redirect(url_for("credit_analysis_page", page="credit-dashboard"))
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("upload_credit_loans"))
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        flash(f"Upload failed: {exc}", "danger")
+        return redirect(url_for("upload_credit_loans"))
 
 
 @app.route("/api/analysis/<page>/series")

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Scenario Controls --- #}
+<div class="panel panel-tight filter-panel" style="margin-bottom: 24px;">
+    <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page='credit-stress') }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Default Rate Shock</span>
+                <select name="default_shock">
+                    {% for val, label in [(0.02, '2%'), (0.05, '5%'), (0.10, '10%'), (0.15, '15%'), (0.25, '25%')] %}
+                    <option value="{{ val }}" {% if analysis.scenario.get('default_rate_shock', 0.05) == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Recovery Rate</span>
+                <select name="recovery_rate">
+                    {% for val, label in [(0.20, '20%'), (0.30, '30%'), (0.40, '40%'), (0.50, '50%'), (0.60, '60%')] %}
+                    <option value="{{ val }}" {% if analysis.scenario.get('recovery_rate_shock', 0.40) == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Rate Shock (bps)</span>
+                <select name="rate_shock">
+                    {% for val, label in [(0, 'None'), (100, '+100'), (200, '+200'), (300, '+300'), (500, '+500')] %}
+                    <option value="{{ val }}" {% if analysis.scenario.get('rate_shock_bps', 0) == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-lightning"></i> Run Stress</button>
+        </div>
+    </form>
+</div>
+
+{# --- Stress Results --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Base NAV</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.base_nav) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Stressed NAV</div>
+        <div class="kpi-value" style="{% if analysis.nav_impact_pct and analysis.nav_impact_pct < -0.05 %}color: var(--danger);{% endif %}">
+            {{ fmt_currency_symbol(analysis.stressed_nav) }}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">NAV Impact</div>
+        <div class="kpi-value" style="color: var(--danger);">
+            {{ fmt_pct_1dp(analysis.nav_impact_pct) }}
+        </div>
+        <div class="kpi-sublabel">{{ fmt_currency_symbol(analysis.nav_impact_dollars) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Defaults Triggered</div>
+        <div class="kpi-value">{{ analysis.defaults_triggered }}</div>
+    </div>
+</div>
+
+{# --- Before / After Comparison --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>NAV Impact</h3>
+    <canvas id="stressChart" height="200"
+        data-base="{{ analysis.base_nav or 0 }}"
+        data-stressed="{{ analysis.stressed_nav or 0 }}"></canvas>
+</div>
+
+{# --- Impacted Loans --- #}
+{% if analysis.impacted_loans %}
+<div class="panel">
+    <h3>Impacted Loans</h3>
+    <table class="data-table">
+        <thead><tr><th>Company</th><th style="text-align:right;">Hold Size</th><th style="text-align:right;">Estimated Loss</th><th>Stress Type</th></tr></thead>
+        <tbody>
+        {% for loan in analysis.impacted_loans %}
+        <tr>
+            <td style="font-weight: 500;">{{ loan.company }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(loan.hold_size) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(loan.loss) }}</td>
+            <td>{{ loan.stress_type }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="panel" style="background: var(--surface-alt); padding: 12px 16px; font-size: 12px; color: var(--ink-muted);">
+    <i class="bi bi-info-circle"></i> V1 stress testing applies shocks independently per loan. Defaults are assigned to worst-rated loans first. Correlated stress (sector-wide defaults) is not yet modeled.
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var c = document.getElementById('stressChart');
+    if (!c) return;
+    var base = parseFloat(c.dataset.base) || 0;
+    var stressed = parseFloat(c.dataset.stressed) || 0;
+    new Chart(c.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: ['Base NAV', 'Stressed NAV'],
+            datasets: [{ data: [base, stressed], backgroundColor: ['#0A6B58', '#B83C4A'], borderRadius: 4, borderWidth: 0 }]
+        },
+        options: {
+            responsive: true, indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, grid: { color: '#EEECEA' } }, y: { grid: { display: false } } }
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Upload Credit Loans — PE Portfolio Lab{% endblock %}
+{% block page_title %}Upload Credit Loans{% endblock %}
+{% block page_subtitle %}Upload a loan tape Excel file to analyze your private credit portfolio.{% endblock %}
+
+{% block content %}
+
+<div class="panel" style="max-width: 640px;">
+    <form method="POST" action="{{ url_for('upload_credit_loans') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div style="margin-bottom: 24px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; letter-spacing: 0.01em; color: var(--ink-muted); margin-bottom: 8px;">Loan Tape File (.xlsx)</label>
+            <input type="file" name="file" accept=".xlsx,.xls" required
+                style="width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-body);">
+        </div>
+
+        <div style="margin-bottom: 24px;">
+            <button type="submit" class="btn-upload" style="width: 100%;">
+                <i class="bi bi-cloud-upload"></i> Upload Credit Loans
+            </button>
+        </div>
+    </form>
+
+    <div style="border-top: 1px solid var(--line); padding-top: 16px;">
+        <h3 style="font-size: 14px; margin-bottom: 12px;">Expected Format</h3>
+        <p style="font-size: 13px; color: var(--ink-muted); margin-bottom: 8px;">
+            The main sheet should contain one row per loan with these columns (flexible naming):
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: var(--ink-muted);">
+            <div>
+                <strong style="color: var(--ink);">Required:</strong>
+                <ul style="margin: 4px 0; padding-left: 16px;">
+                    <li>Company Name</li>
+                    <li>Fund Name</li>
+                    <li>Close Date</li>
+                </ul>
+            </div>
+            <div>
+                <strong style="color: var(--ink);">Recommended:</strong>
+                <ul style="margin: 4px 0; padding-left: 16px;">
+                    <li>Hold Size, Coupon, Spread</li>
+                    <li>LTV, Credit Rating, Status</li>
+                    <li>Maturity, Fair Value</li>
+                </ul>
+            </div>
+        </div>
+        <p style="font-size: 12px; color: var(--ink-faint); margin-top: 12px;">
+            Optional "Snapshots" sheet for quarterly data (LTV, fair value, rating changes over time).
+        </p>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{% set funds = analysis.funds %}
+
+{% if funds|length < 2 %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 32px 24px; margin-bottom: 24px;">
+    <p style="color: var(--ink-muted);">Only one fund found ({{ funds[0].fund_name if funds else 'Unknown' }}). Upload loans from multiple funds to compare vintages.</p>
+</div>
+{% endif %}
+
+{# --- Fund Comparison Table --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Fund-by-Fund Comparison</h3>
+    <div style="overflow-x: auto;">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th style="text-align:right;">Vintage</th>
+                <th style="text-align:right;"># Loans</th>
+                <th style="text-align:right;">Deployed</th>
+                <th style="text-align:right;">Issue Size</th>
+                <th style="text-align:right;">Deploy %</th>
+                <th style="text-align:right;">Wtd Yield</th>
+                <th style="text-align:right;">Avg LTV</th>
+                <th style="text-align:right;">% Performing</th>
+                <th style="text-align:right;">Defaults</th>
+                <th style="text-align:right;">Loss Rate</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in funds %}
+        <tr>
+            <td style="font-weight: 500;">{{ f.fund_name }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ f.vintage_year or '—' }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ f.loan_count }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(f.total_deployed) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(f.total_issue_size) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.deployment_pct) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.wavg_yield) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.wavg_ltv) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.pct_performing) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ f.default_count }}</td>
+            <td style="text-align:right; font-family: var(--font-mono); {% if f.loss_rate and f.loss_rate > 0.05 %}color: var(--danger);{% endif %}">{{ fmt_pct_1dp(f.loss_rate) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+{% if funds|length >= 2 %}
+{# --- Comparison Charts --- #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="panel">
+        <h3>Yield by Fund</h3>
+        <canvas id="yieldCompare" height="250"
+            data-labels='{{ funds|map(attribute="fund_name")|list|tojson }}'
+            data-values='{{ funds|map(attribute="wavg_yield")|list|tojson }}'></canvas>
+    </div>
+    <div class="panel">
+        <h3>LTV by Fund</h3>
+        <canvas id="ltvCompare" height="250"
+            data-labels='{{ funds|map(attribute="fund_name")|list|tojson }}'
+            data-values='{{ funds|map(attribute="wavg_ltv")|list|tojson }}'></canvas>
+    </div>
+</div>
+
+{# --- Rating Distribution by Fund --- #}
+<div class="panel">
+    <h3>Credit Rating Distribution by Fund</h3>
+    <div style="overflow-x: auto;">
+    <table class="data-table" style="font-size: 13px;">
+        <thead>
+            <tr><th>Fund</th><th style="text-align:right;">Rating 1</th><th style="text-align:right;">Rating 2</th><th style="text-align:right;">Rating 3</th><th style="text-align:right;">Rating 4</th><th style="text-align:right;">Rating 5</th></tr>
+        </thead>
+        <tbody>
+        {% for f in funds %}
+        <tr>
+            <td style="font-weight: 500;">{{ f.fund_name }}</td>
+            {% for r in range(1, 6) %}
+            <td style="text-align:right; font-family: var(--font-mono);">{{ f.rating_distribution.get(r, 0) }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function makeBar(id, color) {
+        var c = document.getElementById(id);
+        if (!c) return;
+        var labels = JSON.parse(c.dataset.labels || '[]');
+        var values = JSON.parse(c.dataset.values || '[]');
+        if (!labels.length) return;
+        new Chart(c.getContext('2d'), {
+            type: 'bar',
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: color, borderRadius: 4, borderWidth: 0 }] },
+            options: {
+                responsive: true, plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, grid: { color: '#EEECEA' }, ticks: { font: { family: "'Geist Mono'" } } }, x: { grid: { display: false } } }
+            }
+        });
+    }
+    makeBar('yieldCompare', '#0A6B58');
+    makeBar('ltvCompare', '#C9982E');
+});
+</script>
+{% endblock %}

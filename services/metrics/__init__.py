@@ -49,6 +49,17 @@ from services.metrics.fund_comparison import compute_fund_performance_comparison
 from services.metrics.executive_summary import compute_executive_summary_analysis
 from services.metrics.organic_growth import compute_organic_growth_analysis
 from services.metrics.data_cuts import compute_data_cuts_analytics
+from services.metrics.credit import (
+    compute_credit_loan_metrics,
+    compute_credit_portfolio_analytics,
+    compute_credit_yield_attribution,
+    compute_credit_stress_scenarios,
+    compute_credit_concentration,
+    compute_credit_vintage_comparison,
+    compute_credit_maturity_profile,
+    compute_traffic_lights,
+    compute_top_concerns,
+)
 
 __all__ = [
     "DRIVERS",
@@ -97,4 +108,13 @@ __all__ = [
     "compute_fund_performance_comparison",
     "compute_organic_growth_analysis",
     "compute_data_cuts_analytics",
+    "compute_credit_loan_metrics",
+    "compute_credit_portfolio_analytics",
+    "compute_credit_yield_attribution",
+    "compute_credit_stress_scenarios",
+    "compute_credit_concentration",
+    "compute_credit_vintage_comparison",
+    "compute_credit_maturity_profile",
+    "compute_traffic_lights",
+    "compute_top_concerns",
 ]

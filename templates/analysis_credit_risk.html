@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Risk KPIs --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">% Performing</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.pct_performing) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Avg LTV</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_ltv) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Watch List</div>
+        <div class="kpi-value">{{ analysis.status_distribution.get('Watch List', 0) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Defaults</div>
+        <div class="kpi-value" style="{% if analysis.status_distribution.get('Default', 0) > 0 %}color: var(--danger);{% endif %}">
+            {{ analysis.status_distribution.get('Default', 0) + analysis.status_distribution.get('Restructured', 0) }}
+        </div>
+    </div>
+</div>
+
+{# --- Status Distribution --- #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="panel">
+        <h3>Default Status Distribution</h3>
+        <table class="data-table">
+            <thead><tr><th>Status</th><th style="text-align:right;">Count</th><th style="text-align:right;">%</th></tr></thead>
+            <tbody>
+            {% for status, count in analysis.status_distribution.items() %}
+            <tr>
+                <td>
+                    {% if status == 'Performing' %}<i class="bi bi-check-circle" style="color:var(--accent);"></i>
+                    {% elif status == 'Watch List' %}<i class="bi bi-exclamation-triangle" style="color:var(--accent-2);"></i>
+                    {% else %}<i class="bi bi-x-circle" style="color:var(--danger);"></i>{% endif %}
+                    {{ status }}
+                </td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ count }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(count / loan_count if loan_count > 0 else 0) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h3>Credit Rating Distribution</h3>
+        {% if analysis.rating_distribution %}
+        <table class="data-table">
+            <thead><tr><th>Rating</th><th style="text-align:right;">Count</th><th style="text-align:right;">%</th></tr></thead>
+            <tbody>
+            {% for rating, count in analysis.rating_distribution|dictsort %}
+            <tr>
+                <td style="font-family: var(--font-mono);">{{ rating }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ count }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(count / loan_count if loan_count > 0 else 0) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--ink-muted);">No credit ratings available.</p>
+        {% endif %}
+    </div>
+</div>
+
+{# --- LTV Distribution --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>LTV Distribution</h3>
+    <canvas id="ltvChart" height="250"></canvas>
+</div>
+
+{# --- Watch List & Default Loans --- #}
+<div class="panel">
+    <h3>Watch List & Default Loans</h3>
+    {% set problem_loans = [] %}
+    {% for loan in loans if loan.default_status in ('Watch List', 'Default', 'Restructured') %}
+        {% if problem_loans.append(loan) %}{% endif %}
+    {% endfor %}
+    {% if problem_loans %}
+    <table class="data-table">
+        <thead>
+            <tr><th>Company</th><th>Fund</th><th>Status</th><th style="text-align:right;">Hold Size</th><th style="text-align:right;">LTV</th><th style="text-align:right;">Rating</th><th>Covenant</th></tr>
+        </thead>
+        <tbody>
+        {% for loan in problem_loans %}
+        <tr>
+            <td style="font-weight: 500;">{{ loan.company_name[:30] }}{% if loan.company_name|length > 30 %}...{% endif %}</td>
+            <td>{{ loan.fund_name }}</td>
+            <td>
+                {% if loan.default_status == 'Watch List' %}<span style="color:var(--accent-2);"><i class="bi bi-exclamation-triangle"></i> {{ loan.default_status }}</span>
+                {% else %}<span style="color:var(--danger);"><i class="bi bi-x-circle"></i> {{ loan.default_status }}</span>{% endif %}
+            </td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(loan.hold_size) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(loan.current_ltv) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ loan.internal_credit_rating or '—' }}</td>
+            <td>{% if loan.covenant_compliant is false %}<span style="color:var(--danger);">Breach</span>{% elif loan.covenant_compliant %}<span style="color:var(--accent);">OK</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--ink-muted);">No loans on watch list or in default.</p>
+    {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var canvas = document.getElementById('ltvChart');
+    if (!canvas) return;
+    var loans = {{ loans|map(attribute='current_ltv')|list|tojson }};
+    var bins = Array(10).fill(0);
+    var labels = [];
+    for (var i = 0; i < 10; i++) labels.push((i*10) + '-' + ((i+1)*10) + '%');
+    loans.forEach(function(ltv) {
+        if (ltv !== null && ltv !== undefined) {
+            var idx = Math.min(Math.floor(ltv * 10), 9);
+            if (idx >= 0) bins[idx]++;
+        }
+    });
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ data: bins, backgroundColor: '#0A6B58', borderRadius: 4, borderWidth: 0 }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: '# Loans' }, grid: { color: '#EEECEA' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

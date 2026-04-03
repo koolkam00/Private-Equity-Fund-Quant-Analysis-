@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+
+{# --- Filters --- #}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund_name">
+                    <option value="">All Funds</option>
+                    {% for f in filter_options.get('fund_name', []) %}<option value="{{ f }}" {% if f in (active_filters.get('fund_name') or []) %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="default_status">
+                    <option value="">All Statuses</option>
+                    {% for s in filter_options.get('default_status', []) %}<option value="{{ s }}" {% if s in (active_filters.get('default_status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sector') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Rating</span>
+                <select name="internal_credit_rating">
+                    <option value="">All Ratings</option>
+                    {% for r in filter_options.get('internal_credit_rating', []) %}<option value="{{ r }}" {% if r in (active_filters.get('internal_credit_rating') or []) %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
+            {% if active_filters %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('credit_analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if not loans %}
+{# --- Empty state --- #}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted); font-size: 16px; margin-bottom: 16px;">No credit loans uploaded yet.</p>
+    <p style="color: var(--ink-faint); margin-bottom: 24px;">Upload a loan tape to get started with credit portfolio analytics.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Hero KPIs --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Total Deployed</div>
+        <div class="kpi-value kpi-hero">{{ fmt_currency_symbol(analysis.total_deployed) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Yield</div>
+        <div class="kpi-value kpi-hero">{{ fmt_pct_1dp(analysis.wavg_yield) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">% Performing</div>
+        <div class="kpi-value kpi-hero">{{ fmt_pct_1dp(analysis.pct_performing) }}</div>
+    </div>
+</div>
+
+{# --- Traffic Lights + Top Concerns --- #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    {# Traffic Lights #}
+    <div class="panel">
+        <h3>Portfolio Health</h3>
+        {% set tl = analysis.traffic_lights %}
+        {% set sig = tl.portfolio_signal %}
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+            {% if sig == 'green' %}
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--primary-light); color: var(--accent);">
+                <i class="bi bi-check-circle-fill"></i> Performing
+            </span>
+            {% elif sig == 'yellow' %}
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--secondary-light); color: var(--accent-2);">
+                <i class="bi bi-exclamation-triangle-fill"></i> Watch
+            </span>
+            {% elif sig == 'red' %}
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--danger-light); color: var(--danger);">
+                <i class="bi bi-x-circle-fill"></i> At Risk
+            </span>
+            {% else %}
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--surface-alt); color: var(--ink-muted);">
+                <i class="bi bi-question-circle-fill"></i> Insufficient Data
+            </span>
+            {% endif %}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+            {% for key, label, icon, bg in [('green', 'Performing', 'bi-check-circle', '--primary-light'), ('yellow', 'Watch', 'bi-exclamation-triangle', '--secondary-light'), ('red', 'Default/Risk', 'bi-x-circle', '--danger-light'), ('gray', 'No Data', 'bi-question-circle', '--surface-alt')] %}
+            <div style="text-align: center; padding: 8px; border-radius: 8px; background: var({{ bg }});">
+                <div style="font-family: var(--font-mono); font-size: 20px;">{{ fmt_pct_1dp(tl.pcts.get(key, 0)) }}</div>
+                <div style="font-size: 11px; color: var(--ink-muted);"><i class="bi {{ icon }}"></i> {{ label }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Top Concerns #}
+    <div class="panel">
+        <h3>Top Concerns</h3>
+        {% if analysis.top_concerns %}
+        <table class="data-table" style="font-size: 13px;">
+            <thead><tr><th>Company</th><th>Issue</th><th>Detail</th></tr></thead>
+            <tbody>
+            {% for c in analysis.top_concerns %}
+            <tr>
+                <td style="font-weight: 500;">{{ c.company }}</td>
+                <td>
+                    {% if c.severity <= 2 %}<span style="color: var(--danger);"><i class="bi bi-exclamation-circle-fill"></i></span>{% endif %}
+                    {{ c.reason }}
+                </td>
+                <td style="font-family: var(--font-mono); font-size: 12px;">{{ c.metric or '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--ink-muted);">No concerns identified. Portfolio is healthy.</p>
+        {% endif %}
+    </div>
+</div>
+
+{# --- Secondary KPIs --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Avg LTV</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_ltv) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Spread</div>
+        <div class="kpi-value">{% if analysis.wavg_spread_bps is not none %}{{ analysis.wavg_spread_bps | int }}bps{% else %}&mdash;{% endif %}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label"># Loans</div>
+        <div class="kpi-value">{{ analysis.loan_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label"># Funds</div>
+        <div class="kpi-value">{{ analysis.fund_count }}</div>
+    </div>
+</div>
+
+{# --- Loan Table --- #}
+<div class="panel">
+    <h3>Loan Portfolio</h3>
+    <div style="overflow-x: auto;">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Status</th>
+                <th style="text-align:right;">Hold Size</th>
+                <th style="text-align:right;">Coupon</th>
+                <th style="text-align:right;">LTV</th>
+                <th style="text-align:right;">Rating</th>
+                <th>Maturity</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for loan in loans[:50] %}
+        <tr>
+            <td style="font-weight: 500;" title="{{ loan.company_name }}">{{ loan.company_name[:30] }}{% if loan.company_name|length > 30 %}...{% endif %}</td>
+            <td>{{ loan.fund_name }}</td>
+            <td>
+                {% if loan.default_status == 'Performing' %}<span style="color: var(--accent);"><i class="bi bi-check-circle"></i></span>
+                {% elif loan.default_status == 'Watch List' %}<span style="color: var(--accent-2);"><i class="bi bi-exclamation-triangle"></i></span>
+                {% elif loan.default_status in ('Default', 'Restructured') %}<span style="color: var(--danger);"><i class="bi bi-x-circle"></i></span>
+                {% endif %}
+                {{ loan.default_status or '—' }}
+            </td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(loan.hold_size) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(loan.coupon_rate) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(loan.current_ltv) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ loan.internal_credit_rating or '—' }}</td>
+            <td style="font-family: var(--font-mono);">{% if loan.maturity_date %}{{ loan.maturity_date.strftime('%b %Y') }}{% else %}&mdash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if loans|length > 50 %}
+    <p style="color: var(--ink-muted); font-size: 12px; margin-top: 8px;">Showing 50 of {{ loans|length }} loans.</p>
+    {% endif %}
+</div>
+
+{# --- Status Distribution Chart --- #}
+<div class="panel">
+    <h3>Status Distribution</h3>
+    <div style="max-width: 400px; margin: 0 auto;">
+        <canvas id="statusChart" height="250"
+            data-labels='{{ analysis.status_distribution.keys()|list|tojson }}'
+            data-values='{{ analysis.status_distribution.values()|list|tojson }}'></canvas>
+    </div>
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var canvas = document.getElementById('statusChart');
+    if (!canvas) return;
+    var labels = JSON.parse(canvas.dataset.labels || '[]');
+    var values = JSON.parse(canvas.dataset.values || '[]');
+    if (!labels.length) return;
+
+    var colorMap = {
+        'Performing': '#0A6B58',
+        'Watch List': '#C9982E',
+        'Default': '#B83C4A',
+        'Restructured': '#B83C4A',
+        'Unknown': '#B5B3AE'
+    };
+    var colors = labels.map(function(l) { return colorMap[l] || '#6B6B63'; });
+
+    new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom', labels: { font: { family: "'Instrument Sans'" } } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
