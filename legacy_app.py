@@ -333,6 +333,7 @@ ROUTE_BLUEPRINTS = {
     "credit_analysis_page": "credit",
     "credit_analysis_series_api": "credit",
     "upload_credit_loans": "uploads",
+    "download_credit_template": "uploads",
     "analysis_series_api": "analysis",
     "ic_memo": "analysis",
     "methodology": "analysis",
@@ -4069,6 +4070,158 @@ def upload_credit_loans():
         db.session.rollback()
         flash(f"Upload failed: {exc}", "danger")
         return redirect(url_for("upload_credit_loans"))
+
+
+@app.route("/upload/credit-loans/template")
+@login_required
+def download_credit_template():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = Workbook()
+
+    # --- Main Loans sheet ---
+    ws = wb.active
+    ws.title = "Credit Loans"
+
+    headers = [
+        "Company Name", "Fund Name", "Vintage Year", "Close Date", "Exit Date",
+        "Status", "As Of Date", "Default Status",
+        "Instrument", "Tranche", "Security Type",
+        "Issue Size", "Hold Size", "Coupon Rate", "Spread (bps)", "Floor Rate",
+        "OID", "Upfront Fee", "Exit Fee", "Maturity Date",
+        "Fixed or Floating", "Reference Rate",
+        "PIK", "PIK Rate",
+        "Call Protection (months)", "Make-Whole Premium",
+        "Amortization Type", "Payment Frequency",
+        "Entry LTV", "Current LTV",
+        "Entry Revenue", "Entry EBITDA", "Current Revenue", "Current EBITDA",
+        "Interest Coverage Ratio", "DSCR",
+        "Credit Rating", "Covenant Type", "Covenant Compliant",
+        "Gross IRR", "MOIC", "Realized Value", "Unrealized Value",
+        "Cumulative Interest Income", "Cumulative Fee Income",
+        "Fair Value", "Yield to Maturity", "Recovery Rate",
+        "Original Par", "Current Outstanding", "Accrued Interest",
+        "Sector", "Geography", "Sponsor", "Currency",
+    ]
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="0A6B58", end_color="0A6B58", fill_type="solid")
+    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=10)
+    for col_idx, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    # Example row
+    ws.append([
+        "Acme Software Inc", "PCOF III", 2023, "2023-06-15", None,
+        "Unrealized", "2024-12-31", "Performing",
+        "Term Loan B", "First Lien", "Senior Secured",
+        100.0, 25.0, 0.085, 425, 0.01,
+        0.02, 0.50, None, "2028-06-15",
+        "Floating", "SOFR",
+        "No", None,
+        12, None,
+        "Bullet", "Quarterly",
+        0.55, 0.58,
+        50.0, 15.0, 55.0, 17.0,
+        2.5, 1.8,
+        2, "Maintenance", "Yes",
+        0.10, 1.15, None, 26.0,
+        4.0, 0.5,
+        25.5, 0.09, None,
+        25.0, 25.0, 0.2,
+        "Software", "North America", "Apollo Global", "USD",
+    ])
+
+    # Set column widths
+    for col_idx in range(1, len(headers) + 1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = 16
+
+    # --- Snapshots sheet ---
+    ws2 = wb.create_sheet("Snapshots")
+    snap_headers = [
+        "Company Name", "Snapshot Date",
+        "Current LTV", "Fair Value", "Current Revenue", "Current EBITDA",
+        "Interest Coverage Ratio", "DSCR",
+        "Default Status", "Credit Rating", "Covenant Compliant",
+        "Current Outstanding", "Accrued Interest",
+    ]
+    ws2.append(snap_headers)
+    for col_idx, _ in enumerate(snap_headers, 1):
+        cell = ws2.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    ws2.append([
+        "Acme Software Inc", "2024-03-31",
+        0.57, 25.2, 52.0, 16.0,
+        2.4, 1.7,
+        "Performing", 2, "Yes",
+        25.0, 0.15,
+    ])
+    ws2.append([
+        "Acme Software Inc", "2024-06-30",
+        0.55, 25.4, 54.0, 16.5,
+        2.5, 1.8,
+        "Performing", 2, "Yes",
+        25.0, 0.18,
+    ])
+
+    for col_idx in range(1, len(snap_headers) + 1):
+        ws2.column_dimensions[ws2.cell(row=1, column=col_idx).column_letter].width = 18
+
+    # --- Instructions sheet ---
+    ws3 = wb.create_sheet("Instructions")
+    ws3.column_dimensions["A"].width = 80
+    instructions = [
+        "PE Portfolio Lab - Credit Loan Template",
+        "",
+        "CREDIT LOANS SHEET (required)",
+        "  Required columns: Company Name, Fund Name, Close Date",
+        "  All other columns are optional but recommended for full analytics.",
+        "",
+        "  Status: Realized or Unrealized",
+        "  Default Status: Performing, Watch List, Default, or Restructured",
+        "  Coupon Rate: Decimal form (e.g., 0.085 = 8.5%)",
+        "  Spread: In basis points (e.g., 425 = 4.25%)",
+        "  LTV: Decimal form (e.g., 0.55 = 55%). Values > 1 auto-normalized.",
+        "  Credit Rating: 1 (best) to 5 (worst)",
+        "  PIK: Yes or No",
+        "  Covenant Type: Maintenance, Incurrence, or None",
+        "  Covenant Compliant: Yes or No",
+        "  Fixed or Floating: Fixed or Floating",
+        "  Amortization Type: Bullet, Amortizing, or IO",
+        "  Payment Frequency: Monthly or Quarterly",
+        "  Currency: ISO 3-letter code (e.g., USD, EUR, GBP)",
+        "",
+        "SNAPSHOTS SHEET (optional)",
+        "  Quarterly updates for metrics that change over time.",
+        "  Match Company Name exactly to the Loans sheet.",
+        "  One row per company per quarter.",
+    ]
+    for i, line in enumerate(instructions, 1):
+        cell = ws3.cell(row=i, column=1, value=line)
+        if i == 1:
+            cell.font = Font(name="Calibri", bold=True, size=12)
+        elif line.startswith("  "):
+            cell.font = Font(name="Calibri", size=10, color="666666")
+        else:
+            cell.font = Font(name="Calibri", bold=True, size=10)
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name="credit_loan_template.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @app.route("/api/analysis/<page>/series")
