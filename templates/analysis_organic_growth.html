@@ -58,20 +58,20 @@
     <i class="bi bi-diagram-3" style="font-size: 48px; color: var(--ink-muted);"></i>
     <h3 style="margin-top: 16px;">No Deals Available</h3>
     <p class="subtitle" style="max-width: 480px; margin: 8px auto 24px;">
-        Upload deal data with entry/exit revenue, EBITDA, and optionally <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, <strong>Acquired TEV</strong> columns to enable growth attribution analysis.
+        Upload deal data to enable growth attribution analysis. Include <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, <strong>Acquired TEV</strong> columns for deals with bolt-on acquisitions.
     </p>
     <a href="{{ url_for('download_deal_template') }}" class="btn-upload"><i class="bi bi-download"></i> Download Data Template</a>
 </div>
 {% else %}
 
 {# ================================================================ #}
-{# ACT 1: THE ANSWER — Hero KPIs + Waterfall                       #}
+{# ACT 1: THE HEADLINE — KPI Cards                                  #}
 {# ================================================================ #}
 <div class="kpi-grid">
     <div class="kpi-card">
         <span>Total Deals</span>
         <strong>{{ meta.deals_total }}</strong>
-        <span class="subtitle">{{ meta.deals_with_acquisitions }} with acquisitions, {{ meta.deals_pure_organic }} pure organic</span>
+        <span class="subtitle">{{ meta.deals_with_acquisitions }} with acquisitions &middot; {{ meta.deals_pure_organic }} pure organic</span>
     </div>
     <div class="kpi-card">
         <span>Organic Revenue Growth</span>
@@ -101,19 +101,24 @@
     </div>
 </div>
 
-{# --- Waterfall Charts: Growth Decomposition --- #}
-<h3 style="margin-top:1.5rem;"><i class="bi bi-bar-chart-steps"></i> Growth Decomposition</h3>
-<div class="exec-grid-2col">
-    <div class="panel">
-        <h4>Revenue</h4>
-        <div class="exec-chart-container">
-            <canvas id="revWaterfallChart" height="260"></canvas>
+{# ================================================================ #}
+{# Growth Decomposition — Waterfall Charts                          #}
+{# ================================================================ #}
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-bar-chart-steps"></i> Growth Decomposition</h3>
+    <p class="subtitle">How portfolio revenue and EBITDA grew from entry to exit, split by organic operations vs acquired bolt-ons.</p>
+    <div class="exec-grid-2col" style="margin-top:1rem;">
+        <div>
+            <h4 style="margin-bottom:0.5rem;">Revenue</h4>
+            <div class="exec-chart-container">
+                <canvas id="revWaterfallChart" height="260"></canvas>
+            </div>
         </div>
-    </div>
-    <div class="panel">
-        <h4>EBITDA</h4>
-        <div class="exec-chart-container">
-            <canvas id="ebitdaWaterfallChart" height="260"></canvas>
+        <div>
+            <h4 style="margin-bottom:0.5rem;">EBITDA</h4>
+            <div class="exec-chart-container">
+                <canvas id="ebitdaWaterfallChart" height="260"></canvas>
+            </div>
         </div>
     </div>
 </div>
@@ -122,29 +127,31 @@
 {# ACT 2: THE PATTERN — Scatter + Cohort Comparison                 #}
 {# ================================================================ #}
 
-{# --- Scatter Plot: Growth vs Returns --- #}
-<h3 style="margin-top:1.5rem;"><i class="bi bi-dot"></i> Growth vs Returns</h3>
-<div class="panel">
-    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-        <button class="btn-toggle active" id="scatterRevBtn" onclick="switchScatter('revenue')">Revenue</button>
-        <button class="btn-toggle" id="scatterEbitdaBtn" onclick="switchScatter('ebitda')">EBITDA</button>
+{# --- Scatter Plot --- #}
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-dot"></i> Growth vs Returns</h3>
+    <p class="subtitle">Each bubble is a deal. Bigger bubble = more equity invested. Color shows growth type.</p>
+    <div style="display:flex; align-items:center; gap:0.5rem; margin:0.75rem 0;">
+        <button class="btn-toggle active" id="scatterRevBtn" onclick="switchScatter('revenue')">Revenue CAGR</button>
+        <button class="btn-toggle" id="scatterEbitdaBtn" onclick="switchScatter('ebitda')">EBITDA CAGR</button>
     </div>
     <div class="exec-chart-container">
-        <canvas id="scatterChart" height="320"></canvas>
+        <canvas id="scatterChart" height="340"></canvas>
     </div>
 </div>
 
 {# --- Cohort Comparison Table --- #}
-<h3 style="margin-top:1.5rem;"><i class="bi bi-people"></i> Cohort Performance</h3>
-<div class="panel">
-    <div style="overflow-x:auto;">
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-people"></i> Cohort Performance</h3>
+    <p class="subtitle">How do pure organic growers compare to deals that used acquisitions?</p>
+    <div style="overflow-x:auto; margin-top:0.75rem;">
         <table class="deal-table mono">
             <thead>
                 <tr>
                     <th>Metric</th>
-                    <th class="text-right">Pure Organic</th>
-                    <th class="text-right">Acq-Augmented</th>
-                    <th class="text-right">Acq-Dependent</th>
+                    <th class="text-right"><span class="cohort-badge-organic">Pure Organic</span></th>
+                    <th class="text-right"><span class="cohort-badge-augmented">Augmented</span></th>
+                    <th class="text-right"><span class="cohort-badge-dependent">Dependent</span></th>
                     <th class="text-right"><strong>Total</strong></th>
                 </tr>
             </thead>
@@ -176,10 +183,10 @@
                 </tr>
                 <tr>
                     <td>Weighted IRR</td>
-                    <td class="text-right">{% if po and po.weighted_irr is not none %}{{ fmt_pct_1dp(po.weighted_irr / 100) }}{% else %}—{% endif %}</td>
-                    <td class="text-right">{% if aug and aug.weighted_irr is not none %}{{ fmt_pct_1dp(aug.weighted_irr / 100) }}{% else %}—{% endif %}</td>
-                    <td class="text-right">{% if dep and dep.weighted_irr is not none %}{{ fmt_pct_1dp(dep.weighted_irr / 100) }}{% else %}—{% endif %}</td>
-                    <td class="text-right"><strong>{% if total and total.weighted_irr is not none %}{{ fmt_pct_1dp(total.weighted_irr / 100) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right">{% if po and po.weighted_irr is not none %}{{ fmt_pct_1dp(po.weighted_irr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.weighted_irr is not none %}{{ fmt_pct_1dp(aug.weighted_irr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.weighted_irr is not none %}{{ fmt_pct_1dp(dep.weighted_irr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.weighted_irr is not none %}{{ fmt_pct_1dp(total.weighted_irr) }}{% else %}—{% endif %}</strong></td>
                 </tr>
                 <tr>
                     <td>Organic Rev CAGR</td>
@@ -226,9 +233,9 @@
 {# ================================================================ #}
 
 {# --- Deal Attribution Table --- #}
-<h3 style="margin-top:1.5rem;"><i class="bi bi-table"></i> Deal Attribution</h3>
-<div class="panel">
-    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-table"></i> Deal Attribution</h3>
+    <div style="display:flex; align-items:center; gap:0.5rem; margin:0.5rem 0;">
         <button class="btn-toggle active" id="dealRevBtn" onclick="switchDealTable('revenue')">Revenue</button>
         <button class="btn-toggle" id="dealEbitdaBtn" onclick="switchDealTable('ebitda')">EBITDA</button>
     </div>
@@ -324,9 +331,10 @@
 
 {# --- Fund-Level Comparison --- #}
 {% if a.fund_comparison %}
-<h3 style="margin-top:1.5rem;"><i class="bi bi-building"></i> Fund Comparison</h3>
-<div class="panel">
-    <div style="overflow-x:auto;">
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-building"></i> Fund Comparison</h3>
+    <p class="subtitle">Growth quality trends across fund vintages.</p>
+    <div style="overflow-x:auto; margin-top:0.75rem;">
         <table class="deal-table mono">
             <thead>
                 <tr>
@@ -360,20 +368,20 @@
 </div>
 {% endif %}
 
-{# --- Bridge Decomposition (ebitda_additive deals only) --- #}
+{# --- Bridge Decomposition --- #}
 {% if a.bridge_decomposition %}
-<div class="panel">
-    <h3><i class="bi bi-signpost-split"></i> Value Creation Bridge: Organic vs Acquired Revenue Driver</h3>
+<div class="panel" style="margin-top:1.5rem;">
+    <h3><i class="bi bi-signpost-split"></i> Value Creation Bridge: Organic vs Acquired</h3>
     <p class="subtitle">Revenue driver split for deals with EBITDA additive bridge data.</p>
-    <div style="overflow-x:auto;">
+    <div style="overflow-x:auto; margin-top:0.75rem;">
         <table class="deal-table mono">
             <thead>
                 <tr>
                     <th class="sticky-col">Company</th>
                     <th>Fund</th>
-                    <th class="text-right">Organic Rev Driver</th>
-                    <th class="text-right">Acquired Rev Driver</th>
-                    <th class="text-right">Total Rev Driver</th>
+                    <th class="text-right" style="color:#0A6B58;">Organic Rev</th>
+                    <th class="text-right" style="color:#C9982E;">Acquired Rev</th>
+                    <th class="text-right">Total Rev</th>
                     <th class="text-right">Margin</th>
                     <th class="text-right">Multiple</th>
                     <th class="text-right">Leverage</th>
@@ -399,7 +407,7 @@
 {% endif %}
 
 {# --- Methodology --- #}
-<div class="panel" style="background:var(--surface-alt); border-left:3px solid var(--primary);">
+<div class="panel" style="background:var(--surface-alt); border-left:3px solid var(--primary); margin-top:1.5rem;">
     <h4 style="margin:0 0 8px;"><i class="bi bi-info-circle"></i> Methodology</h4>
     <ul style="margin:0; padding-left:20px; font-size:13px; color:var(--ink-muted);">
         {% for note in a.methodology_notes %}
@@ -410,10 +418,7 @@
 
 {% endif %}{# end has_deals #}
 
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
+{# --- ALL CHART JS MUST BE INSIDE block content (base.html has no block scripts) --- #}
 {% if a.meta.has_deals %}
 <script>
 (function() {
@@ -430,33 +435,35 @@
         var ctx = document.getElementById(canvasId);
         if (!ctx || !data || data.deals === 0) return;
 
-        var labels = ['Entry ' + label, 'Organic Growth', 'Acquired', 'Exit ' + label];
-        var entry = data.entry;
-        var organic = data.organic;
-        var acquired = data.acquired;
+        var entry = data.entry || 0;
+        var organic = data.organic || 0;
+        var acquired = data.acquired || 0;
+        var exit = data.exit || 0;
 
-        // Stacked bar: transparent base + visible segment
+        var labels = ['Entry ' + label, 'Organic Growth', 'Acquired', 'Exit ' + label];
+        // Waterfall: each floating bar starts where the previous ended
         var bases = [0, entry, entry + organic, 0];
-        var values = [entry, organic, acquired, data.exit];
-        var colors = [BASE_COLOR, ORGANIC_COLOR, ACQUIRED_COLOR, TOTAL_COLOR];
+        var values = [entry, organic, acquired, exit];
+        var colors = [BASE_COLOR, organic >= 0 ? ORGANIC_COLOR : DEPENDENT_COLOR, acquired >= 0 ? ACQUIRED_COLOR : DEPENDENT_COLOR, TOTAL_COLOR];
 
         new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'Base', data: bases, backgroundColor: 'transparent', borderWidth: 0 },
-                    { label: label, data: values, backgroundColor: colors.map(function(c, i) { return i === 0 || i === 3 ? c : (values[i] < 0 ? DEPENDENT_COLOR : c); }), borderRadius: 2 }
+                    { label: 'Base', data: bases, backgroundColor: 'transparent', borderWidth: 0, hoverBackgroundColor: 'transparent' },
+                    { label: label, data: values, backgroundColor: colors, borderRadius: 3 }
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: {
-                    callbacks: { label: function(ctx) { if (ctx.datasetIndex === 0) return null; return '$' + (ctx.parsed.y || 0).toFixed(1) + 'M'; } }
-                }},
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: function(c) { if (c.datasetIndex === 0) return null; var v = c.parsed.y; return (v >= 0 ? '+' : '') + '$' + v.toFixed(1) + 'M'; } } }
+                },
                 scales: {
-                    x: { stacked: true, ticks: { font: { size: 11 } } },
-                    y: { stacked: true, ticks: { font: { size: 11 } } }
+                    x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+                    y: { stacked: true, ticks: { font: { size: 11 }, callback: function(v) { return '$' + v + 'M'; } } }
                 }
             }
         });
@@ -467,7 +474,6 @@
     // --- Scatter plot ---
     var scatterData = {{ a.scatter_data | tojson }};
     var scatterChart = null;
-    var scatterMode = 'revenue';
 
     function buildScatter(mode) {
         var ctx = document.getElementById('scatterChart');
@@ -479,10 +485,19 @@
 
         scatterData.forEach(function(pt) {
             var cohort = pt.cohort || 'Pure Organic';
-            if (!datasets[cohort]) datasets[cohort] = { label: cohort, data: [], backgroundColor: (cohortColors[cohort] || BASE_COLOR) + '99', borderColor: cohortColors[cohort] || BASE_COLOR, borderWidth: 1 };
+            if (!datasets[cohort]) {
+                datasets[cohort] = {
+                    label: cohort.replace('Acquisition-', ''),
+                    data: [],
+                    backgroundColor: (cohortColors[cohort] || BASE_COLOR) + '99',
+                    borderColor: cohortColors[cohort] || BASE_COLOR,
+                    borderWidth: 1
+                };
+            }
             var cagr = mode === 'revenue' ? pt.organic_rev_cagr : pt.organic_ebitda_cagr;
             if (cagr != null && pt.moic != null) {
-                datasets[cohort].data.push({ x: cagr, y: pt.moic, r: Math.max(4, Math.min(30, Math.sqrt(pt.equity / 2))), company: pt.company });
+                var r = Math.max(5, Math.min(25, Math.sqrt((pt.equity || 1) / 2)));
+                datasets[cohort].data.push({ x: cagr, y: pt.moic, r: r, company: pt.company, equity: pt.equity });
             }
         });
 
@@ -492,14 +507,17 @@
             options: {
                 responsive: true, maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'top' },
+                    legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'circle' } },
                     tooltip: { callbacks: {
-                        label: function(ctx) { var d = ctx.raw; return d.company + ': ' + d.y.toFixed(2) + 'x MOIC, ' + d.x.toFixed(1) + '% CAGR'; }
+                        label: function(c) {
+                            var d = c.raw;
+                            return d.company + ': ' + d.y.toFixed(2) + 'x MOIC, ' + d.x.toFixed(1) + '% CAGR';
+                        }
                     }}
                 },
                 scales: {
                     x: { title: { display: true, text: 'Organic ' + (mode === 'revenue' ? 'Revenue' : 'EBITDA') + ' CAGR (%)', font: { size: 12 } }, ticks: { font: { size: 11 } } },
-                    y: { title: { display: true, text: 'MOIC (x)', font: { size: 12 } }, ticks: { font: { size: 11 } } }
+                    y: { title: { display: true, text: 'MOIC (x)', font: { size: 12 } }, ticks: { font: { size: 11 } }, beginAtZero: true }
                 }
             }
         });
@@ -507,7 +525,6 @@
     buildScatter('revenue');
 
     window.switchScatter = function(mode) {
-        scatterMode = mode;
         buildScatter(mode);
         document.getElementById('scatterRevBtn').classList.toggle('active', mode === 'revenue');
         document.getElementById('scatterEbitdaBtn').classList.toggle('active', mode === 'ebitda');
@@ -530,15 +547,15 @@
             data: {
                 labels: fundData.map(function(f) { return f.fund; }),
                 datasets: [
-                    { label: 'Organic Rev %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? f.organic_rev_pct * 100 : null; }), backgroundColor: ORGANIC_COLOR, borderRadius: 2 },
-                    { label: 'Acquired Rev %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? (1 - f.organic_rev_pct) * 100 : null; }), backgroundColor: ACQUIRED_COLOR, borderRadius: 2 },
+                    { label: 'Organic %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? f.organic_rev_pct * 100 : null; }), backgroundColor: ORGANIC_COLOR, borderRadius: 2 },
+                    { label: 'Acquired %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? (1 - f.organic_rev_pct) * 100 : null; }), backgroundColor: ACQUIRED_COLOR, borderRadius: 2 },
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 plugins: { legend: { position: 'top' } },
                 scales: {
-                    x: { stacked: true, ticks: { font: { size: 11 } } },
+                    x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
                     y: { stacked: true, max: 100, title: { display: true, text: '% of Revenue Growth' }, ticks: { font: { size: 11 } } }
                 }
             }
@@ -547,4 +564,5 @@
 })();
 </script>
 {% endif %}
+
 {% endblock %}
