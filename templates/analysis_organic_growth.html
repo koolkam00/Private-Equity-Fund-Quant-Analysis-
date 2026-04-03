@@ -233,61 +233,80 @@
 {# ================================================================ #}
 
 {# --- Deal Attribution Table (single table with revenue + EBITDA) --- #}
+<style>
+    .og-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+    .og-table th, .og-table td { padding: 8px 12px; white-space: nowrap; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .og-table thead th { background: var(--surface); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--ink-muted); }
+    .og-table tbody tr:hover { background: var(--surface-alt); }
+    /* Group separators: left border on first column of each group */
+    .og-table .og-grp-start { border-left: 2px solid var(--border); }
+    .og-table .og-grp-rev { border-left-color: var(--primary); }
+    .og-table .og-grp-ebitda { border-left-color: var(--accent-2); }
+    .og-table .og-grp-margin { border-left-color: var(--ink-muted); }
+    .og-table .og-grp-return { border-left-color: var(--border); }
+    /* Group header row */
+    .og-table .og-group-header th { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 700; padding-bottom: 2px; }
+    .og-table .og-sub-header th { padding-top: 2px; }
+    /* Sticky company column */
+    .og-table .og-sticky { position: sticky; left: 0; background: var(--surface); z-index: 2; min-width: 140px; }
+    .og-table tbody .og-sticky { background: #fff; }
+    .og-table tbody tr:hover .og-sticky { background: var(--surface-alt); }
+</style>
 <div class="panel" style="margin-top:1.5rem;">
     <h3><i class="bi bi-table"></i> Deal Attribution</h3>
     <div style="overflow-x:auto;">
-        <table class="deal-table mono">
+        <table class="og-table mono">
             <thead>
-                <tr>
-                    <th class="sticky-col" rowspan="2">Company</th>
+                <tr class="og-group-header">
+                    <th class="og-sticky" rowspan="2">Company</th>
                     <th rowspan="2">Fund</th>
                     <th rowspan="2">Cohort</th>
                     <th class="text-right" rowspan="2">Equity</th>
                     <th class="text-right" rowspan="2">Hold</th>
-                    <th class="text-center" colspan="4" style="border-bottom:2px solid var(--primary); color:var(--primary);">Revenue</th>
-                    <th class="text-center" colspan="4" style="border-bottom:2px solid var(--accent-2); color:var(--accent-2);">EBITDA</th>
-                    <th class="text-center" colspan="3" style="border-bottom:2px solid var(--ink-muted);">Margin</th>
-                    <th class="text-right" rowspan="2">MOIC</th>
+                    <th class="text-center og-grp-start og-grp-rev" colspan="4" style="color:var(--primary);">Revenue</th>
+                    <th class="text-center og-grp-start og-grp-ebitda" colspan="4" style="color:var(--accent-2);">EBITDA</th>
+                    <th class="text-center og-grp-start og-grp-margin" colspan="3">Margin</th>
+                    <th class="text-right og-grp-start og-grp-return" rowspan="2">MOIC</th>
                     <th class="text-right" rowspan="2">Score</th>
                 </tr>
-                <tr>
-                    <th class="text-right">Entry</th>
+                <tr class="og-sub-header">
+                    <th class="text-right og-grp-start og-grp-rev">Entry</th>
                     <th class="text-right">Exit</th>
                     <th class="text-right">Organic</th>
                     <th class="text-right">Acquired</th>
-                    <th class="text-right">Entry</th>
+                    <th class="text-right og-grp-start og-grp-ebitda">Entry</th>
                     <th class="text-right">Exit</th>
                     <th class="text-right">Organic</th>
                     <th class="text-right">Acquired</th>
-                    <th class="text-right">Entry</th>
+                    <th class="text-right og-grp-start og-grp-margin">Entry</th>
                     <th class="text-right">Exit (Org)</th>
-                    <th class="text-right">Change</th>
+                    <th class="text-right">Chg</th>
                 </tr>
             </thead>
             <tbody>
                 {% for row in a.deal_rows %}
                 <tr>
-                    <td class="sticky-col">{{ row.company_name or '—' }}</td>
+                    <td class="og-sticky">{{ row.company_name or '—' }}</td>
                     <td>{{ row.fund_number or '—' }}</td>
                     <td><span class="cohort-badge-{{ 'organic' if row.cohort == 'Pure Organic' else ('augmented' if row.cohort == 'Acquisition-Augmented' else 'dependent') }}">{{ row.cohort|replace('Acquisition-', '') }}</span></td>
                     <td class="text-right">{{ fmt_currency_symbol(row.equity) }}</td>
                     <td class="text-right">{{ fmt_years_1dp(row.hold_period) }}</td>
-                    {# Revenue columns #}
-                    <td class="text-right">{{ fmt_currency_symbol(row.entry_revenue) }}</td>
+                    {# Revenue group #}
+                    <td class="text-right og-grp-start og-grp-rev">{{ fmt_currency_symbol(row.entry_revenue) }}</td>
                     <td class="text-right">{{ fmt_currency_symbol(row.exit_revenue) }}</td>
                     <td class="text-right {% if row.organic_revenue_growth is not none and row.organic_revenue_growth < 0 %}text-loss{% endif %}">{{ fmt_currency_symbol(row.organic_revenue_growth) }}</td>
                     <td class="text-right">{{ fmt_currency_symbol(row.acquired_revenue) if row.acquired_revenue else '—' }}</td>
-                    {# EBITDA columns #}
-                    <td class="text-right">{{ fmt_currency_symbol(row.entry_ebitda) }}</td>
+                    {# EBITDA group #}
+                    <td class="text-right og-grp-start og-grp-ebitda">{{ fmt_currency_symbol(row.entry_ebitda) }}</td>
                     <td class="text-right">{{ fmt_currency_symbol(row.exit_ebitda) }}</td>
                     <td class="text-right {% if row.organic_ebitda_growth is not none and row.organic_ebitda_growth < 0 %}text-loss{% endif %}">{{ fmt_currency_symbol(row.organic_ebitda_growth) }}</td>
                     <td class="text-right">{{ fmt_currency_symbol(row.acquired_ebitda) if row.acquired_ebitda else '—' }}</td>
-                    {# Margin columns #}
-                    <td class="text-right">{% if row.entry_ebitda_margin is not none %}{{ "%.1f%%"|format(row.entry_ebitda_margin * 100) }}{% else %}—{% endif %}</td>
+                    {# Margin group #}
+                    <td class="text-right og-grp-start og-grp-margin">{% if row.entry_ebitda_margin is not none %}{{ "%.1f%%"|format(row.entry_ebitda_margin * 100) }}{% else %}—{% endif %}</td>
                     <td class="text-right">{% if row.organic_exit_ebitda_margin is not none %}{{ "%.1f%%"|format(row.organic_exit_ebitda_margin * 100) }}{% else %}—{% endif %}</td>
                     <td class="text-right {% if row.organic_margin_expansion is not none and row.organic_margin_expansion < 0 %}text-loss{% endif %}">{% if row.organic_margin_expansion is not none %}{{ "%+.1f%%"|format(row.organic_margin_expansion * 100) }}{% else %}—{% endif %}</td>
                     {# Returns #}
-                    <td class="text-right">{{ fmt_multiple(row.moic) }}</td>
+                    <td class="text-right og-grp-start og-grp-return">{{ fmt_multiple(row.moic) }}</td>
                     <td class="text-right">{{ "%.0f"|format(row.growth_quality_score) if row.growth_quality_score is not none else '—' }}</td>
                 </tr>
                 {% endfor %}
