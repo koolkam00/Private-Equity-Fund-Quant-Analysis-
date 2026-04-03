@@ -820,32 +820,59 @@ def _scale_analysis_payload(page, payload, scale):
         return
 
     if page == "organic-growth":
-        money_keys = (
+        deal_money_keys = (
             "entry_revenue", "exit_revenue", "acquired_revenue",
             "organic_revenue_growth", "acquired_revenue_contribution", "total_revenue_growth",
             "entry_ebitda", "exit_ebitda", "acquired_ebitda",
             "organic_ebitda_growth", "acquired_ebitda_contribution", "total_ebitda_growth",
             "acquired_tev", "entry_enterprise_value", "exit_enterprise_value",
-            "equity",
+            "equity", "total_value",
         )
         for row in payload.get("deal_rows") or []:
-            for k in money_keys:
+            for k in deal_money_keys:
                 if k in row:
                     row[k] = _scale_money(row.get(k), scale)
-        cards = payload.get("summary_cards") or {}
-        for k in (
-            "portfolio_organic_revenue_growth", "portfolio_acquired_revenue_growth",
-            "portfolio_total_revenue_growth",
-            "portfolio_organic_ebitda_growth", "portfolio_acquired_ebitda_growth",
-            "portfolio_total_ebitda_growth",
-        ):
-            cards[k] = _scale_money(cards.get(k), scale)
-        for chart_key in ("organic_vs_acquired_revenue", "organic_vs_acquired_ebitda"):
-            chart = (payload.get("charts") or {}).get(chart_key) or {}
+
+        # Scale aggregate money fields in total and cohort dicts
+        agg_money_keys = (
+            "total_equity", "total_value",
+            "total_organic_rev", "total_acquired_rev",
+            "total_organic_ebitda", "total_acquired_ebitda",
+        )
+        for agg in [payload.get("total")] + list((payload.get("cohorts") or {}).values()):
+            if agg:
+                for k in agg_money_keys:
+                    if k in agg:
+                        agg[k] = _scale_money(agg.get(k), scale)
+
+        # Scale fund comparison aggregates
+        for fund_agg in payload.get("fund_comparison") or []:
+            for k in agg_money_keys:
+                if k in fund_agg:
+                    fund_agg[k] = _scale_money(fund_agg.get(k), scale)
+
+        # Scale waterfall data
+        wf = payload.get("waterfall") or {}
+        for wf_key in ("revenue", "ebitda"):
+            wf_data = wf.get(wf_key) or {}
+            for k in ("entry", "organic", "acquired", "exit"):
+                if k in wf_data:
+                    wf_data[k] = _scale_money(wf_data.get(k), scale)
+
+        # Scale chart series
+        charts = payload.get("charts") or {}
+        for chart_key in ("revenue", "ebitda"):
+            chart = charts.get(chart_key) or {}
             for series_key in ("organic", "acquired"):
                 vals = chart.get(series_key) or []
                 for i, v in enumerate(vals):
                     vals[i] = _scale_money(v, scale)
+
+        # Scale scatter data equity
+        for pt in payload.get("scatter_data") or []:
+            pt["equity"] = _scale_money(pt.get("equity"), scale)
+
+        # Scale bridge decomposition
         for bd in payload.get("bridge_decomposition") or []:
             for k in ("organic_revenue_contribution", "acquired_revenue_contribution",
                        "total_revenue_driver", "margin_contribution",

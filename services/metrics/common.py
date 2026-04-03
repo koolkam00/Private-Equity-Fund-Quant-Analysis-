@@ -78,6 +78,22 @@ def deal_hold_years(deal, as_of_date=None):
     return delta_days / 365.25
 
 
+def percentile_rank(value, values):
+    """Return the percentile rank (0.0-1.0) of *value* within *values*.
+
+    Uses inclusive ranking: count(v <= value) / len(values).
+    Returns 0.0 if values is empty or value is None.
+    Filters out None values from the comparison set.
+    """
+    if value is None:
+        return 0.0
+    valid = [v for v in values if v is not None]
+    if not valid:
+        return 0.0
+    count_le = sum(1 for v in valid if v <= value)
+    return count_le / len(valid)
+
+
 def resolve_analysis_as_of_date(deals):
     explicit_as_of_dates = [getattr(deal, "as_of_date", None) for deal in deals if getattr(deal, "as_of_date", None) is not None]
     if explicit_as_of_dates:

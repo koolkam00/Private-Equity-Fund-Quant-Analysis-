@@ -4400,6 +4400,57 @@ textarea.analysis-input::placeholder {
     position: relative;
 }
 
+/* --- Organic Growth: Cohort badges --- */
+.cohort-badge-organic {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(10, 107, 88, 0.1);
+    color: #0A6B58;
+}
+.cohort-badge-augmented {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(201, 152, 46, 0.1);
+    color: #C9982E;
+}
+.cohort-badge-dependent {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(184, 60, 74, 0.1);
+    color: #B83C4A;
+}
+
+/* --- Toggle buttons (Revenue/EBITDA switcher) --- */
+.btn-toggle {
+    display: inline-block;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--ink-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.btn-toggle:hover {
+    background: var(--surface-alt);
+}
+.btn-toggle.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
 #dataCutsChart {
     max-height: 300px;
 }

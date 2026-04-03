@@ -1,8 +1,12 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_currency_unit_label, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
-{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+{% block page_subtitle %}Growth attribution across the full portfolio: organic operations vs bolt-on acquisitions.{% if analysis.meta.as_of_date %} <span class="text-muted" style="font-size:var(--text-xs);">Portfolio data as of {{ analysis.meta.as_of_date }}</span>{% endif %}{% endblock %}
+
+{% set a = analysis %}
+{% set meta = a.meta %}
+{% set total = a.total %}
 
 {% block content %}
 
@@ -48,236 +52,344 @@
     </form>
 </div>
 
-{% set cards = analysis.summary_cards %}
-{% set meta = analysis.meta %}
-
+{% if not meta.has_deals %}
 {# --- Empty State --- #}
-{% if not meta.has_acquired_data %}
 <div class="panel" style="text-align: center; padding: 48px 24px;">
     <i class="bi bi-diagram-3" style="font-size: 48px; color: var(--ink-muted);"></i>
-    <h3 style="margin-top: 16px;">No Deals with Add-On Activity</h3>
+    <h3 style="margin-top: 16px;">No Deals Available</h3>
     <p class="subtitle" style="max-width: 480px; margin: 8px auto 24px;">
-        No deals have add-on activity data. Upload deal data with <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, and/or <strong>Acquired TEV</strong> columns to enable this analysis.
+        Upload deal data with entry/exit revenue, EBITDA, and optionally <strong>Acquired Revenue</strong>, <strong>Acquired EBITDA</strong>, <strong>Acquired TEV</strong> columns to enable growth attribution analysis.
     </p>
     <a href="{{ url_for('download_deal_template') }}" class="btn-upload"><i class="bi bi-download"></i> Download Data Template</a>
-    <p class="subtitle" style="margin-top: 24px; font-size: 12px;">
-        This page only shows deals with bolt-on acquisition data. {{ meta.deals_total }} deal{{ 's' if meta.deals_total != 1 else '' }} in portfolio, none with acquired metrics.
-    </p>
 </div>
 {% else %}
 
 {# ================================================================ #}
-{# KPI Cards                                                         #}
+{# ACT 1: THE ANSWER — Hero KPIs + Waterfall                       #}
 {# ================================================================ #}
 <div class="kpi-grid">
     <div class="kpi-card">
-        <span>Deals with Add-Ons</span>
-        <strong>{{ meta.deals_shown }} <span class="tiny">of {{ meta.deals_total }}</span></strong>
+        <span>Total Deals</span>
+        <strong>{{ meta.deals_total }}</strong>
+        <span class="subtitle">{{ meta.deals_with_acquisitions }} with acquisitions, {{ meta.deals_pure_organic }} pure organic</span>
     </div>
     <div class="kpi-card">
         <span>Organic Revenue Growth</span>
-        <strong>{{ fmt_currency_symbol(cards.portfolio_organic_revenue_growth) }}</strong>
-        {% if cards.portfolio_organic_revenue_pct is not none %}
-        <span class="subtitle">{{ fmt_pct_1dp(cards.portfolio_organic_revenue_pct) }} of total</span>
+        <strong>{{ fmt_currency_symbol(total.total_organic_rev) if total else '—' }}</strong>
+        {% if total and total.organic_rev_pct is not none %}
+        <span class="subtitle">{{ fmt_pct_1dp(total.organic_rev_pct) }} of total</span>
+        {% endif %}
+    </div>
+    <div class="kpi-card">
+        <span>Growth Quality Score</span>
+        {% if total and total.avg_growth_quality_score is not none %}
+        {% set gqs = total.avg_growth_quality_score %}
+        <strong>{{ "%.0f"|format(gqs) }}<span class="tiny">/100</span></strong>
+        <span class="subtitle {% if gqs >= 80 %}cohort-badge-organic{% elif gqs >= 60 %}cohort-badge-augmented{% else %}cohort-badge-dependent{% endif %}">
+            {% if gqs >= 80 %}Strong{% elif gqs >= 60 %}Moderate{% else %}Weak{% endif %}
+        </span>
+        {% else %}
+        <strong>—</strong>
         {% endif %}
     </div>
     <div class="kpi-card">
         <span>Organic EBITDA Growth</span>
-        <strong>{{ fmt_currency_symbol(cards.portfolio_organic_ebitda_growth) }}</strong>
-        {% if cards.portfolio_organic_ebitda_pct is not none %}
-        <span class="subtitle">{{ fmt_pct_1dp(cards.portfolio_organic_ebitda_pct) }} of total</span>
+        <strong>{{ fmt_currency_symbol(total.total_organic_ebitda) if total else '—' }}</strong>
+        {% if total and total.organic_ebitda_pct is not none %}
+        <span class="subtitle">{{ fmt_pct_1dp(total.organic_ebitda_pct) }} of total</span>
         {% endif %}
     </div>
-    <div class="kpi-card">
-        <span>Organic vs Total CAGR</span>
-        <strong>
-            {% if cards.portfolio_organic_revenue_cagr is not none %}{{ fmt_pct_1dp(cards.portfolio_organic_revenue_cagr / 100) }}{% else %}&mdash;{% endif %}
-            <span class="tiny">vs</span>
-            {% if cards.portfolio_total_revenue_cagr is not none %}{{ fmt_pct_1dp(cards.portfolio_total_revenue_cagr / 100) }}{% else %}&mdash;{% endif %}
-        </strong>
-        <span class="subtitle">Revenue: organic vs total</span>
-    </div>
 </div>
 
-{# ================================================================ #}
-{# Charts: Organic vs Acquired                                       #}
-{# ================================================================ #}
+{# --- Waterfall Charts: Growth Decomposition --- #}
+<h3 style="margin-top:1.5rem;"><i class="bi bi-bar-chart-steps"></i> Growth Decomposition</h3>
 <div class="exec-grid-2col">
     <div class="panel">
-        <h3><i class="bi bi-bar-chart-steps"></i> Revenue Growth: Organic vs Acquired</h3>
+        <h4>Revenue</h4>
         <div class="exec-chart-container">
-            <canvas id="orgAcqRevenueChart" height="280"></canvas>
+            <canvas id="revWaterfallChart" height="260"></canvas>
         </div>
     </div>
     <div class="panel">
-        <h3><i class="bi bi-bar-chart-steps"></i> EBITDA Growth: Organic vs Acquired</h3>
+        <h4>EBITDA</h4>
         <div class="exec-chart-container">
-            <canvas id="orgAcqEbitdaChart" height="280"></canvas>
+            <canvas id="ebitdaWaterfallChart" height="260"></canvas>
         </div>
     </div>
 </div>
 
 {# ================================================================ #}
-{# Deal Table: Revenue Decomposition                                  #}
+{# ACT 2: THE PATTERN — Scatter + Cohort Comparison                 #}
 {# ================================================================ #}
-<div class="panel">
-    <h3><i class="bi bi-table"></i> Revenue: Organic vs Acquired by Deal</h3>
-    <div style="overflow-x: auto;">
-        <table class="deal-table mono">
-            <thead>
-                <tr>
-                    <th class="sticky-col">Company</th>
-                    <th>Fund</th>
-                    <th>Status</th>
-                    <th>Hold (yr)</th>
-                    <th>Entry Rev</th>
-                    <th>Exit Rev</th>
-                    <th>Acquired Rev</th>
-                    <th>Organic Growth</th>
-                    <th>Organic %</th>
-                    <th>Organic CAGR</th>
-                    <th>Total CAGR</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in analysis.deal_rows %}
-                <tr>
-                    <td class="sticky-col">{{ row.company_name or '—' }}</td>
-                    <td>{{ row.fund_number or '—' }}</td>
-                    <td>{{ row.status or '—' }}</td>
-                    <td>{{ fmt_years_1dp(row.hold_period) }}</td>
-                    <td>{{ fmt_currency_symbol(row.entry_revenue) }}</td>
-                    <td>{{ fmt_currency_symbol(row.exit_revenue) }}</td>
-                    <td>{{ fmt_currency_symbol(row.acquired_revenue) }}</td>
-                    <td class="{% if row.organic_revenue_growth is not none and row.organic_revenue_growth < 0 %}text-loss{% endif %}">
-                        {{ fmt_currency_symbol(row.organic_revenue_growth) }}
-                    </td>
-                    <td>{{ fmt_pct_1dp(row.organic_revenue_pct) }}</td>
-                    <td>{{ fmt_pct_1dp(row.organic_revenue_cagr / 100) if row.organic_revenue_cagr is not none else '—' }}</td>
-                    <td>{{ fmt_pct_1dp(row.total_revenue_cagr / 100) if row.total_revenue_cagr is not none else '—' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
 
-{# ================================================================ #}
-{# Deal Table: EBITDA Decomposition                                    #}
-{# ================================================================ #}
+{# --- Scatter Plot: Growth vs Returns --- #}
+<h3 style="margin-top:1.5rem;"><i class="bi bi-dot"></i> Growth vs Returns</h3>
 <div class="panel">
-    <h3><i class="bi bi-table"></i> EBITDA: Organic vs Acquired by Deal</h3>
-    <div style="overflow-x: auto;">
-        <table class="deal-table mono">
-            <thead>
-                <tr>
-                    <th class="sticky-col">Company</th>
-                    <th>Fund</th>
-                    <th>Hold (yr)</th>
-                    <th>Entry EBITDA</th>
-                    <th>Exit EBITDA</th>
-                    <th>Acquired EBITDA</th>
-                    <th>Organic Growth</th>
-                    <th>Organic %</th>
-                    <th>Organic CAGR</th>
-                    <th>Total CAGR</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in analysis.deal_rows %}
-                <tr>
-                    <td class="sticky-col">{{ row.company_name or '—' }}</td>
-                    <td>{{ row.fund_number or '—' }}</td>
-                    <td>{{ fmt_years_1dp(row.hold_period) }}</td>
-                    <td>{{ fmt_currency_symbol(row.entry_ebitda) }}</td>
-                    <td>{{ fmt_currency_symbol(row.exit_ebitda) }}</td>
-                    <td>{{ fmt_currency_symbol(row.acquired_ebitda) }}</td>
-                    <td class="{% if row.organic_ebitda_growth is not none and row.organic_ebitda_growth < 0 %}text-loss{% endif %}">
-                        {{ fmt_currency_symbol(row.organic_ebitda_growth) }}
-                    </td>
-                    <td>{{ fmt_pct_1dp(row.organic_ebitda_pct) }}</td>
-                    <td>{{ fmt_pct_1dp(row.organic_ebitda_cagr / 100) if row.organic_ebitda_cagr is not none else '—' }}</td>
-                    <td>{{ fmt_pct_1dp(row.total_ebitda_cagr / 100) if row.total_ebitda_cagr is not none else '—' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+        <button class="btn-toggle active" id="scatterRevBtn" onclick="switchScatter('revenue')">Revenue</button>
+        <button class="btn-toggle" id="scatterEbitdaBtn" onclick="switchScatter('ebitda')">EBITDA</button>
     </div>
-</div>
-
-{# ================================================================ #}
-{# Aggregate Value Creation Bridge                                     #}
-{# ================================================================ #}
-{% if analysis.aggregate_bridge and analysis.aggregate_bridge.get('ready_count', 0) > 0 %}
-{% set agg = analysis.aggregate_bridge %}
-{% set agg_drivers = (agg.get('drivers') or {}).get('dollar') or {} %}
-<div class="panel">
-    <h3><i class="bi bi-signpost-split"></i> Aggregate Value Creation Bridge (Add-On Deals)</h3>
-    <p class="subtitle">Aggregate bridge across {{ agg.get('ready_count', 0) }} deals with bridge-ready data. Shows how value was created across the add-on portfolio.</p>
     <div class="exec-chart-container">
-        <canvas id="aggBridgeChart" height="260"></canvas>
+        <canvas id="scatterChart" height="320"></canvas>
     </div>
-    <div class="kpi-grid" style="margin-top: 16px;">
-        <div class="kpi-card">
-            <span>Total Equity</span>
-            <strong>{{ fmt_currency_symbol(agg.get('total_equity')) }}</strong>
-        </div>
-        <div class="kpi-card">
-            <span>Total Value Created</span>
-            <strong>{{ fmt_currency_symbol(agg.get('total_value_created')) }}</strong>
-        </div>
-        <div class="kpi-card">
-            <span>Revenue Driver</span>
-            <strong>{{ fmt_currency_symbol(agg_drivers.get('revenue')) }}</strong>
-        </div>
-        <div class="kpi-card">
-            <span>Margin Driver</span>
-            <strong>{{ fmt_currency_symbol(agg_drivers.get('margin')) }}</strong>
-        </div>
-        <div class="kpi-card">
-            <span>Multiple Driver</span>
-            <strong>{{ fmt_currency_symbol(agg_drivers.get('multiple')) }}</strong>
-        </div>
-        <div class="kpi-card">
-            <span>Leverage Driver</span>
-            <strong>{{ fmt_currency_symbol(agg_drivers.get('leverage')) }}</strong>
-        </div>
+</div>
+
+{# --- Cohort Comparison Table --- #}
+<h3 style="margin-top:1.5rem;"><i class="bi bi-people"></i> Cohort Performance</h3>
+<div class="panel">
+    <div style="overflow-x:auto;">
+        <table class="deal-table mono">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th class="text-right">Pure Organic</th>
+                    <th class="text-right">Acq-Augmented</th>
+                    <th class="text-right">Acq-Dependent</th>
+                    <th class="text-right"><strong>Total</strong></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set co = a.cohorts %}
+                {% set po = co.get('Pure Organic') %}
+                {% set aug = co.get('Acquisition-Augmented') %}
+                {% set dep = co.get('Acquisition-Dependent') %}
+                <tr>
+                    <td>Deals</td>
+                    <td class="text-right">{{ po.deal_count if po else '—' }}</td>
+                    <td class="text-right">{{ aug.deal_count if aug else '—' }}</td>
+                    <td class="text-right">{{ dep.deal_count if dep else '—' }}</td>
+                    <td class="text-right"><strong>{{ total.deal_count if total else '—' }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Equity Invested</td>
+                    <td class="text-right">{{ fmt_currency_symbol(po.total_equity) if po else '—' }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(aug.total_equity) if aug else '—' }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(dep.total_equity) if dep else '—' }}</td>
+                    <td class="text-right"><strong>{{ fmt_currency_symbol(total.total_equity) if total else '—' }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Weighted MOIC</td>
+                    <td class="text-right">{{ fmt_multiple(po.weighted_moic) if po else '—' }}</td>
+                    <td class="text-right">{{ fmt_multiple(aug.weighted_moic) if aug else '—' }}</td>
+                    <td class="text-right">{{ fmt_multiple(dep.weighted_moic) if dep else '—' }}</td>
+                    <td class="text-right"><strong>{{ fmt_multiple(total.weighted_moic) if total else '—' }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Weighted IRR</td>
+                    <td class="text-right">{% if po and po.weighted_irr is not none %}{{ fmt_pct_1dp(po.weighted_irr / 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.weighted_irr is not none %}{{ fmt_pct_1dp(aug.weighted_irr / 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.weighted_irr is not none %}{{ fmt_pct_1dp(dep.weighted_irr / 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.weighted_irr is not none %}{{ fmt_pct_1dp(total.weighted_irr / 100) }}{% else %}—{% endif %}</strong></td>
+                </tr>
+                <tr>
+                    <td>Organic Rev CAGR</td>
+                    <td class="text-right">{% if po and po.organic_rev_cagr is not none %}{{ "%.1f%%"|format(po.organic_rev_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.organic_rev_cagr is not none %}{{ "%.1f%%"|format(aug.organic_rev_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.organic_rev_cagr is not none %}{{ "%.1f%%"|format(dep.organic_rev_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.organic_rev_cagr is not none %}{{ "%.1f%%"|format(total.organic_rev_cagr) }}{% else %}—{% endif %}</strong></td>
+                </tr>
+                <tr>
+                    <td>Organic EBITDA CAGR</td>
+                    <td class="text-right">{% if po and po.organic_ebitda_cagr is not none %}{{ "%.1f%%"|format(po.organic_ebitda_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.organic_ebitda_cagr is not none %}{{ "%.1f%%"|format(aug.organic_ebitda_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.organic_ebitda_cagr is not none %}{{ "%.1f%%"|format(dep.organic_ebitda_cagr) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.organic_ebitda_cagr is not none %}{{ "%.1f%%"|format(total.organic_ebitda_cagr) }}{% else %}—{% endif %}</strong></td>
+                </tr>
+                <tr>
+                    <td>Hold Period (Yrs)</td>
+                    <td class="text-right">{{ fmt_years_1dp(po.weighted_hold_period) if po else '—' }}</td>
+                    <td class="text-right">{{ fmt_years_1dp(aug.weighted_hold_period) if aug else '—' }}</td>
+                    <td class="text-right">{{ fmt_years_1dp(dep.weighted_hold_period) if dep else '—' }}</td>
+                    <td class="text-right"><strong>{{ fmt_years_1dp(total.weighted_hold_period) if total else '—' }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Loss Ratio</td>
+                    <td class="text-right">{% if po and po.loss_ratio is not none %}{{ fmt_pct_1dp(po.loss_ratio) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.loss_ratio is not none %}{{ fmt_pct_1dp(aug.loss_ratio) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.loss_ratio is not none %}{{ fmt_pct_1dp(dep.loss_ratio) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.loss_ratio is not none %}{{ fmt_pct_1dp(total.loss_ratio) }}{% else %}—{% endif %}</strong></td>
+                </tr>
+                <tr>
+                    <td>Growth Quality Score</td>
+                    <td class="text-right">{% if po and po.avg_growth_quality_score is not none %}{{ "%.0f"|format(po.avg_growth_quality_score) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if aug and aug.avg_growth_quality_score is not none %}{{ "%.0f"|format(aug.avg_growth_quality_score) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if dep and dep.avg_growth_quality_score is not none %}{{ "%.0f"|format(dep.avg_growth_quality_score) }}{% else %}—{% endif %}</td>
+                    <td class="text-right"><strong>{% if total and total.avg_growth_quality_score is not none %}{{ "%.0f"|format(total.avg_growth_quality_score) }}{% else %}—{% endif %}</strong></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# ================================================================ #}
+{# ACT 3: THE EVIDENCE — Deal Tables + Fund Comparison              #}
+{# ================================================================ #}
+
+{# --- Deal Attribution Table --- #}
+<h3 style="margin-top:1.5rem;"><i class="bi bi-table"></i> Deal Attribution</h3>
+<div class="panel">
+    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+        <button class="btn-toggle active" id="dealRevBtn" onclick="switchDealTable('revenue')">Revenue</button>
+        <button class="btn-toggle" id="dealEbitdaBtn" onclick="switchDealTable('ebitda')">EBITDA</button>
+    </div>
+    <div style="overflow-x:auto;">
+        {# Revenue view #}
+        <table class="deal-table mono" id="dealTableRevenue">
+            <thead>
+                <tr>
+                    <th class="sticky-col">Company</th>
+                    <th>Fund</th>
+                    <th>Cohort</th>
+                    <th class="text-right">Equity</th>
+                    <th class="text-right">Hold</th>
+                    <th class="text-right">Entry Rev</th>
+                    <th class="text-right">Exit Rev</th>
+                    <th class="text-right">Acq Rev</th>
+                    <th class="text-right">Organic Growth</th>
+                    <th class="text-right">Organic %</th>
+                    <th class="text-right">Org CAGR</th>
+                    <th class="text-right">Total CAGR</th>
+                    <th class="text-right">MOIC</th>
+                    <th class="text-right">Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in a.deal_rows %}
+                <tr>
+                    <td class="sticky-col">{{ row.company_name or '—' }}</td>
+                    <td>{{ row.fund_number or '—' }}</td>
+                    <td><span class="cohort-badge-{{ 'organic' if row.cohort == 'Pure Organic' else ('augmented' if row.cohort == 'Acquisition-Augmented' else 'dependent') }}">{{ row.cohort|replace('Acquisition-', '') }}</span></td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.equity) }}</td>
+                    <td class="text-right">{{ fmt_years_1dp(row.hold_period) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.entry_revenue) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.exit_revenue) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.acquired_revenue) if row.acquired_revenue else '—' }}</td>
+                    <td class="text-right {% if row.organic_revenue_growth is not none and row.organic_revenue_growth < 0 %}text-loss{% endif %}">{{ fmt_currency_symbol(row.organic_revenue_growth) }}</td>
+                    <td class="text-right">{{ fmt_pct_1dp(row.organic_revenue_pct) }}</td>
+                    <td class="text-right">{{ "%.1f%%"|format(row.organic_revenue_cagr) if row.organic_revenue_cagr is not none else '—' }}</td>
+                    <td class="text-right">{{ "%.1f%%"|format(row.total_revenue_cagr) if row.total_revenue_cagr is not none else '—' }}</td>
+                    <td class="text-right">{{ fmt_multiple(row.moic) }}</td>
+                    <td class="text-right">{{ "%.0f"|format(row.growth_quality_score) if row.growth_quality_score is not none else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {# EBITDA view (hidden by default) #}
+        <table class="deal-table mono" id="dealTableEbitda" style="display:none;">
+            <thead>
+                <tr>
+                    <th class="sticky-col">Company</th>
+                    <th>Fund</th>
+                    <th>Cohort</th>
+                    <th class="text-right">Equity</th>
+                    <th class="text-right">Hold</th>
+                    <th class="text-right">Entry EBITDA</th>
+                    <th class="text-right">Exit EBITDA</th>
+                    <th class="text-right">Acq EBITDA</th>
+                    <th class="text-right">Organic Growth</th>
+                    <th class="text-right">Organic %</th>
+                    <th class="text-right">Org CAGR</th>
+                    <th class="text-right">Total CAGR</th>
+                    <th class="text-right">Entry Margin</th>
+                    <th class="text-right">Org Exit Margin</th>
+                    <th class="text-right">MOIC</th>
+                    <th class="text-right">Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in a.deal_rows %}
+                <tr>
+                    <td class="sticky-col">{{ row.company_name or '—' }}</td>
+                    <td>{{ row.fund_number or '—' }}</td>
+                    <td><span class="cohort-badge-{{ 'organic' if row.cohort == 'Pure Organic' else ('augmented' if row.cohort == 'Acquisition-Augmented' else 'dependent') }}">{{ row.cohort|replace('Acquisition-', '') }}</span></td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.equity) }}</td>
+                    <td class="text-right">{{ fmt_years_1dp(row.hold_period) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.entry_ebitda) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.exit_ebitda) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(row.acquired_ebitda) if row.acquired_ebitda else '—' }}</td>
+                    <td class="text-right {% if row.organic_ebitda_growth is not none and row.organic_ebitda_growth < 0 %}text-loss{% endif %}">{{ fmt_currency_symbol(row.organic_ebitda_growth) }}</td>
+                    <td class="text-right">{{ fmt_pct_1dp(row.organic_ebitda_pct) }}</td>
+                    <td class="text-right">{{ "%.1f%%"|format(row.organic_ebitda_cagr) if row.organic_ebitda_cagr is not none else '—' }}</td>
+                    <td class="text-right">{{ "%.1f%%"|format(row.total_ebitda_cagr) if row.total_ebitda_cagr is not none else '—' }}</td>
+                    <td class="text-right">{% if row.entry_ebitda_margin is not none %}{{ "%.1f%%"|format(row.entry_ebitda_margin * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if row.organic_exit_ebitda_margin is not none %}{{ "%.1f%%"|format(row.organic_exit_ebitda_margin * 100) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{{ fmt_multiple(row.moic) }}</td>
+                    <td class="text-right">{{ "%.0f"|format(row.growth_quality_score) if row.growth_quality_score is not none else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# --- Fund-Level Comparison --- #}
+{% if a.fund_comparison %}
+<h3 style="margin-top:1.5rem;"><i class="bi bi-building"></i> Fund Comparison</h3>
+<div class="panel">
+    <div style="overflow-x:auto;">
+        <table class="deal-table mono">
+            <thead>
+                <tr>
+                    <th>Fund</th>
+                    <th class="text-right">Deals</th>
+                    <th class="text-right">Organic Rev %</th>
+                    <th class="text-right">Organic EBITDA %</th>
+                    <th class="text-right">Growth Score</th>
+                    <th class="text-right">Weighted MOIC</th>
+                    <th class="text-right">Loss Ratio</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fund in a.fund_comparison %}
+                <tr>
+                    <td>{{ fund.fund }}</td>
+                    <td class="text-right">{{ fund.deal_count }}</td>
+                    <td class="text-right">{% if fund.organic_rev_pct is not none %}{{ fmt_pct_1dp(fund.organic_rev_pct) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if fund.organic_ebitda_pct is not none %}{{ fmt_pct_1dp(fund.organic_ebitda_pct) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if fund.avg_growth_quality_score is not none %}{{ "%.0f"|format(fund.avg_growth_quality_score) }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{{ fmt_multiple(fund.weighted_moic) }}</td>
+                    <td class="text-right">{% if fund.loss_ratio is not none %}{{ fmt_pct_1dp(fund.loss_ratio) }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="exec-chart-container" style="margin-top:1rem;">
+        <canvas id="fundCompChart" height="240"></canvas>
     </div>
 </div>
 {% endif %}
 
-{# ================================================================ #}
-{# Per-Deal Bridge Decomposition                                       #}
-{# ================================================================ #}
-{% if analysis.bridge_decomposition %}
+{# --- Bridge Decomposition (ebitda_additive deals only) --- #}
+{% if a.bridge_decomposition %}
 <div class="panel">
     <h3><i class="bi bi-signpost-split"></i> Value Creation Bridge: Organic vs Acquired Revenue Driver</h3>
-    <p class="subtitle">Revenue driver from the EBITDA additive bridge, split into organic and acquired contributions. Uses acquired EBITDA x entry multiple for better margin accuracy.</p>
-    <div style="overflow-x: auto;">
+    <p class="subtitle">Revenue driver split for deals with EBITDA additive bridge data.</p>
+    <div style="overflow-x:auto;">
         <table class="deal-table mono">
             <thead>
                 <tr>
                     <th class="sticky-col">Company</th>
                     <th>Fund</th>
-                    <th>Organic Rev Driver</th>
-                    <th>Acquired Rev Driver</th>
-                    <th>Total Rev Driver</th>
-                    <th>Margin</th>
-                    <th>Multiple</th>
-                    <th>Leverage</th>
+                    <th class="text-right">Organic Rev Driver</th>
+                    <th class="text-right">Acquired Rev Driver</th>
+                    <th class="text-right">Total Rev Driver</th>
+                    <th class="text-right">Margin</th>
+                    <th class="text-right">Multiple</th>
+                    <th class="text-right">Leverage</th>
                 </tr>
             </thead>
             <tbody>
-                {% for bd in analysis.bridge_decomposition %}
+                {% for bd in a.bridge_decomposition %}
                 <tr>
                     <td class="sticky-col">{{ bd.company_name or '—' }}</td>
                     <td>{{ bd.fund_number or '—' }}</td>
-                    <td style="color: var(--primary);">{{ fmt_currency_symbol(bd.organic_revenue_contribution) }}</td>
-                    <td style="color: var(--secondary);">{{ fmt_currency_symbol(bd.acquired_revenue_contribution) }}</td>
-                    <td>{{ fmt_currency_symbol(bd.total_revenue_driver) }}</td>
-                    <td>{{ fmt_currency_symbol(bd.margin_contribution) }}</td>
-                    <td>{{ fmt_currency_symbol(bd.multiple_contribution) }}</td>
-                    <td>{{ fmt_currency_symbol(bd.leverage_contribution) }}</td>
+                    <td class="text-right" style="color:#0A6B58;">{{ fmt_currency_symbol(bd.organic_revenue_contribution) }}</td>
+                    <td class="text-right" style="color:#C9982E;">{{ fmt_currency_symbol(bd.acquired_revenue_contribution) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(bd.total_revenue_driver) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(bd.margin_contribution) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(bd.multiple_contribution) }}</td>
+                    <td class="text-right">{{ fmt_currency_symbol(bd.leverage_contribution) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -286,105 +398,150 @@
 </div>
 {% endif %}
 
-{# ================================================================ #}
-{# Methodology Notes                                                  #}
-{# ================================================================ #}
-<div class="panel" style="background: var(--surface-alt); border-left: 3px solid var(--primary);">
-    <h4 style="margin: 0 0 8px;"><i class="bi bi-info-circle"></i> Methodology</h4>
-    <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-muted);">
-        {% for note in analysis.methodology_notes %}
+{# --- Methodology --- #}
+<div class="panel" style="background:var(--surface-alt); border-left:3px solid var(--primary);">
+    <h4 style="margin:0 0 8px;"><i class="bi bi-info-circle"></i> Methodology</h4>
+    <ul style="margin:0; padding-left:20px; font-size:13px; color:var(--ink-muted);">
+        {% for note in a.methodology_notes %}
         <li>{{ note }}</li>
         {% endfor %}
     </ul>
 </div>
 
-{% endif %}{# end has_acquired_data #}
+{% endif %}{# end has_deals #}
 
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
-{% if analysis.meta.has_acquired_data %}
+{% if a.meta.has_deals %}
 <script>
 (function() {
     var ORGANIC_COLOR = '#0A6B58';
     var ACQUIRED_COLOR = '#C9982E';
-    var chartDefaults = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'top' } },
-    };
+    var DEPENDENT_COLOR = '#B83C4A';
+    var BASE_COLOR = '#6B6B63';
+    var TOTAL_COLOR = '#1A1A1A';
 
-    // Revenue chart
-    var revCtx = document.getElementById('orgAcqRevenueChart');
-    if (revCtx) {
-        var revData = {{ analysis.charts.organic_vs_acquired_revenue | tojson }};
-        new Chart(revCtx, {
-            type: 'bar',
-            data: {
-                labels: revData.labels,
-                datasets: [
-                    { label: 'Organic', data: revData.organic, backgroundColor: ORGANIC_COLOR },
-                    { label: 'Acquired', data: revData.acquired, backgroundColor: ACQUIRED_COLOR },
-                ]
-            },
-            options: Object.assign({}, chartDefaults, {
-                indexAxis: 'y',
-                scales: { x: { stacked: true }, y: { stacked: true } },
-                plugins: { legend: { position: 'top' }, title: { display: false } }
-            })
-        });
-    }
+    // --- Waterfall charts ---
+    var waterfall = {{ a.waterfall | tojson }};
 
-    // EBITDA chart
-    var ebitdaCtx = document.getElementById('orgAcqEbitdaChart');
-    if (ebitdaCtx) {
-        var ebitdaData = {{ analysis.charts.organic_vs_acquired_ebitda | tojson }};
-        new Chart(ebitdaCtx, {
-            type: 'bar',
-            data: {
-                labels: ebitdaData.labels,
-                datasets: [
-                    { label: 'Organic', data: ebitdaData.organic, backgroundColor: ORGANIC_COLOR },
-                    { label: 'Acquired', data: ebitdaData.acquired, backgroundColor: ACQUIRED_COLOR },
-                ]
-            },
-            options: Object.assign({}, chartDefaults, {
-                indexAxis: 'y',
-                scales: { x: { stacked: true }, y: { stacked: true } },
-                plugins: { legend: { position: 'top' }, title: { display: false } }
-            })
-        });
-    }
-    // Aggregate Bridge waterfall chart
-    var aggBridgeCtx = document.getElementById('aggBridgeChart');
-    if (aggBridgeCtx) {
-        var aggBridge = {{ (analysis.aggregate_bridge or {}) | tojson }};
-        var drivers = (aggBridge.drivers || {}).dollar || {};
-        var labels = ['Revenue', 'Margin', 'Multiple', 'Leverage', 'Other'];
-        var values = [
-            drivers.revenue || 0,
-            drivers.margin || 0,
-            drivers.multiple || 0,
-            drivers.leverage || 0,
-            drivers.other || 0
-        ];
-        var colors = values.map(function(v) { return v >= 0 ? ORGANIC_COLOR : '#B83C4A'; });
-        new Chart(aggBridgeCtx, {
+    function buildWaterfall(canvasId, data, label) {
+        var ctx = document.getElementById(canvasId);
+        if (!ctx || !data || data.deals === 0) return;
+
+        var labels = ['Entry ' + label, 'Organic Growth', 'Acquired', 'Exit ' + label];
+        var entry = data.entry;
+        var organic = data.organic;
+        var acquired = data.acquired;
+
+        // Stacked bar: transparent base + visible segment
+        var bases = [0, entry, entry + organic, 0];
+        var values = [entry, organic, acquired, data.exit];
+        var colors = [BASE_COLOR, ORGANIC_COLOR, ACQUIRED_COLOR, TOTAL_COLOR];
+
+        new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: labels,
-                datasets: [{
-                    label: 'Value ($M)',
-                    data: values,
-                    backgroundColor: colors,
-                    borderRadius: 2,
-                }]
+                datasets: [
+                    { label: 'Base', data: bases, backgroundColor: 'transparent', borderWidth: 0 },
+                    { label: label, data: values, backgroundColor: colors.map(function(c, i) { return i === 0 || i === 3 ? c : (values[i] < 0 ? DEPENDENT_COLOR : c); }), borderRadius: 2 }
+                ]
             },
-            options: Object.assign({}, chartDefaults, {
-                plugins: { legend: { display: false } },
-                scales: { y: { beginAtZero: true } }
-            })
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: {
+                    callbacks: { label: function(ctx) { if (ctx.datasetIndex === 0) return null; return '$' + (ctx.parsed.y || 0).toFixed(1) + 'M'; } }
+                }},
+                scales: {
+                    x: { stacked: true, ticks: { font: { size: 11 } } },
+                    y: { stacked: true, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+    buildWaterfall('revWaterfallChart', waterfall.revenue, 'Revenue');
+    buildWaterfall('ebitdaWaterfallChart', waterfall.ebitda, 'EBITDA');
+
+    // --- Scatter plot ---
+    var scatterData = {{ a.scatter_data | tojson }};
+    var scatterChart = null;
+    var scatterMode = 'revenue';
+
+    function buildScatter(mode) {
+        var ctx = document.getElementById('scatterChart');
+        if (!ctx) return;
+        if (scatterChart) scatterChart.destroy();
+
+        var datasets = {};
+        var cohortColors = { 'Pure Organic': ORGANIC_COLOR, 'Acquisition-Augmented': ACQUIRED_COLOR, 'Acquisition-Dependent': DEPENDENT_COLOR };
+
+        scatterData.forEach(function(pt) {
+            var cohort = pt.cohort || 'Pure Organic';
+            if (!datasets[cohort]) datasets[cohort] = { label: cohort, data: [], backgroundColor: (cohortColors[cohort] || BASE_COLOR) + '99', borderColor: cohortColors[cohort] || BASE_COLOR, borderWidth: 1 };
+            var cagr = mode === 'revenue' ? pt.organic_rev_cagr : pt.organic_ebitda_cagr;
+            if (cagr != null && pt.moic != null) {
+                datasets[cohort].data.push({ x: cagr, y: pt.moic, r: Math.max(4, Math.min(30, Math.sqrt(pt.equity / 2))), company: pt.company });
+            }
+        });
+
+        scatterChart = new Chart(ctx, {
+            type: 'bubble',
+            data: { datasets: Object.values(datasets) },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { callbacks: {
+                        label: function(ctx) { var d = ctx.raw; return d.company + ': ' + d.y.toFixed(2) + 'x MOIC, ' + d.x.toFixed(1) + '% CAGR'; }
+                    }}
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Organic ' + (mode === 'revenue' ? 'Revenue' : 'EBITDA') + ' CAGR (%)', font: { size: 12 } }, ticks: { font: { size: 11 } } },
+                    y: { title: { display: true, text: 'MOIC (x)', font: { size: 12 } }, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+    buildScatter('revenue');
+
+    window.switchScatter = function(mode) {
+        scatterMode = mode;
+        buildScatter(mode);
+        document.getElementById('scatterRevBtn').classList.toggle('active', mode === 'revenue');
+        document.getElementById('scatterEbitdaBtn').classList.toggle('active', mode === 'ebitda');
+    };
+
+    // --- Deal table toggle ---
+    window.switchDealTable = function(mode) {
+        document.getElementById('dealTableRevenue').style.display = mode === 'revenue' ? '' : 'none';
+        document.getElementById('dealTableEbitda').style.display = mode === 'ebitda' ? '' : 'none';
+        document.getElementById('dealRevBtn').classList.toggle('active', mode === 'revenue');
+        document.getElementById('dealEbitdaBtn').classList.toggle('active', mode === 'ebitda');
+    };
+
+    // --- Fund comparison chart ---
+    var fundData = {{ a.fund_comparison | tojson }};
+    var fundCtx = document.getElementById('fundCompChart');
+    if (fundCtx && fundData && fundData.length > 0) {
+        new Chart(fundCtx, {
+            type: 'bar',
+            data: {
+                labels: fundData.map(function(f) { return f.fund; }),
+                datasets: [
+                    { label: 'Organic Rev %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? f.organic_rev_pct * 100 : null; }), backgroundColor: ORGANIC_COLOR, borderRadius: 2 },
+                    { label: 'Acquired Rev %', data: fundData.map(function(f) { return f.organic_rev_pct != null ? (1 - f.organic_rev_pct) * 100 : null; }), backgroundColor: ACQUIRED_COLOR, borderRadius: 2 },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    x: { stacked: true, ticks: { font: { size: 11 } } },
+                    y: { stacked: true, max: 100, title: { display: true, text: '% of Revenue Growth' }, ticks: { font: { size: 11 } } }
+                }
+            }
         });
     }
 })();
