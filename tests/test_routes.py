@@ -1244,8 +1244,10 @@ def test_api_dashboard_series_scales_monetary_fields_when_fx_active(client):
     response = client.get("/api/dashboard/series")
     assert response.status_code == 200
     payload = response.get_json()
-    assert abs(payload["kpis"]["total_equity"] - 120.0) < 1e-9
-    assert abs(payload["kpis"]["total_value"] - 180.0) < 1e-9
+    # Values are already in USD from upload-time conversion; no display-time
+    # scaling is applied, so stored values pass through unchanged.
+    assert abs(payload["kpis"]["total_equity"] - 100.0) < 1e-9
+    assert abs(payload["kpis"]["total_value"] - 150.0) < 1e-9
 
 
 def test_api_dashboard_series_schema(client):
@@ -1368,8 +1370,10 @@ def test_api_deal_bridge_scales_dollar_fields_under_fx_conversion(client):
     dollar_resp = client.get(f"/api/deals/{deal.id}/bridge?unit=dollar&basis=fund")
     assert dollar_resp.status_code == 200
     dollar_payload = dollar_resp.get_json()
-    assert abs(dollar_payload["start_dollar"] - 120.0) < 1e-9
-    assert abs(dollar_payload["equity_invested"] - 120.0) < 1e-9
+    # Values are already in USD from upload-time conversion; no display-time
+    # scaling is applied.
+    assert abs(dollar_payload["start_dollar"] - 100.0) < 1e-9
+    assert abs(dollar_payload["equity_invested"] - 100.0) < 1e-9
 
     moic_resp = client.get(f"/api/deals/{deal.id}/bridge?unit=moic&basis=fund")
     assert moic_resp.status_code == 200

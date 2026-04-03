@@ -449,6 +449,11 @@ def _reporting_currency_context(firm):
     fx_date = getattr(firm, "fx_rate_date", None) if firm is not None else None
     fx_source = getattr(firm, "fx_rate_source", None) if firm is not None else None
 
+    # Deal-level currency conversion now happens at upload time (deal_parser.py).
+    # All values in the database are already in USD. The firm-level money_scale
+    # must NOT re-apply the FX rate, or values get double-converted.
+    # money_scale is always 1.0 — the rate is kept for display/metadata only.
+
     if native_code == DEFAULT_CURRENCY_CODE:
         return {
             "native_currency_code": DEFAULT_CURRENCY_CODE,
@@ -466,13 +471,13 @@ def _reporting_currency_context(firm):
     conversion_active = fx_status == "ok" and rate is not None
     if conversion_active:
         note = (
-            f"Converted from {native_code} to USD at {rate:.6f} "
-            f"(effective {fx_date.isoformat() if fx_date else 'N/A'}, source {fx_source or 'N/A'})."
+            f"Values converted from {native_code} to USD at upload time. "
+            f"Rate: {rate:.6f} (effective {fx_date.isoformat() if fx_date else 'N/A'}, source {fx_source or 'N/A'})."
         )
         return {
             "native_currency_code": native_code,
             "reporting_currency_code": DEFAULT_CURRENCY_CODE,
-            "money_scale": rate,
+            "money_scale": 1.0,  # Values already in USD from upload-time conversion
             "conversion_active": True,
             "fx_status": fx_status,
             "fx_rate": rate,
