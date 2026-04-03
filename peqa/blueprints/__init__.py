@@ -12,4 +12,5 @@ def get_blueprints():
         "reports": Blueprint("reports", __name__),
         "chart_builder_api": Blueprint("chart_builder_api", __name__),
         "memos": Blueprint("memos", __name__),
+        "credit": Blueprint("credit", __name__),
     }
