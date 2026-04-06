@@ -360,6 +360,7 @@ N/A
                     <tr
                         class="vca-exec-fund-row"
                         data-sort-fund-name="{{ fund.print_sort_metrics.fund_name_norm }}"
+                        data-sort-fund-order="{{ loop.index }}"
                         data-sort-gross-profit="{{ fund.print_sort_metrics.gross_profit if fund.print_sort_metrics.gross_profit is not none else '' }}"
                         data-sort-gross-moic="{{ fund.print_sort_metrics.gross_moic if fund.print_sort_metrics.gross_moic is not none else '' }}"
                         data-sort-gross-irr="{{ fund.print_sort_metrics.gross_irr if fund.print_sort_metrics.gross_irr is not none else '' }}"
@@ -388,6 +389,7 @@ N/A
                 class="vca-print-fund-page"
                 data-vca-fund-page="{{ loop.index }}"
                 data-sort-fund-name="{{ fund.print_sort_metrics.fund_name_norm }}"
+                data-sort-fund-order="{{ loop.index }}"
                 data-sort-gross-profit="{{ fund.print_sort_metrics.gross_profit if fund.print_sort_metrics.gross_profit is not none else '' }}"
                 data-sort-gross-moic="{{ fund.print_sort_metrics.gross_moic if fund.print_sort_metrics.gross_moic is not none else '' }}"
                 data-sort-gross-irr="{{ fund.print_sort_metrics.gross_irr if fund.print_sort_metrics.gross_irr is not none else '' }}"
@@ -534,6 +536,9 @@ N/A
         const rightName = right.dataset.sortFundName || "";
 
         if (sortKey === "fund_name") {
+            const leftOrder = Number(left.dataset.sortFundOrder || 9999);
+            const rightOrder = Number(right.dataset.sortFundOrder || 9999);
+            if (leftOrder !== rightOrder) return leftOrder - rightOrder;
             return leftName.localeCompare(rightName);
         }
         if (sortKey === "status") {
