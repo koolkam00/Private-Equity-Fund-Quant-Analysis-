@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+import re
 from statistics import median
 
 from services.metrics.common import resolve_analysis_as_of_date, safe_divide
@@ -602,7 +603,16 @@ def build_vca_summary_rows(deal_rows):
 
 
 def _fund_sort_key(fund_name):
-    return (fund_name == "Unknown Fund", (fund_name or "").lower())
+    """Sort fund labels by Roman numeral: Fund I, Fund II, ... Fund X."""
+    roman_map = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+                 "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+                 "XI": 11, "XII": 12, "XIII": 13, "XIV": 14, "XV": 15}
+    if fund_name == "Unknown Fund":
+        return (2, 0, fund_name or "")
+    m = re.search(r'\b([IVX]+)\b', fund_name or "")
+    if m and m.group(1) in roman_map:
+        return (0, roman_map[m.group(1)], fund_name)
+    return (1, 0, (fund_name or "").lower())
 
 
 def _ordered_deals_for_fund(deals):
