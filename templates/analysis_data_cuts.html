@@ -318,6 +318,9 @@
 
 {# --- Export --- #}
 <div style="text-align:right; margin-top:1rem;">
+    <a id="dataCutsPdfBtn" class="btn-upload" href="{{ url_for('data_cuts_summary_pdf') }}" style="margin-right:0.5rem;">
+        <i class="bi bi-file-earmark-pdf"></i> Download Summary PDF
+    </a>
     <a id="dataCutsExportBtn" class="btn-upload" href="{{ url_for('data_cuts_export', dim=current_dim, dim2=current_dim2, metric=current_metric) }}">
         <i class="bi bi-download"></i> Export to Excel
     </a>
@@ -474,6 +477,23 @@
                 btn.style.pointerEvents = '';
                 btn.style.opacity = '';
             }, 3000);
+        });
+    }
+
+    // --- PDF loading state ---
+    var pdfBtn = document.getElementById('dataCutsPdfBtn');
+    if (pdfBtn) {
+        pdfBtn.addEventListener('click', function() {
+            var btn = this;
+            var origHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Generating PDF...';
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.6';
+            setTimeout(function() {
+                btn.innerHTML = origHTML;
+                btn.style.pointerEvents = '';
+                btn.style.opacity = '';
+            }, 5000);
         });
     }
 })();

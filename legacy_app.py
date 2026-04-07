@@ -1977,6 +1977,137 @@ def _build_vca_pdf(analysis_payload, report_title, currency_code=DEFAULT_CURRENC
     return buffer.getvalue()
 
 
+def _build_data_cuts_summary_pdf(all_cuts, report_title, currency_code=DEFAULT_CURRENCY_CODE):
+    """Build a multi-page PDF showing all 9 data-cut dimensions in one document."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from services.metrics.data_cuts import DIMENSION_LABELS
+
+    COLUMNS = [
+        ("", "label", 3.0),
+        ("Deals", "deal_count", 0.8),
+        ("Invested", "invested_equity", 1.3),
+        ("Realized", "realized_value", 1.3),
+        ("Unrealized", "unrealized_value", 1.3),
+        ("Total Value", "total_value", 1.3),
+        ("MOIC", "weighted_moic", 0.9),
+        ("IRR", "weighted_irr", 0.9),
+        ("Entry TEV/EBITDA", "weighted_entry_tev_ebitda", 1.1),
+        ("Exit TEV/EBITDA", "weighted_exit_tev_ebitda", 1.1),
+        ("Entry Margin", "weighted_entry_ebitda_margin", 1.0),
+        ("Exit Margin", "weighted_exit_ebitda_margin", 1.0),
+        ("Loss (Capital)", "loss_ratio_capital", 1.0),
+    ]
+
+    DIM_ORDER = [
+        "sector", "geography", "vintage_year", "fund",
+        "status", "deal_type", "exit_type", "entry_channel", "lead_partner",
+    ]
+
+    def _fmt_cell(key, value):
+        if key == "label":
+            return str(value or "")
+        if key == "deal_count":
+            return str(value) if value is not None else "\u2014"
+        if key in ("invested_equity", "realized_value", "unrealized_value", "total_value"):
+            return _fmt_symbol_currency(value, currency_code=currency_code)
+        if key in ("weighted_moic", "weighted_entry_tev_ebitda", "weighted_exit_tev_ebitda"):
+            return _fmt_track_multiple(value)
+        if key in ("weighted_irr", "loss_ratio_capital"):
+            return _fmt_track_pct(value)
+        if key in ("weighted_entry_ebitda_margin", "weighted_exit_ebitda_margin"):
+            if value is None:
+                return "\u2014"
+            return f"{value:.1f}%"
+        return "\u2014" if value is None else str(value)
+
+    def _table_style(num_rows):
+        cmds = [
+            ("FONT", (0, 0), (-1, -1), "Helvetica", 5.0),
+            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 5.2),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4d78")),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("ALIGN", (0, 0), (0, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.28, colors.HexColor("#9eb3c5")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1.4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1.4),
+            ("TOPPADDING", (0, 0), (-1, -1), 0.8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0.8),
+        ]
+        for idx in range(1, num_rows - 1):
+            bg = colors.HexColor("#f8fbff") if (idx % 2 == 1) else colors.HexColor("#f1f6fb")
+            cmds.append(("BACKGROUND", (0, idx), (-1, idx), bg))
+        last = num_rows - 1
+        if last > 0:
+            cmds.extend([
+                ("BACKGROUND", (0, last), (-1, last), colors.HexColor("#d8e5f0")),
+                ("FONT", (0, last), (-1, last), "Helvetica-Bold", 5.0),
+                ("LINEABOVE", (0, last), (-1, last), 0.45, colors.HexColor("#4f6e89")),
+            ])
+        return cmds
+
+    page_width, page_height = landscape(legal)
+    left_margin = right_margin = 12
+    available_width = page_width - left_margin - right_margin
+    weights = [col[2] for col in COLUMNS]
+    weight_total = sum(weights)
+    col_widths = [available_width * (w / weight_total) for w in weights]
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Spacer(1, 8),
+    ]
+
+    for i, dim_key in enumerate(DIM_ORDER):
+        payload = all_cuts.get(dim_key)
+        if payload is None:
+            continue
+        dim_label = DIMENSION_LABELS.get(dim_key, dim_key)
+        groups = payload.get("groups") or []
+        totals = payload.get("totals") or {}
+
+        story.append(Paragraph(f"Performance by {dim_label}", styles["Heading5"]))
+        story.append(Spacer(1, 4))
+
+        header_row = [col[0] for col in COLUMNS]
+        header_row[0] = dim_label
+
+        table_data = [header_row]
+        for group in groups:
+            table_data.append([_fmt_cell(col[1], group.get(col[1])) for col in COLUMNS])
+        totals_row = [_fmt_cell(col[1], totals.get(col[1])) for col in COLUMNS]
+        totals_row[0] = "Total"
+        table_data.append(totals_row)
+
+        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle(_table_style(len(table_data))))
+        story.append(table)
+
+        if i < len(DIM_ORDER) - 1:
+            story.append(PageBreak())
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=left_margin,
+        rightMargin=right_margin,
+        topMargin=16,
+        bottomMargin=12,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
 def _build_benchmarking_pdf(
     analysis_payload,
     report_title,
@@ -4369,6 +4500,54 @@ def data_cuts_export():
         )
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Data cuts export failed")
+
+
+@app.route("/api/data-cuts/summary-pdf")
+@login_required
+def data_cuts_summary_pdf():
+    """Download a single PDF showing all 9 data-cut dimensions."""
+    from io import BytesIO
+
+    from services.metrics.data_cuts import DIMENSIONS, DIMENSION_LABELS, compute_data_cuts_analytics
+
+    try:
+        filter_ctx = _build_filtered_deals_context()
+        deals = filter_ctx["deals"]
+        metrics_by_id = filter_ctx.get("metrics_by_id") or {
+            d.id: compute_deal_metrics(d) for d in deals
+        }
+
+        all_cuts = {}
+        for dim_key in DIMENSIONS:
+            all_cuts[dim_key] = compute_data_cuts_analytics(
+                deals, metrics_by_id, primary_dim=dim_key
+            )
+
+        reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
+        currency_code = reporting["reporting_currency_code"]
+        active_firm = filter_ctx.get("active_firm")
+        firm_name = (active_firm.name if active_firm else "Portfolio") or "Portfolio"
+        first_payload = next(iter(all_cuts.values()), {})
+        as_of_date = first_payload.get("as_of_date")
+        report_title = _report_title(firm_name, "Data Cuts Summary", as_of_date)
+
+        pdf_bytes = _build_data_cuts_summary_pdf(
+            all_cuts=all_cuts,
+            report_title=report_title,
+            currency_code=currency_code,
+        )
+
+        download_name = _safe_pdf_download_name(
+            f"{firm_name} Data Cuts Summary", "data_cuts_summary.pdf"
+        )
+        return send_file(
+            BytesIO(pdf_bytes),
+            as_attachment=True,
+            download_name=download_name,
+            mimetype="application/pdf",
+        )
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Data cuts summary PDF failed")
 
 
 @app.route("/api/analysis/executive-summary/llm-insights")
