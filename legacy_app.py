@@ -4050,7 +4050,7 @@ def credit_analysis_page(page):
         if membership is None:
             abort(403)
         team_id = membership.team_id
-        firm_id = _active_firm_id_from_session(team_id)
+        firm_id = _active_firm_id_from_session()
 
         # Check TeamFirmAccess
         if firm_id:
@@ -4124,7 +4124,7 @@ def credit_analysis_series_api(page):
         if membership is None:
             return jsonify({"error": "Not authenticated"}), 403
         team_id = membership.team_id
-        firm_id = _active_firm_id_from_session(team_id)
+        firm_id = _active_firm_id_from_session()
         filters = {k: request.args.getlist(k) for k in request.args if request.args.getlist(k)}
         ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
         loans = ctx["loans"]
@@ -4167,7 +4167,7 @@ def upload_credit_loans():
         if membership is None:
             abort(403)
         team_id = membership.team_id
-        firm_id = _active_firm_id_from_session(team_id)
+        firm_id = _active_firm_id_from_session()
 
         # Check TeamFirmAccess
         if firm_id:
