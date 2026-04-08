@@ -1215,12 +1215,14 @@ def ensure_schema_updates():
         ("credit_loan_snapshots", "gross_irr", "FLOAT"),
         ("credit_loan_snapshots", "moic", "FLOAT"),
     ]
-    for tbl, col, dtype in _new_credit_columns:
-        if tbl in tables and col not in [c["name"] for c in inspector.get_columns(tbl)]:
-            try:
-                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {dtype}"))
-            except Exception:
-                pass  # Column may already exist
+    tables = inspector.get_table_names()
+    with engine.begin() as conn:
+        for tbl, col, dtype in _new_credit_columns:
+            if tbl in tables and col not in [c["name"] for c in inspector.get_columns(tbl)]:
+                try:
+                    conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {dtype}"))
+                except Exception:
+                    pass  # Column may already exist
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)
