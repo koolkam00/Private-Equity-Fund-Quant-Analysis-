@@ -89,6 +89,20 @@
     {{ breakdown_table("By Security Type", analysis.by_security, "securityChart") }}
 </div>
 
+{# --- NEW: Additional breakdowns when LP data present --- #}
+{% if analysis.has_sourcing_data %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px;">
+    {{ breakdown_table("By Sourcing Channel", analysis.by_sourcing, "sourcingChart") }}
+    {% if analysis.has_public_data %}
+    {{ breakdown_table("Public vs Private", analysis.by_public, "publicChart") }}
+    {% endif %}
+</div>
+{% elif analysis.has_public_data %}
+<div style="display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; max-width: 50%;">
+    {{ breakdown_table("Public vs Private", analysis.by_public, "publicChart") }}
+</div>
+{% endif %}
+
 {% endif %}
 {% endblock %}
 
@@ -96,7 +110,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var COLORS = ['#0A6B58','#085A4A','#C9982E','#2563EB','#B83C4A','#6B6B63','#9AADA5','#B5B3AE'];
-    ['sectorChart','geoChart','sponsorChart','securityChart'].forEach(function(id) {
+    ['sectorChart','geoChart','sponsorChart','securityChart','sourcingChart','publicChart'].forEach(function(id) {
         var c = document.getElementById(id);
         if (!c) return;
         var labels = JSON.parse(c.dataset.labels || '[]');

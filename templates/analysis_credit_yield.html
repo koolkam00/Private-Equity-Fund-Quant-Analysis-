@@ -38,6 +38,26 @@
     </div>
 </div>
 
+{# --- NEW: LP-field yield attribution --- #}
+{% if analysis.has_new_yield %}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Cash Margin Income</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.cash_margin_income) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">PIK Margin Income</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.pik_margin_income) }}</div>
+    </div>
+    {% if analysis.warrant_upside %}
+    <div class="kpi-card">
+        <div class="kpi-label">Warrant Upside</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.warrant_upside) }}</div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {# --- Yield Waterfall Chart (stacked bar) --- #}
 <div class="panel">
     <h3>Return Attribution Waterfall</h3>
@@ -45,7 +65,8 @@
         data-coupon="{{ analysis.coupon_income or 0 }}"
         data-fees="{{ analysis.fee_income or 0 }}"
         data-pik="{{ analysis.pik_accrual or 0 }}"
-        data-price="{{ analysis.price_appreciation or 0 }}"></canvas>
+        data-price="{{ analysis.price_appreciation or 0 }}"
+        data-warrant="{{ analysis.warrant_upside or 0 }}"></canvas>
 </div>
 
 {# --- By Fund Breakdown --- #}
@@ -62,6 +83,10 @@
                 <th style="text-align:right;">PIK</th>
                 <th style="text-align:right;">Price</th>
                 <th style="text-align:right;">Total</th>
+                {% if analysis.has_new_yield %}
+                <th style="text-align:right;">Cash Margin</th>
+                <th style="text-align:right;">Warrants</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -74,6 +99,10 @@
             <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data.pik) }}</td>
             <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data.price) }}</td>
             <td style="text-align:right; font-family: var(--font-mono); font-weight: 500;">{{ fmt_currency_symbol(data.interest + data.fees + data.pik + data.price) }}</td>
+                {% if analysis.has_new_yield %}
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data.get('cash_margin', 0)) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data.get('warrant_upside', 0)) }}</td>
+                {% endif %}
         </tr>
         {% endfor %}
         </tbody>
@@ -93,15 +122,28 @@ document.addEventListener('DOMContentLoaded', function() {
     var fees = parseFloat(canvas.dataset.fees) || 0;
     var pik = parseFloat(canvas.dataset.pik) || 0;
     var price = parseFloat(canvas.dataset.price) || 0;
-    var total = coupon + fees + pik + price;
+    var warrant = parseFloat(canvas.dataset.warrant) || 0;
+
+    var chartLabels = ['Coupon', 'Fees', 'PIK', 'Price Change'];
+    var chartData = [coupon, fees, pik, price];
+    var chartColors = ['#0A6B58', '#085A4A', '#C9982E', price >= 0 ? '#0A6B58' : '#B83C4A'];
+    if (warrant > 0) {
+        chartLabels.push('Warrants');
+        chartData.push(warrant);
+        chartColors.push('#2563EB');
+    }
+    var total = chartData.reduce(function(a, b) { return a + b; }, 0);
+    chartLabels.push('Total');
+    chartData.push(total);
+    chartColors.push('#1A1A1A');
 
     new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['Coupon', 'Fees', 'PIK', 'Price Change', 'Total'],
+            labels: chartLabels,
             datasets: [{
-                data: [coupon, fees, pik, price, total],
-                backgroundColor: ['#0A6B58', '#085A4A', '#C9982E', price >= 0 ? '#0A6B58' : '#B83C4A', '#1A1A1A'],
+                data: chartData,
+                backgroundColor: chartColors,
                 borderWidth: 0,
                 borderRadius: 4,
             }]

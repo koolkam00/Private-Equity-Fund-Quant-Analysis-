@@ -15,6 +15,7 @@ from services.metrics.credit import (
     compute_traffic_lights,
     compute_top_concerns,
     _loan_traffic_light,
+    _parse_loan_term,
 )
 
 
@@ -78,6 +79,128 @@ def _make_loan(**kwargs):
         "sponsor": "Apollo",
         "currency": "USD",
         "fx_rate_to_usd": 1.0,
+        # --- NEW LP fields ---
+        "investment_count": None,
+        "business_description": None,
+        "is_public": None,
+        "sourcing_channel": None,
+        "location": None,
+        "committed_amount": None,
+        "entry_loan_amount": None,
+        "current_invested_capital": None,
+        "realized_proceeds": None,
+        "unrealized_loan_value": None,
+        "unrealized_warrant_equity_value": None,
+        "total_value": None,
+        "estimated_irr_at_entry": None,
+        "cash_margin": None,
+        "pik_margin": None,
+        "closing_fee": None,
+        "prepayment_protection": None,
+        "loan_term": None,
+        "equity_investment": None,
+        "warrants_at_entry": None,
+        "warrant_strike_entry": None,
+        "warrants_current": None,
+        "warrant_strike_current": None,
+        "warrant_term": None,
+        "ttm_revenue_entry": None,
+        "ttm_revenue_current": None,
+    }
+    defaults.update(kwargs)
+    loan = MagicMock()
+    for k, v in defaults.items():
+        setattr(loan, k, v)
+    return loan
+
+
+def _make_lp_loan(**kwargs):
+    """Create a mock CreditLoan with new LP fields populated (real credit manager data)."""
+    defaults = {
+        "id": 100,
+        "company_name": "TechCo Inc",
+        "fund_name": "Credit Fund I",
+        "vintage_year": None,
+        "close_date": date(2022, 3, 15),
+        "exit_date": None,
+        "status": "Unrealized",
+        "as_of_date": None,
+        "instrument": None,
+        "tranche": None,
+        "security_type": "Senior Secured",
+        "issue_size": None,
+        "hold_size": None,
+        "coupon_rate": None,
+        "spread_bps": None,
+        "floor_rate": 0.01,
+        "fee_oid": None,
+        "fee_upfront": None,
+        "fee_exit": None,
+        "maturity_date": None,
+        "fixed_or_floating": None,
+        "reference_rate": None,
+        "pik_toggle": False,
+        "pik_rate": None,
+        "call_protection_months": None,
+        "make_whole_premium": None,
+        "amortization_type": None,
+        "payment_frequency": None,
+        "entry_ltv": None,
+        "current_ltv": None,
+        "entry_revenue": None,
+        "entry_ebitda": None,
+        "current_revenue": None,
+        "current_ebitda": None,
+        "interest_coverage_ratio": None,
+        "dscr": None,
+        "internal_credit_rating": None,
+        "default_status": "Performing",
+        "covenant_type": None,
+        "covenant_compliant": None,
+        "gross_irr": 0.12,
+        "moic": 1.20,
+        "realized_value": None,
+        "unrealized_value": None,
+        "cumulative_interest_income": None,
+        "cumulative_fee_income": None,
+        "fair_value": None,
+        "yield_to_maturity": None,
+        "recovery_rate": None,
+        "original_par": None,
+        "current_outstanding": None,
+        "accrued_interest": None,
+        "sector": "Technology",
+        "geography": None,
+        "sponsor": None,
+        "currency": "USD",
+        "fx_rate_to_usd": 1.0,
+        # LP-specific fields
+        "investment_count": 1,
+        "business_description": "Enterprise SaaS platform",
+        "is_public": False,
+        "sourcing_channel": "Direct",
+        "location": "North America",
+        "committed_amount": 30.0,
+        "entry_loan_amount": 25.0,
+        "current_invested_capital": 24.5,
+        "realized_proceeds": None,
+        "unrealized_loan_value": 26.0,
+        "unrealized_warrant_equity_value": 1.5,
+        "total_value": 27.5,
+        "estimated_irr_at_entry": 0.15,
+        "cash_margin": 0.085,
+        "pik_margin": 0.02,
+        "closing_fee": 0.02,
+        "prepayment_protection": "12-month no-call",
+        "loan_term": "5 years",
+        "equity_investment": 0.5,
+        "warrants_at_entry": 50000,
+        "warrant_strike_entry": 10.0,
+        "warrants_current": 50000,
+        "warrant_strike_current": 12.5,
+        "warrant_term": "10 years",
+        "ttm_revenue_entry": 50.0,
+        "ttm_revenue_current": 55.0,
     }
     defaults.update(kwargs)
     loan = MagicMock()
@@ -132,6 +255,35 @@ class TestCreditLoanMetrics:
         # Should not crash
         assert m["income_return"] is not None
 
+    def test_loan_metrics_lp_fields(self):
+        """New LP data: total_return_mtm, warrant_upside, revenue_growth, deployment_pct."""
+        loan = _make_lp_loan()
+        m = compute_credit_loan_metrics(loan)
+        assert m["total_return_mtm"] is not None
+        assert m["total_return_mtm"] == pytest.approx(27.5 / 25.0 - 1.0, abs=0.01)
+        assert m["warrant_upside"] is not None
+        assert m["warrant_upside"] == pytest.approx(1.5 / 25.0, abs=0.01)
+        assert m["revenue_growth"] is not None
+        assert m["revenue_growth"] == pytest.approx(55.0 / 50.0 - 1.0, abs=0.01)
+        assert m["deployment_pct"] is not None
+        assert m["deployment_pct"] == pytest.approx(24.5 / 30.0, abs=0.01)
+
+    def test_loan_metrics_all_null_optional(self):
+        """Sparse data: only company, fund, status. Everything else None."""
+        loan = _make_loan(
+            hold_size=None, coupon_rate=None, spread_bps=None, floor_rate=None,
+            fee_oid=None, fee_upfront=None, fair_value=None, entry_ltv=None,
+            current_ltv=None, interest_coverage_ratio=None, dscr=None,
+            internal_credit_rating=None, cumulative_interest_income=None,
+            cumulative_fee_income=None, close_date=None, maturity_date=None,
+            gross_irr=None, moic=None,
+        )
+        m = compute_credit_loan_metrics(loan)
+        assert m["income_return"] is None
+        assert m["cost_basis"] is None
+        assert m["total_return_mtm"] is None
+        # Should NOT crash
+
 
 # ---------------------------------------------------------------------------
 # Traffic lights
@@ -162,6 +314,23 @@ class TestTrafficLights:
         loan = _make_loan(current_ltv=0.95, default_status="Performing")
         assert _loan_traffic_light(loan) == "red"
 
+    def test_traffic_light_red_underwater_moic(self):
+        """LP data: MOIC < 0.8 -> red."""
+        loan = _make_lp_loan(moic=0.7, total_value=17.5, entry_loan_amount=25.0)
+        assert _loan_traffic_light(loan) == "red"
+
+    def test_traffic_light_green_good_irr(self):
+        """LP data: positive IRR -> green (when no LTV/coverage data)."""
+        loan = _make_lp_loan(gross_irr=0.12, moic=1.2)
+        signal = _loan_traffic_light(loan)
+        assert signal == "green"
+
+    def test_traffic_light_yellow_underperforming_moic(self):
+        """LP data: MOIC 0.8-1.0 -> yellow."""
+        loan = _make_lp_loan(moic=0.95, total_value=23.75, gross_irr=None)
+        signal = _loan_traffic_light(loan)
+        assert signal == "yellow"
+
 
 # ---------------------------------------------------------------------------
 # Top concerns
@@ -183,6 +352,20 @@ class TestTopConcerns:
     def test_top_concerns_empty_portfolio(self):
         concerns = compute_top_concerns([])
         assert concerns == []
+
+    def test_top_concerns_underwater(self):
+        """LP data: total_value < entry_loan_amount triggers underwater concern."""
+        loan = _make_lp_loan(id=10, total_value=20.0, entry_loan_amount=25.0, moic=0.8)
+        concerns = compute_top_concerns([loan])
+        underwater = [c for c in concerns if c["reason"] == "Underwater"]
+        assert len(underwater) >= 1
+
+    def test_top_concerns_declining_revenue(self):
+        """LP data: declining revenue triggers concern."""
+        loan = _make_lp_loan(id=11, ttm_revenue_entry=100.0, ttm_revenue_current=70.0)
+        concerns = compute_top_concerns([loan])
+        rev_concerns = [c for c in concerns if "Revenue" in c["reason"]]
+        assert len(rev_concerns) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +396,26 @@ class TestPortfolioAnalytics:
         result = compute_credit_portfolio_analytics(loans)
         assert result["pct_performing"] == 0.0
         assert result["traffic_lights"]["portfolio_signal"] == "red"
+
+    def test_portfolio_analytics_lp_fields(self):
+        """LP data: aggregation includes committed, IRR, MOIC, warrants."""
+        loans = [
+            _make_lp_loan(id=100, committed_amount=30.0, entry_loan_amount=25.0, gross_irr=0.12, moic=1.2),
+            _make_lp_loan(id=101, committed_amount=20.0, entry_loan_amount=15.0, gross_irr=0.10, moic=1.1),
+        ]
+        result = compute_credit_portfolio_analytics(loans)
+        assert result["has_new_fields"] is True
+        assert result["total_committed"] == pytest.approx(50.0, abs=0.1)
+        assert result["total_entry_loan"] == pytest.approx(40.0, abs=0.1)
+        assert result["weighted_avg_irr"] is not None
+        assert result["weighted_avg_moic"] is not None
+        assert result["total_warrant_value"] is not None
+
+    def test_portfolio_analytics_empty(self):
+        """Empty portfolio should not crash."""
+        result = compute_credit_portfolio_analytics([])
+        assert result["loan_count"] == 0
+        assert result["total_deployed"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +463,16 @@ class TestStressScenarios:
         impacted = [l["company"] for l in result["impacted_loans"]]
         assert bad.company_name in impacted
 
+    def test_stress_moic_fallback_sort(self):
+        """LP data: no credit rating, sort by MOIC (lowest first)."""
+        good = _make_lp_loan(id=100, moic=1.5, entry_loan_amount=10, total_value=15)
+        bad = _make_lp_loan(id=101, moic=0.8, entry_loan_amount=10, total_value=8)
+        scenario = {"default_rate_shock": 0.50, "recovery_rate_shock": 0.40, "rate_shock_bps": 0}
+        result = compute_credit_stress_scenarios([good, bad], scenario)
+        assert result["defaults_triggered"] >= 1
+        impacted = [l["company"] for l in result["impacted_loans"]]
+        assert bad.company_name in impacted
+
 
 # ---------------------------------------------------------------------------
 # Concentration
@@ -278,6 +491,27 @@ class TestConcentration:
         assert result["by_sector"][0]["name"] == "Software"
         assert len(result["top_5"]) == 3
         assert len(result["top_10"]) == 3
+
+    def test_concentration_lp_fields(self):
+        """LP data: location, sourcing, public breakdowns."""
+        loans = [
+            _make_lp_loan(id=100, location="North America", sourcing_channel="Direct", is_public=False),
+            _make_lp_loan(id=101, location="Europe", sourcing_channel="Broker", is_public=True),
+        ]
+        result = compute_credit_concentration(loans)
+        assert result["has_sourcing_data"] is True
+        assert result["has_public_data"] is True
+        assert len(result["by_sourcing"]) == 2
+        assert len(result["by_public"]) == 2
+
+    def test_concentration_entry_loan_fallback(self):
+        """LP data: uses entry_loan_amount when hold_size is None."""
+        loans = [
+            _make_lp_loan(id=100, hold_size=None, entry_loan_amount=25.0),
+            _make_lp_loan(id=101, hold_size=None, entry_loan_amount=15.0),
+        ]
+        result = compute_credit_concentration(loans)
+        assert result["total_hold"] == pytest.approx(40.0, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -315,3 +549,61 @@ class TestMaturityProfile:
         assert result["weighted_average_life"] is not None
         assert len(result["maturity_wall"]) == 2
         assert result["no_maturity_date"] == 1
+
+    def test_maturity_loan_term_fallback(self):
+        """LP data: derive maturity from loan_term when maturity_date is None."""
+        loan = _make_lp_loan(
+            id=100,
+            maturity_date=None,
+            close_date=date(2022, 3, 15),
+            loan_term="5 years",
+            entry_loan_amount=25.0,
+        )
+        result = compute_credit_maturity_profile([loan])
+        assert result["weighted_average_life"] is not None
+        assert len(result["maturity_wall"]) == 1
+        assert result["no_maturity_date"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Loan term parsing
+# ---------------------------------------------------------------------------
+
+
+class TestLoanTermParsing:
+    def test_parse_5_years(self):
+        result = _parse_loan_term("5 years", date(2022, 1, 1))
+        assert result is not None
+        assert result.year == 2027
+
+    def test_parse_60_months(self):
+        result = _parse_loan_term("60 months", date(2022, 1, 1))
+        assert result is not None
+        assert result.year == 2027
+
+    def test_parse_5y_shorthand(self):
+        result = _parse_loan_term("5Y", date(2022, 1, 1))
+        assert result is not None
+        assert result.year == 2027
+
+    def test_parse_range(self):
+        result = _parse_loan_term("3-5 years", date(2022, 1, 1))
+        assert result is not None
+        # Midpoint = 4 years
+        assert result.year == 2026
+
+    def test_parse_18m(self):
+        result = _parse_loan_term("18M", date(2022, 1, 1))
+        assert result is not None
+        # 18 months from Jan 2022 = roughly July 2023
+        assert result.year == 2023
+
+    def test_parse_none(self):
+        assert _parse_loan_term(None, date(2022, 1, 1)) is None
+        assert _parse_loan_term("5 years", None) is None
+        assert _parse_loan_term("", date(2022, 1, 1)) is None
+
+    def test_parse_tbd(self):
+        """Unparseable strings return None."""
+        assert _parse_loan_term("TBD", date(2022, 1, 1)) is None
+        assert _parse_loan_term("N/A", date(2022, 1, 1)) is None

@@ -38,6 +38,11 @@
                 <th style="text-align:right;">% Performing</th>
                 <th style="text-align:right;">Defaults</th>
                 <th style="text-align:right;">Loss Rate</th>
+                {% if funds[0].avg_irr is not none or funds[0].avg_moic is not none %}
+                <th style="text-align:right;">Avg IRR</th>
+                <th style="text-align:right;">Avg MOIC</th>
+                <th style="text-align:right;">Avg Margin</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -54,6 +59,11 @@
             <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.pct_performing) }}</td>
             <td style="text-align:right; font-family: var(--font-mono);">{{ f.default_count }}</td>
             <td style="text-align:right; font-family: var(--font-mono); {% if f.loss_rate and f.loss_rate > 0.05 %}color: var(--danger);{% endif %}">{{ fmt_pct_1dp(f.loss_rate) }}</td>
+            {% if funds[0].avg_irr is not none or funds[0].avg_moic is not none %}
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.avg_irr) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{% if f.avg_moic is not none %}{{ "%.2f"|format(f.avg_moic) }}x{% else %}&mdash;{% endif %}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(f.avg_cash_margin) }}</td>
+            {% endif %}
         </tr>
         {% endfor %}
         </tbody>

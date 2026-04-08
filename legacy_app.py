@@ -4077,10 +4077,22 @@ def credit_analysis_page(page):
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)
         elif page == "credit-stress":
+            try:
+                default_shock = max(0.0, min(1.0, float(request.args.get("default_shock", 0.05))))
+            except (TypeError, ValueError):
+                default_shock = 0.05
+            try:
+                recovery_rate = max(0.0, min(1.0, float(request.args.get("recovery_rate", 0.40))))
+            except (TypeError, ValueError):
+                recovery_rate = 0.40
+            try:
+                rate_shock = max(0, min(1000, int(request.args.get("rate_shock", 0))))
+            except (TypeError, ValueError):
+                rate_shock = 0
             scenario = {
-                "default_rate_shock": float(request.args.get("default_shock", 0.05)),
-                "recovery_rate_shock": float(request.args.get("recovery_rate", 0.40)),
-                "rate_shock_bps": int(request.args.get("rate_shock", 0)),
+                "default_rate_shock": default_shock,
+                "recovery_rate_shock": recovery_rate,
+                "rate_shock_bps": rate_shock,
             }
             payload = compute_credit_stress_scenarios(loans, scenario)
         elif page == "credit-vintage":
@@ -4140,10 +4152,22 @@ def credit_analysis_series_api(page):
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)
         elif page == "credit-stress":
+            try:
+                ds = max(0.0, min(1.0, float(request.args.get("default_shock", 0.05))))
+            except (TypeError, ValueError):
+                ds = 0.05
+            try:
+                rr = max(0.0, min(1.0, float(request.args.get("recovery_rate", 0.40))))
+            except (TypeError, ValueError):
+                rr = 0.40
+            try:
+                rs = max(0, min(1000, int(request.args.get("rate_shock", 0))))
+            except (TypeError, ValueError):
+                rs = 0
             scenario = {
-                "default_rate_shock": float(request.args.get("default_shock", 0.05)),
-                "recovery_rate_shock": float(request.args.get("recovery_rate", 0.40)),
-                "rate_shock_bps": int(request.args.get("rate_shock", 0)),
+                "default_rate_shock": ds,
+                "recovery_rate_shock": rr,
+                "rate_shock_bps": rs,
             }
             payload = compute_credit_stress_scenarios(loans, scenario)
         elif page == "credit-vintage":
@@ -4216,24 +4240,44 @@ def download_credit_template():
     ws.title = "Credit Loans"
 
     headers = [
-        "Company Name", "Fund Name", "Vintage Year", "Close Date", "Exit Date",
-        "Status", "As Of Date", "Default Status",
-        "Instrument", "Tranche", "Security Type",
-        "Issue Size", "Hold Size", "Coupon Rate", "Spread (bps)", "Floor Rate",
-        "OID", "Upfront Fee", "Exit Fee", "Maturity Date",
-        "Fixed or Floating", "Reference Rate",
-        "PIK", "PIK Rate",
-        "Call Protection (months)", "Make-Whole Premium",
+        # Core identification
+        "Company Name", "Fund Name", "Status", "Entry Date", "Exit Date",
+        # Company details (new LP fields)
+        "Count of Investments", "Business Description", "Public",
+        "Sector", "Location", "Security Type", "Sourcing Channel",
+        # Capital structure
+        "Committed", "Entry Loan Amount", "Current Invested Capital",
+        # Returns & valuation
+        "Realized Proceeds", "Unrealized Loan Value",
+        "Unrealized Warrant/Equity Value", "Total Value",
+        "Estimated Gross IRR at Entry", "Gross IRR", "Gross MOIC",
+        # Loan economics
+        "Cash Margin / Coupon", "Floor", "PIK Margin / Coupon",
+        "Closing Fee", "Exit Fee", "Prepayment Protection", "Loan Term",
+        # Warrants & equity
+        "Equity Investment",
+        "# Warrants at Entry", "Warrant Strike Price at Entry",
+        "# Warrants (current)", "Warrant Strike Price (current)", "Warrant Term",
+        # Revenue
+        "TTM Revenue (entry)", "TTM Revenue (current)",
+        # Currency
+        "Currency",
+        # Legacy fields (still supported)
+        "Vintage Year", "As Of Date", "Default Status",
+        "Instrument", "Tranche", "Issue Size", "Hold Size",
+        "Coupon Rate", "Spread (bps)", "OID", "Upfront Fee",
+        "Maturity Date", "Fixed or Floating", "Reference Rate",
+        "PIK", "PIK Rate", "Call Protection (months)", "Make-Whole Premium",
         "Amortization Type", "Payment Frequency",
         "Entry LTV", "Current LTV",
         "Entry Revenue", "Entry EBITDA", "Current Revenue", "Current EBITDA",
         "Interest Coverage Ratio", "DSCR",
         "Credit Rating", "Covenant Type", "Covenant Compliant",
-        "Gross IRR", "MOIC", "Realized Value", "Unrealized Value",
+        "Realized Value", "Unrealized Value",
         "Cumulative Interest Income", "Cumulative Fee Income",
         "Fair Value", "Yield to Maturity", "Recovery Rate",
         "Original Par", "Current Outstanding", "Accrued Interest",
-        "Sector", "Geography", "Sponsor", "Currency",
+        "Geography", "Sponsor",
     ]
     ws.append(headers)
 
@@ -4245,26 +4289,46 @@ def download_credit_template():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
-    # Example row
+    # Example row (matches new header order)
     ws.append([
-        "Acme Software Inc", "PCOF III", 2023, "2023-06-15", None,
-        "Unrealized", "2024-12-31", "Performing",
-        "Term Loan B", "First Lien", "Senior Secured",
-        100.0, 25.0, 0.085, 425, 0.01,
-        0.02, 0.50, None, "2028-06-15",
-        "Floating", "SOFR",
-        "No", None,
-        12, None,
+        # Core
+        "Acme Software Inc", "PCOF III", "Unrealized", "2023-06-15", None,
+        # Company details
+        1, "Enterprise SaaS platform for healthcare", "No",
+        "Software", "North America", "Senior Secured", "Direct",
+        # Capital structure
+        30.0, 25.0, 24.5,
+        # Returns & valuation
+        None, 26.0,
+        1.5, 27.5,
+        0.15, 0.12, 1.10,
+        # Loan economics
+        0.085, 0.01, 0.02,
+        0.02, None, "12-month no-call", "5 years",
+        # Warrants & equity
+        0.5,
+        50000, 10.0,
+        50000, 12.5, "10 years",
+        # Revenue
+        50.0, 55.0,
+        # Currency
+        "USD",
+        # Legacy fields
+        2023, "2024-12-31", "Performing",
+        "Term Loan B", "First Lien", 100.0, 25.0,
+        0.085, 425, 0.02, 0.50,
+        "2028-06-15", "Floating", "SOFR",
+        "No", None, 12, None,
         "Bullet", "Quarterly",
         0.55, 0.58,
         50.0, 15.0, 55.0, 17.0,
         2.5, 1.8,
         2, "Maintenance", "Yes",
-        0.10, 1.15, None, 26.0,
+        None, 26.0,
         4.0, 0.5,
         25.5, 0.09, None,
         25.0, 25.0, 0.2,
-        "Software", "North America", "Apollo Global", "USD",
+        "North America", "Apollo Global",
     ])
 
     # Set column widths
@@ -4312,21 +4376,31 @@ def download_credit_template():
         "PE Portfolio Lab - Credit Loan Template",
         "",
         "CREDIT LOANS SHEET (required)",
-        "  Required columns: Company Name, Fund Name, Close Date",
-        "  All other columns are optional but recommended for full analytics.",
+        "  Required columns: Company Name, Fund Name",
+        "  All other columns are optional. Include what your data has.",
         "",
-        "  Status: Realized or Unrealized",
+        "  PRIMARY FIELDS (new LP format)",
+        "  Status: Realized, Unrealized, or Exited",
+        "  Entry Date: Funding/close date",
+        "  Committed / Entry Loan Amount / Current Invested Capital: dollar amounts (millions)",
+        "  Cash Margin / Coupon: decimal (e.g., 0.085 = 8.5%)",
+        "  PIK Margin / Coupon: decimal",
+        "  Floor: decimal",
+        "  Closing Fee / Exit Fee: decimal (e.g., 0.02 = 2%)",
+        "  Gross IRR / Estimated Gross IRR at Entry: decimal",
+        "  Gross MOIC: multiple (e.g., 1.15)",
+        "  Loan Term: text (e.g., '5 years', '60 months')",
+        "  Warrants: count, strike price, term",
+        "  TTM Revenue: dollar amounts (millions)",
+        "",
+        "  LEGACY FIELDS (also accepted)",
         "  Default Status: Performing, Watch List, Default, or Restructured",
-        "  Coupon Rate: Decimal form (e.g., 0.085 = 8.5%)",
-        "  Spread: In basis points (e.g., 425 = 4.25%)",
-        "  LTV: Decimal form (e.g., 0.55 = 55%). Values > 1 auto-normalized.",
+        "  LTV: Decimal form (0.55 = 55%). Values > 1 auto-normalized.",
         "  Credit Rating: 1 (best) to 5 (worst)",
+        "  Spread: In basis points (e.g., 425 = 4.25%)",
         "  PIK: Yes or No",
         "  Covenant Type: Maintenance, Incurrence, or None",
         "  Covenant Compliant: Yes or No",
-        "  Fixed or Floating: Fixed or Floating",
-        "  Amortization Type: Bullet, Amortizing, or IO",
-        "  Payment Frequency: Monthly or Quarterly",
         "  Currency: ISO 3-letter code (e.g., USD, EUR, GBP)",
         "",
         "SNAPSHOTS SHEET (optional)",

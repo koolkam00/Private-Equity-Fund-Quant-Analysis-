@@ -101,7 +101,7 @@
 {% endif %}
 
 <div class="panel" style="background: var(--surface-alt); padding: 12px 16px; font-size: 12px; color: var(--ink-muted);">
-    <i class="bi bi-info-circle"></i> V1 stress testing applies shocks independently per loan. Defaults are assigned to worst-rated loans first. Correlated stress (sector-wide defaults) is not yet modeled.
+    <i class="bi bi-info-circle"></i> V1 stress testing applies shocks independently per loan. Defaults are assigned to worst-performing loans first (by credit rating, then MOIC/IRR). Correlated stress (sector-wide defaults) is not yet modeled.
 </div>
 
 {% endif %}

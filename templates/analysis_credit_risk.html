@@ -35,6 +35,28 @@
     </div>
 </div>
 
+{# --- NEW: Value-based risk KPIs --- #}
+{% if analysis.has_new_fields %}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg MOIC</div>
+        <div class="kpi-value" style="font-family: var(--font-mono);">{% if analysis.weighted_avg_moic is not none %}{{ "%.2f"|format(analysis.weighted_avg_moic) }}x{% else %}&mdash;{% endif %}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg IRR</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.weighted_avg_irr) }}</div>
+    </div>
+    {% if analysis.total_total_value and analysis.total_entry_loan %}
+    <div class="kpi-card">
+        <div class="kpi-label">Value / Entry</div>
+        <div class="kpi-value" style="font-family: var(--font-mono); {% if analysis.total_total_value < analysis.total_entry_loan %}color: var(--danger);{% endif %}">
+            {{ "%.1f"|format(analysis.total_total_value / analysis.total_entry_loan * 100) }}%
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {# --- Status Distribution --- #}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
     <div class="panel">
@@ -80,10 +102,76 @@
 </div>
 
 {# --- LTV Distribution --- #}
+{% if analysis.wavg_ltv is not none %}
 <div class="panel" style="margin-bottom: 24px;">
     <h3>LTV Distribution</h3>
     <canvas id="ltvChart" height="250"></canvas>
 </div>
+{% endif %}
+
+{# --- NEW: Underperforming Loans (value-based) --- #}
+{% if analysis.has_new_fields %}
+{% set underwater_loans = [] %}
+{% for loan in loans if loan.total_value is not none and (loan.entry_loan_amount or loan.hold_size) is not none and loan.total_value < (loan.entry_loan_amount or loan.hold_size) %}
+    {% if underwater_loans.append(loan) %}{% endif %}
+{% endfor %}
+{% if underwater_loans %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Underperforming Loans</h3>
+    <p style="font-size: 12px; color: var(--ink-muted); margin-bottom: 12px;">Loans where total value is below entry amount.</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>Company</th><th>Fund</th><th style="text-align:right;">Entry Amount</th><th style="text-align:right;">Total Value</th><th style="text-align:right;">Shortfall</th><th style="text-align:right;">MOIC</th></tr>
+        </thead>
+        <tbody>
+        {% for loan in underwater_loans|sort(attribute='total_value') %}
+        {% set entry = loan.entry_loan_amount or loan.hold_size %}
+        <tr>
+            <td style="font-weight: 500;">{{ loan.company_name[:30] }}{% if loan.company_name|length > 30 %}...{% endif %}</td>
+            <td>{{ loan.fund_name }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(entry) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(loan.total_value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(entry - loan.total_value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{% if loan.moic is not none %}{{ "%.2f"|format(loan.moic) }}x{% else %}&mdash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endif %}
+
+{# --- NEW: Revenue Growth Panel --- #}
+{% if analysis.has_revenue_data %}
+{% set rev_loans = [] %}
+{% for loan in loans if loan.ttm_revenue_entry is not none and loan.ttm_revenue_current is not none %}
+    {% if rev_loans.append(loan) %}{% endif %}
+{% endfor %}
+{% if rev_loans %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Revenue Tracking</h3>
+    <table class="data-table">
+        <thead>
+            <tr><th>Company</th><th>Fund</th><th style="text-align:right;">Entry Revenue</th><th style="text-align:right;">Current Revenue</th><th style="text-align:right;">Growth</th></tr>
+        </thead>
+        <tbody>
+        {% for loan in rev_loans %}
+        {% set growth = ((loan.ttm_revenue_current / loan.ttm_revenue_entry) - 1) if loan.ttm_revenue_entry > 0 else 0 %}
+        <tr>
+            <td style="font-weight: 500;">{{ loan.company_name[:30] }}{% if loan.company_name|length > 30 %}...{% endif %}</td>
+            <td>{{ loan.fund_name }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(loan.ttm_revenue_entry) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(loan.ttm_revenue_current) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono); {% if growth < 0 %}color: var(--danger);{% elif growth > 0 %}color: var(--accent);{% endif %}">
+                {{ "%.1f"|format(growth * 100) }}%
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endif %}
 
 {# --- Watch List & Default Loans --- #}
 <div class="panel">

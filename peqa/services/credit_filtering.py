@@ -16,12 +16,15 @@ CREDIT_FILTER_KEYS = (
     "default_status",
     "sector",
     "geography",
+    "location",
     "sponsor",
     "security_type",
     "instrument",
     "amortization_type",
     "internal_credit_rating",
     "vintage_year",
+    "sourcing_channel",
+    "is_public",
 )
 
 

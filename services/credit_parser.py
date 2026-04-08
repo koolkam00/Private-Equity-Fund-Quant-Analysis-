@@ -179,15 +179,81 @@ CREDIT_COLUMN_MAP = {
     "firm": "firm_name",
     "firm name": "firm_name",
     "manager": "firm_name",
+    # NEW: Real LP field mappings
+    # Company details
+    "count of investments": "investment_count",
+    "# investments": "investment_count",
+    "business description": "business_description",
+    "description": "business_description",
+    "public": "is_public",
+    "publicly traded": "is_public",
+    "location": "location",
+    "sourcing channel": "sourcing_channel",
+    "sourcing": "sourcing_channel",
+    # Fund aliases
+    "fund(s)": "fund_name",
+    "funds": "fund_name",
+    # Entry date aliases (map to close_date for backward compat)
+    "entry date": "close_date",
+    "funding date": "close_date",
+    # Capital structure
+    "committed": "committed_amount",
+    "commitment": "committed_amount",
+    "entry loan amount": "entry_loan_amount",
+    "entry loan": "entry_loan_amount",
+    "current invested capital": "current_invested_capital",
+    "invested capital": "current_invested_capital",
+    # Valuation (new)
+    "realized proceeds": "realized_proceeds",
+    "unrealized loan value": "unrealized_loan_value",
+    "unrealized loan": "unrealized_loan_value",
+    "unrealized warrant/equity value": "unrealized_warrant_equity_value",
+    "unrealized warrant equity value": "unrealized_warrant_equity_value",
+    "warrant equity value": "unrealized_warrant_equity_value",
+    "total value": "total_value",
+    "estimated gross irr at entry": "estimated_irr_at_entry",
+    "estimated irr": "estimated_irr_at_entry",
+    "gross moic": "moic",
+    # Loan economics (new)
+    "cash margin": "cash_margin",
+    "cash margin / coupon": "cash_margin",
+    "pik margin": "pik_margin",
+    "pik margin / coupon": "pik_margin",
+    "pik coupon": "pik_margin",
+    "closing fee": "closing_fee",
+    "loan term": "loan_term",
+    "prepayment protection": "prepayment_protection",
+    # Warrants (entirely new)
+    "equity investment": "equity_investment",
+    "warrants at entry": "warrants_at_entry",
+    "# warrants at entry": "warrants_at_entry",
+    "warrant strike price at entry": "warrant_strike_entry",
+    "warrants current": "warrants_current",
+    "# warrants (current)": "warrants_current",
+    "# warrants current": "warrants_current",
+    "warrant strike price (current)": "warrant_strike_current",
+    "warrant strike price current": "warrant_strike_current",
+    "warrant term": "warrant_term",
+    # Revenue
+    "ttm revenue (entry)": "ttm_revenue_entry",
+    "ttm revenue entry": "ttm_revenue_entry",
+    "ttm revenue (current)": "ttm_revenue_current",
+    "ttm revenue current": "ttm_revenue_current",
 }
 
 # Columns that trigger credit detection (need 2+ present)
-CREDIT_TRIGGER_COLUMNS = {"coupon_rate", "spread_bps", "entry_ltv", "current_ltv", "maturity_date", "tranche", "pik_toggle"}
+CREDIT_TRIGGER_COLUMNS = {
+    "coupon_rate", "spread_bps", "entry_ltv", "current_ltv", "maturity_date",
+    "tranche", "pik_toggle",
+    # New fields that also identify credit data
+    "cash_margin", "pik_margin", "closing_fee", "warrants_at_entry",
+    "committed_amount", "entry_loan_amount", "unrealized_loan_value",
+}
 
 # Columns that trigger equity detection
 EQUITY_TRIGGER_COLUMNS = {"equity_invested", "entry_enterprise_value", "ownership_pct"}
 
-REQUIRED_FIELDS = {"company_name", "fund_name", "close_date"}
+REQUIRED_FIELDS = {"company_name", "fund_name"}
 
 DATE_FIELDS = {"close_date", "exit_date", "as_of_date", "maturity_date"}
 FLOAT_FIELDS = {
@@ -200,9 +266,18 @@ FLOAT_FIELDS = {
     "fair_value", "yield_to_maturity", "recovery_rate",
     "original_par", "current_outstanding", "accrued_interest",
     "pik_rate",
+    "committed_amount", "entry_loan_amount", "current_invested_capital",
+    "realized_proceeds", "unrealized_loan_value", "unrealized_warrant_equity_value",
+    "total_value", "estimated_irr_at_entry",
+    "cash_margin", "pik_margin", "closing_fee",
+    "equity_investment", "warrant_strike_entry", "warrant_strike_current",
+    "ttm_revenue_entry", "ttm_revenue_current",
 }
-INT_FIELDS = {"vintage_year", "spread_bps", "call_protection_months", "internal_credit_rating"}
-BOOL_FIELDS = {"pik_toggle", "covenant_compliant"}
+INT_FIELDS = {
+    "vintage_year", "spread_bps", "call_protection_months", "internal_credit_rating",
+    "investment_count", "warrants_at_entry", "warrants_current",
+}
+BOOL_FIELDS = {"pik_toggle", "covenant_compliant", "is_public"}
 
 
 def _clean_str(val):
@@ -423,7 +498,6 @@ def parse_credit_loan_tape(
 
         company = _clean_str(row.get("company_name"))
         fund = _clean_str(row.get("fund_name"))
-        close = _clean_date(row.get("close_date"))
 
         if not company:
             _log_issue(row_num, "error", "Missing company name, skipping row")
@@ -433,17 +507,13 @@ def parse_credit_loan_tape(
             _log_issue(row_num, "error", "Missing fund name, skipping row")
             warning_count += 1
             continue
-        if not close:
-            _log_issue(row_num, "error", "Missing or invalid close date, skipping row")
-            warning_count += 1
-            continue
 
         # Clean all fields
         loan = CreditLoan(
             company_name=company,
             fund_name=fund,
             vintage_year=_clean_int(row.get("vintage_year")),
-            close_date=close,
+            close_date=_clean_date(row.get("close_date")),
             exit_date=_clean_date(row.get("exit_date")),
             status=_clean_str(row.get("status")) or "Unrealized",
             as_of_date=_clean_date(row.get("as_of_date")),
@@ -491,6 +561,33 @@ def parse_credit_loan_tape(
             original_par=_clean_float(row.get("original_par")),
             current_outstanding=_clean_float(row.get("current_outstanding")),
             accrued_interest=_clean_float(row.get("accrued_interest")),
+            # --- NEW FIELDS ---
+            investment_count=_clean_int(row.get("investment_count")),
+            business_description=_clean_str(row.get("business_description")),
+            is_public=_clean_bool(row.get("is_public")),
+            sourcing_channel=_clean_str(row.get("sourcing_channel")),
+            location=_clean_str(row.get("location")),
+            committed_amount=_clean_float(row.get("committed_amount")),
+            entry_loan_amount=_clean_float(row.get("entry_loan_amount")),
+            current_invested_capital=_clean_float(row.get("current_invested_capital")),
+            realized_proceeds=_clean_float(row.get("realized_proceeds")),
+            unrealized_loan_value=_clean_float(row.get("unrealized_loan_value")),
+            unrealized_warrant_equity_value=_clean_float(row.get("unrealized_warrant_equity_value")),
+            total_value=_clean_float(row.get("total_value")),
+            estimated_irr_at_entry=_clean_float(row.get("estimated_irr_at_entry")),
+            cash_margin=_clean_float(row.get("cash_margin")),
+            pik_margin=_clean_float(row.get("pik_margin")),
+            closing_fee=_clean_float(row.get("closing_fee")),
+            prepayment_protection=_clean_str(row.get("prepayment_protection")),
+            loan_term=_clean_str(row.get("loan_term")),
+            equity_investment=_clean_float(row.get("equity_investment")),
+            warrants_at_entry=_clean_int(row.get("warrants_at_entry")),
+            warrant_strike_entry=_clean_float(row.get("warrant_strike_entry")),
+            warrants_current=_clean_int(row.get("warrants_current")),
+            warrant_strike_current=_clean_float(row.get("warrant_strike_current")),
+            warrant_term=_clean_str(row.get("warrant_term")),
+            ttm_revenue_entry=_clean_float(row.get("ttm_revenue_entry")),
+            ttm_revenue_current=_clean_float(row.get("ttm_revenue_current")),
             sector=_clean_str(row.get("sector")),
             geography=_clean_str(row.get("geography")),
             sponsor=_clean_str(row.get("sponsor")),
@@ -499,6 +596,34 @@ def parse_credit_loan_tape(
             team_id=team_id,
             upload_batch=batch_id,
         )
+
+        # Cross-populate old/new field pairs for backward compatibility
+        if loan.entry_loan_amount is not None and loan.hold_size is None:
+            loan.hold_size = loan.entry_loan_amount
+        elif loan.hold_size is not None and loan.entry_loan_amount is None:
+            loan.entry_loan_amount = loan.hold_size
+
+        if loan.location is not None and loan.geography is None:
+            loan.geography = loan.location
+        elif loan.geography is not None and loan.location is None:
+            loan.location = loan.geography
+
+        if loan.cash_margin is not None and loan.coupon_rate is None:
+            loan.coupon_rate = loan.cash_margin
+        elif loan.coupon_rate is not None and loan.cash_margin is None:
+            loan.cash_margin = loan.coupon_rate
+
+        if loan.pik_margin is not None and loan.pik_rate is None:
+            loan.pik_rate = loan.pik_margin
+
+        if loan.closing_fee is not None and loan.fee_oid is None:
+            loan.fee_oid = loan.closing_fee
+
+        if loan.realized_proceeds is not None and loan.realized_value is None:
+            loan.realized_value = loan.realized_proceeds
+
+        if loan.unrealized_loan_value is not None and loan.unrealized_value is None:
+            loan.unrealized_value = loan.unrealized_loan_value
 
         # Validate LTV
         if loan.entry_ltv is not None and loan.entry_ltv > 1.0:
@@ -581,6 +706,17 @@ def _parse_snapshot_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue
         "covenant compliant": "covenant_compliant",
         "current outstanding": "current_outstanding",
         "accrued interest": "accrued_interest",
+        "current invested capital": "current_invested_capital",
+        "invested capital": "current_invested_capital",
+        "unrealized loan value": "unrealized_loan_value",
+        "unrealized loan": "unrealized_loan_value",
+        "unrealized warrant/equity value": "unrealized_warrant_equity_value",
+        "total value": "total_value",
+        "ttm revenue (current)": "ttm_revenue_current",
+        "ttm revenue current": "ttm_revenue_current",
+        "gross irr": "gross_irr",
+        "irr": "gross_irr",
+        "moic": "moic",
     }
 
     col_map = {}
@@ -622,6 +758,13 @@ def _parse_snapshot_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue
             covenant_compliant=_clean_bool(row.get("covenant_compliant")),
             current_outstanding=_clean_float(row.get("current_outstanding")),
             accrued_interest=_clean_float(row.get("accrued_interest")),
+            current_invested_capital=_clean_float(row.get("current_invested_capital")),
+            unrealized_loan_value=_clean_float(row.get("unrealized_loan_value")),
+            unrealized_warrant_equity_value=_clean_float(row.get("unrealized_warrant_equity_value")),
+            total_value=_clean_float(row.get("total_value")),
+            ttm_revenue_current=_clean_float(row.get("ttm_revenue_current")),
+            gross_irr=_clean_float(row.get("gross_irr")),
+            moic=_clean_float(row.get("moic")),
             firm_id=firm_id,
             team_id=team_id,
             upload_batch=batch_id,

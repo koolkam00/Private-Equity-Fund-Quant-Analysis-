@@ -698,6 +698,46 @@ class CreditLoan(db.Model):
     geography = db.Column(db.String(100), nullable=True)
     sponsor = db.Column(db.String(255), nullable=True)  # PE sponsor backing borrower
 
+    # --- NEW FIELDS (from real LP credit manager data) ---
+
+    # Company details
+    investment_count = db.Column(db.Integer, nullable=True)  # "Count of Investments"
+    business_description = db.Column(db.Text, nullable=True)
+    is_public = db.Column(db.Boolean, nullable=True)
+    sourcing_channel = db.Column(db.String(100), nullable=True)
+    location = db.Column(db.String(100), nullable=True)  # alias for geography
+
+    # Capital structure (supplements existing hold_size/issue_size)
+    committed_amount = db.Column(db.Float, nullable=True)  # Total committed
+    entry_loan_amount = db.Column(db.Float, nullable=True)  # Entry loan amount
+    current_invested_capital = db.Column(db.Float, nullable=True)
+
+    # Valuation (supplements existing realized_value/unrealized_value)
+    realized_proceeds = db.Column(db.Float, nullable=True)
+    unrealized_loan_value = db.Column(db.Float, nullable=True)
+    unrealized_warrant_equity_value = db.Column(db.Float, nullable=True)
+    total_value = db.Column(db.Float, nullable=True)
+    estimated_irr_at_entry = db.Column(db.Float, nullable=True)
+
+    # Loan economics (supplements existing coupon_rate/fee_oid)
+    cash_margin = db.Column(db.Float, nullable=True)  # "Cash Margin / Coupon"
+    pik_margin = db.Column(db.Float, nullable=True)  # "PIK Margin / Coupon"
+    closing_fee = db.Column(db.Float, nullable=True)
+    prepayment_protection = db.Column(db.String(255), nullable=True)
+    loan_term = db.Column(db.String(50), nullable=True)
+
+    # Equity / warrant kicker
+    equity_investment = db.Column(db.Float, nullable=True)
+    warrants_at_entry = db.Column(db.Integer, nullable=True)
+    warrant_strike_entry = db.Column(db.Float, nullable=True)
+    warrants_current = db.Column(db.Integer, nullable=True)
+    warrant_strike_current = db.Column(db.Float, nullable=True)
+    warrant_term = db.Column(db.String(50), nullable=True)
+
+    # Revenue tracking
+    ttm_revenue_entry = db.Column(db.Float, nullable=True)
+    ttm_revenue_current = db.Column(db.Float, nullable=True)
+
     # Currency
     currency = db.Column(db.String(3), nullable=True, default="USD")
     fx_rate_to_usd = db.Column(db.Float, nullable=True)
@@ -733,6 +773,15 @@ class CreditLoanSnapshot(db.Model):
     covenant_compliant = db.Column(db.Boolean, nullable=True)
     current_outstanding = db.Column(db.Float, nullable=True)
     accrued_interest = db.Column(db.Float, nullable=True)
+
+    # --- NEW snapshot fields (from real LP data) ---
+    current_invested_capital = db.Column(db.Float, nullable=True)
+    unrealized_loan_value = db.Column(db.Float, nullable=True)
+    unrealized_warrant_equity_value = db.Column(db.Float, nullable=True)
+    total_value = db.Column(db.Float, nullable=True)
+    ttm_revenue_current = db.Column(db.Float, nullable=True)
+    gross_irr = db.Column(db.Float, nullable=True)
+    moic = db.Column(db.Float, nullable=True)
 
     # Metadata
     firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
@@ -1128,6 +1177,50 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_credit_loan_snapshots_team_id", "credit_loan_snapshots", "team_id")
     _ensure_index(engine, "ix_credit_loan_snapshots_credit_loan_id", "credit_loan_snapshots", "credit_loan_id")
     _ensure_index_columns(engine, "ix_credit_loan_snapshots_loan_date", "credit_loan_snapshots", ["credit_loan_id", "snapshot_date"])
+
+    # Add new credit loan columns (non-destructive, idempotent)
+    _new_credit_columns = [
+        ("credit_loans", "investment_count", "INTEGER"),
+        ("credit_loans", "business_description", "TEXT"),
+        ("credit_loans", "is_public", "BOOLEAN"),
+        ("credit_loans", "sourcing_channel", "VARCHAR(100)"),
+        ("credit_loans", "location", "VARCHAR(100)"),
+        ("credit_loans", "committed_amount", "FLOAT"),
+        ("credit_loans", "entry_loan_amount", "FLOAT"),
+        ("credit_loans", "current_invested_capital", "FLOAT"),
+        ("credit_loans", "realized_proceeds", "FLOAT"),
+        ("credit_loans", "unrealized_loan_value", "FLOAT"),
+        ("credit_loans", "unrealized_warrant_equity_value", "FLOAT"),
+        ("credit_loans", "total_value", "FLOAT"),
+        ("credit_loans", "estimated_irr_at_entry", "FLOAT"),
+        ("credit_loans", "cash_margin", "FLOAT"),
+        ("credit_loans", "pik_margin", "FLOAT"),
+        ("credit_loans", "closing_fee", "FLOAT"),
+        ("credit_loans", "prepayment_protection", "VARCHAR(255)"),
+        ("credit_loans", "loan_term", "VARCHAR(50)"),
+        ("credit_loans", "equity_investment", "FLOAT"),
+        ("credit_loans", "warrants_at_entry", "INTEGER"),
+        ("credit_loans", "warrant_strike_entry", "FLOAT"),
+        ("credit_loans", "warrants_current", "INTEGER"),
+        ("credit_loans", "warrant_strike_current", "FLOAT"),
+        ("credit_loans", "warrant_term", "VARCHAR(50)"),
+        ("credit_loans", "ttm_revenue_entry", "FLOAT"),
+        ("credit_loans", "ttm_revenue_current", "FLOAT"),
+        # Snapshot new columns
+        ("credit_loan_snapshots", "current_invested_capital", "FLOAT"),
+        ("credit_loan_snapshots", "unrealized_loan_value", "FLOAT"),
+        ("credit_loan_snapshots", "unrealized_warrant_equity_value", "FLOAT"),
+        ("credit_loan_snapshots", "total_value", "FLOAT"),
+        ("credit_loan_snapshots", "ttm_revenue_current", "FLOAT"),
+        ("credit_loan_snapshots", "gross_irr", "FLOAT"),
+        ("credit_loan_snapshots", "moic", "FLOAT"),
+    ]
+    for tbl, col, dtype in _new_credit_columns:
+        if tbl in tables and col not in [c["name"] for c in inspector.get_columns(tbl)]:
+            try:
+                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {dtype}"))
+            except Exception:
+                pass  # Column may already exist
 
     # Archive legacy cashflow table once if it exists.
     _archive_legacy_cashflows(engine, inspector)

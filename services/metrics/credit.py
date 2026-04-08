@@ -69,6 +69,30 @@ def compute_credit_loan_metrics(loan, as_of_date=None):
     if loan.entry_ltv is not None and loan.current_ltv is not None:
         ltv_delta = loan.current_ltv - loan.entry_ltv
 
+    # --- NEW: Mark-to-market metrics (when LP provides total_value/entry_loan_amount) ---
+    total_return_mtm = None
+    entry_amt = loan.entry_loan_amount if hasattr(loan, 'entry_loan_amount') else None
+    tv = loan.total_value if hasattr(loan, 'total_value') else None
+    if entry_amt is not None and entry_amt > 0 and tv is not None:
+        total_return_mtm = safe_divide(tv, entry_amt) - 1.0
+
+    warrant_upside = None
+    uwev = getattr(loan, 'unrealized_warrant_equity_value', None)
+    if uwev is not None and entry_amt is not None and entry_amt > 0:
+        warrant_upside = safe_divide(uwev, entry_amt)
+
+    revenue_growth = None
+    rev_entry = getattr(loan, 'ttm_revenue_entry', None)
+    rev_current = getattr(loan, 'ttm_revenue_current', None)
+    if rev_entry is not None and rev_entry > 0 and rev_current is not None:
+        revenue_growth = safe_divide(rev_current, rev_entry) - 1.0
+
+    deployment_pct = None
+    committed = getattr(loan, 'committed_amount', None)
+    current_inv = getattr(loan, 'current_invested_capital', None)
+    if committed is not None and committed > 0 and current_inv is not None:
+        deployment_pct = safe_divide(current_inv, committed)
+
     return {
         "income_return": income_return,
         "price_return": price_return,
@@ -84,6 +108,10 @@ def compute_credit_loan_metrics(loan, as_of_date=None):
         "dscr": loan.dscr,
         "moic": loan.moic,
         "gross_irr": loan.gross_irr,
+        "total_return_mtm": total_return_mtm,
+        "warrant_upside": warrant_upside,
+        "revenue_growth": revenue_growth,
+        "deployment_pct": deployment_pct,
         "_warnings": warnings,
     }
 
@@ -125,6 +153,34 @@ def _loan_traffic_light(loan):
         # Insufficient data for full classification
         return "green" if ltv is not None or cov is not None else "gray"
 
+    # --- NEW: IRR/MOIC-based signals (when LP provides these instead of LTV/coverage) ---
+    status = (loan.status or "").strip()
+    moic_val = loan.moic
+    irr_val = loan.gross_irr
+    tv = getattr(loan, 'total_value', None)
+    entry_amt = getattr(loan, 'entry_loan_amount', None) or loan.hold_size
+
+    # Red: underwater (total_value < entry amount) or MOIC < 0.8
+    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.8:
+        return "red"
+    if moic_val is not None and moic_val < 0.8:
+        return "red"
+
+    # Yellow: underperforming (MOIC 0.8-1.0, or IRR below estimated)
+    if moic_val is not None and moic_val < 1.0:
+        return "yellow"
+    est_irr = getattr(loan, 'estimated_irr_at_entry', None)
+    if irr_val is not None and est_irr is not None and irr_val < est_irr * 0.5:
+        return "yellow"
+
+    # Green: Realized with MOIC >= 1.0 or positive IRR
+    if status == "Realized" and moic_val is not None and moic_val >= 1.0:
+        return "green"
+    if irr_val is not None and irr_val > 0:
+        return "green"
+    if moic_val is not None and moic_val >= 1.0:
+        return "green"
+
     return "gray"
 
 
@@ -136,7 +192,7 @@ def compute_traffic_lights(loans):
 
     for loan in loans:
         signal = _loan_traffic_light(loan)
-        hold = loan.hold_size or 0.0
+        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
         lights[signal] += hold
         total_hold += hold
         per_loan.append({"loan_id": loan.id, "company": loan.company_name, "signal": signal})
@@ -171,10 +227,11 @@ def compute_traffic_lights(loans):
 def compute_top_concerns(loans, metrics_by_id=None, limit=5):
     """Auto-generate top concerns ranked by severity."""
     concerns = []
-    total_hold = sum((l.hold_size or 0) for l in loans)
+    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
 
     for loan in loans:
-        hold_pct = safe_divide(loan.hold_size, total_hold, 0.0) if total_hold > 0 else 0.0
+        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0
+        hold_pct = safe_divide(hold, total_hold, 0.0) if total_hold > 0 else 0.0
 
         # Severity 1: Default or Restructured
         if (loan.default_status or "") in ("Default", "Restructured"):
@@ -230,6 +287,43 @@ def compute_top_concerns(loans, metrics_by_id=None, limit=5):
                     "metric": f"PIK rate: {loan.pik_rate:.1%}",
                     "hold_pct": hold_pct,
                 })
+
+        # NEW: Severity 1 - Underwater (total_value < entry_loan_amount)
+        entry_amt = getattr(loan, 'entry_loan_amount', None) or loan.hold_size
+        tv = getattr(loan, 'total_value', None)
+        if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.9:
+            shortfall_pct = safe_divide(entry_amt - tv, entry_amt, 0.0)
+            concerns.append({
+                "company": loan.company_name,
+                "severity": 1,
+                "reason": "Underwater",
+                "metric": f"Value: {tv/entry_amt:.0%} of entry" if entry_amt > 0 else None,
+                "hold_pct": hold_pct,
+            })
+
+        # NEW: Severity 2 - IRR significantly below estimate
+        irr_val = loan.gross_irr
+        est_irr = getattr(loan, 'estimated_irr_at_entry', None)
+        if irr_val is not None and est_irr is not None and est_irr > 0 and irr_val < est_irr * 0.5:
+            concerns.append({
+                "company": loan.company_name,
+                "severity": 2,
+                "reason": "IRR underperforming",
+                "metric": f"IRR: {irr_val:.1%} vs {est_irr:.1%} est.",
+                "hold_pct": hold_pct,
+            })
+
+        # NEW: Severity 4 - Declining revenue
+        rev_entry = getattr(loan, 'ttm_revenue_entry', None)
+        rev_current = getattr(loan, 'ttm_revenue_current', None)
+        if rev_entry is not None and rev_entry > 0 and rev_current is not None and rev_current < rev_entry * 0.85:
+            concerns.append({
+                "company": loan.company_name,
+                "severity": 4,
+                "reason": "Revenue declining",
+                "metric": f"Rev: {rev_current/rev_entry:.0%} of entry",
+                "hold_pct": hold_pct,
+            })
 
     concerns.sort(key=lambda c: (c["severity"], -(c.get("hold_pct") or 0)))
     return concerns[:limit]
@@ -294,6 +388,60 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
     traffic = compute_traffic_lights(loans)
     concerns = compute_top_concerns(loans, metrics_by_id)
 
+    # --- NEW: Aggregations for LP fields ---
+    total_committed = 0.0
+    total_entry_loan = 0.0
+    total_current_invested = 0.0
+    total_realized_proceeds = 0.0
+    total_unrealized_loan = 0.0
+    total_unrealized_warrant = 0.0
+    total_total_value = 0.0
+    total_equity_investment = 0.0
+    weighted_irr = 0.0
+    irr_denom = 0.0
+    weighted_moic = 0.0
+    moic_denom = 0.0
+    weighted_cash_margin = 0.0
+    cash_margin_denom = 0.0
+    has_new_fields = False
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        entry_amt = (getattr(loan, 'entry_loan_amount', None) or 0.0) * fx
+        hold = (loan.hold_size or 0.0) * fx
+        weight = entry_amt if entry_amt > 0 else hold
+
+        committed = (getattr(loan, 'committed_amount', None) or 0.0) * fx
+        cur_inv = (getattr(loan, 'current_invested_capital', None) or 0.0) * fx
+        rp = (getattr(loan, 'realized_proceeds', None) or 0.0) * fx
+        ulv = (getattr(loan, 'unrealized_loan_value', None) or 0.0) * fx
+        uwev = (getattr(loan, 'unrealized_warrant_equity_value', None) or 0.0) * fx
+        tv = (getattr(loan, 'total_value', None) or 0.0) * fx
+        eq_inv = (getattr(loan, 'equity_investment', None) or 0.0) * fx
+
+        total_committed += committed
+        total_entry_loan += entry_amt
+        total_current_invested += cur_inv
+        total_realized_proceeds += rp
+        total_unrealized_loan += ulv
+        total_unrealized_warrant += uwev
+        total_total_value += tv
+        total_equity_investment += eq_inv
+
+        if loan.gross_irr is not None and weight > 0:
+            weighted_irr += loan.gross_irr * weight
+            irr_denom += weight
+        if loan.moic is not None and weight > 0:
+            weighted_moic += loan.moic * weight
+            moic_denom += weight
+        cm = getattr(loan, 'cash_margin', None)
+        if cm is not None and weight > 0:
+            weighted_cash_margin += cm * weight
+            cash_margin_denom += weight
+
+        if any(getattr(loan, f, None) is not None for f in ('entry_loan_amount', 'total_value', 'committed_amount')):
+            has_new_fields = True
+
     return {
         "total_issue_size": total_issue,
         "total_deployed": total_hold,
@@ -307,6 +455,22 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
         "rating_distribution": dict(rating_dist),
         "traffic_lights": traffic,
         "top_concerns": concerns,
+        # NEW: LP-field aggregations
+        "total_committed": total_committed if has_new_fields else None,
+        "total_entry_loan": total_entry_loan if has_new_fields else None,
+        "total_current_invested": total_current_invested if has_new_fields else None,
+        "deployment_ratio": safe_divide(total_current_invested, total_committed) if total_committed > 0 else None,
+        "total_realized_proceeds": total_realized_proceeds if has_new_fields else None,
+        "total_unrealized_loan": total_unrealized_loan if has_new_fields else None,
+        "total_unrealized_warrant": total_unrealized_warrant if has_new_fields else None,
+        "total_total_value": total_total_value if has_new_fields else None,
+        "total_equity_investment": total_equity_investment if has_new_fields else None,
+        "total_warrant_value": total_unrealized_warrant if total_unrealized_warrant > 0 else None,
+        "weighted_avg_irr": safe_divide(weighted_irr, irr_denom),
+        "weighted_avg_moic": safe_divide(weighted_moic, moic_denom),
+        "wavg_cash_margin": safe_divide(weighted_cash_margin, cash_margin_denom),
+        "has_new_fields": has_new_fields,
+        "has_revenue_data": any(getattr(l, 'ttm_revenue_entry', None) is not None for l in loans),
     }
 
 
@@ -355,6 +519,44 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
 
     total_income = total_interest + total_fees + total_pik + total_price_change
 
+    # --- NEW: Attribution from LP fields ---
+    total_cash_margin_income = 0.0
+    total_pik_margin_income = 0.0
+    total_fee_income_new = 0.0
+    total_warrant_upside = 0.0
+    total_price_return_new = 0.0
+    has_new_yield = False
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        entry_amt = (getattr(loan, 'entry_loan_amount', None) or 0.0) * fx
+        cm = getattr(loan, 'cash_margin', None)
+        pm = getattr(loan, 'pik_margin', None)
+        cf = getattr(loan, 'closing_fee', None)
+        ef = loan.fee_exit
+        uwev = (getattr(loan, 'unrealized_warrant_equity_value', None) or 0.0) * fx
+        ulv = getattr(loan, 'unrealized_loan_value', None)
+
+        if cm is not None and entry_amt > 0:
+            total_cash_margin_income += cm * entry_amt
+            has_new_yield = True
+        if pm is not None and entry_amt > 0:
+            total_pik_margin_income += pm * entry_amt
+            has_new_yield = True
+        if cf is not None:
+            total_fee_income_new += (cf or 0.0) * fx
+        if ef is not None:
+            total_fee_income_new += (ef or 0.0) * fx
+        total_warrant_upside += uwev
+        if ulv is not None and entry_amt > 0:
+            total_price_return_new += (ulv * fx - entry_amt)
+
+        fund = loan.fund_name or "Unknown"
+        if has_new_yield:
+            by_fund[fund]["cash_margin"] = by_fund[fund].get("cash_margin", 0) + (cm or 0) * entry_amt
+            by_fund[fund]["pik_margin"] = by_fund[fund].get("pik_margin", 0) + (pm or 0) * entry_amt
+            by_fund[fund]["warrant_upside"] = by_fund[fund].get("warrant_upside", 0) + uwev
+
     return {
         "coupon_income": total_interest,
         "fee_income": total_fees,
@@ -363,6 +565,12 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         "total_return_dollars": total_income,
         "total_return_pct": safe_divide(total_income, total_cost_basis),
         "by_fund": {k: dict(v) for k, v in by_fund.items()},
+        "cash_margin_income": total_cash_margin_income if has_new_yield else None,
+        "pik_margin_income": total_pik_margin_income if has_new_yield else None,
+        "fee_income_new": total_fee_income_new if has_new_yield else None,
+        "warrant_upside": total_warrant_upside if total_warrant_upside > 0 else None,
+        "price_return_new": total_price_return_new if has_new_yield else None,
+        "has_new_yield": has_new_yield,
     }
 
 
@@ -384,9 +592,22 @@ def compute_credit_stress_scenarios(loans, scenario):
     rate_shock = scenario.get("rate_shock_bps", 0)
 
     # Sort loans by credit quality (worst first) for default assignment
-    sorted_loans = sorted(loans, key=lambda l: -(l.internal_credit_rating or 0))
+    # Use internal_credit_rating first, fall back to MOIC (lowest first)
+    def _stress_sort_key(l):
+        rating = l.internal_credit_rating
+        if rating is not None:
+            return (-rating, 0)
+        moic_val = l.moic
+        if moic_val is not None:
+            return (0, moic_val)  # lower MOIC = worse = first
+        irr_val = l.gross_irr
+        if irr_val is not None:
+            return (0, irr_val)
+        return (0, 999)  # no data, sort last
 
-    total_hold = sum((l.hold_size or 0) for l in loans)
+    sorted_loans = sorted(loans, key=_stress_sort_key)
+
+    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
     target_default_amount = total_hold * default_shock
 
     base_nav = 0.0
@@ -395,8 +616,8 @@ def compute_credit_stress_scenarios(loans, scenario):
     impacted_loans = []
 
     for loan in sorted_loans:
-        hold = loan.hold_size or 0.0
-        fv = loan.fair_value if loan.fair_value is not None else hold
+        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+        fv = loan.fair_value if loan.fair_value is not None else (getattr(loan, 'total_value', None) or hold)
         base_nav += fv
 
         # Apply default shock: default worst-rated loans first
@@ -446,13 +667,14 @@ def compute_credit_stress_scenarios(loans, scenario):
 
 def compute_credit_concentration(loans, metrics_by_id=None):
     """Sector, geography, sponsor, security type breakdowns with HHI."""
-    total_hold = sum((l.hold_size or 0) for l in loans)
+    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
 
     def _build_breakdown(loans, attr):
         groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
         for loan in loans:
             key = getattr(loan, attr, None) or "Unknown"
-            groups[key]["hold"] += loan.hold_size or 0.0
+            hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+            groups[key]["hold"] += hold
             groups[key]["count"] += 1
         result = []
         for key, val in sorted(groups.items(), key=lambda x: -x[1]["hold"]):
@@ -471,10 +693,32 @@ def compute_credit_concentration(loans, metrics_by_id=None):
 
     # Top-N single-name exposure
     loan_exposures = sorted(
-        [{"company": l.company_name, "hold": l.hold_size or 0, "pct": safe_divide(l.hold_size, total_hold, 0.0)}
+        [{"company": l.company_name, "hold": l.hold_size or getattr(l, 'entry_loan_amount', None) or 0,
+          "pct": safe_divide(l.hold_size or getattr(l, 'entry_loan_amount', None) or 0, total_hold, 0.0)}
          for l in loans],
         key=lambda x: -(x.get("hold") or 0),
     )
+
+    # Location (merged with geography)
+    by_location = _build_breakdown(loans, "location")
+
+    # Sourcing channel (if data present)
+    has_sourcing = any(getattr(l, 'sourcing_channel', None) for l in loans)
+    by_sourcing = _build_breakdown(loans, "sourcing_channel") if has_sourcing else []
+
+    # Public/private (if data present)
+    has_public = any(getattr(l, 'is_public', None) is not None for l in loans)
+    by_public = []
+    if has_public:
+        groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
+        for loan in loans:
+            key = "Public" if getattr(loan, 'is_public', None) else "Private"
+            hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+            groups[key]["hold"] += hold
+            groups[key]["count"] += 1
+        for key, val in sorted(groups.items(), key=lambda x: -x[1]["hold"]):
+            pct = safe_divide(val["hold"], total_hold, 0.0)
+            by_public.append({"name": key, "hold": val["hold"], "count": val["count"], "pct": pct})
 
     return {
         "total_hold": total_hold,
@@ -488,6 +732,11 @@ def compute_credit_concentration(loans, metrics_by_id=None):
         "hhi_sponsor": _hhi(by_sponsor),
         "top_5": loan_exposures[:5],
         "top_10": loan_exposures[:10],
+        "by_location": by_location,
+        "by_sourcing": by_sourcing if has_sourcing else None,
+        "by_public": by_public if has_public else None,
+        "has_sourcing_data": has_sourcing,
+        "has_public_data": has_public,
     }
 
 
@@ -507,14 +756,26 @@ def compute_credit_vintage_comparison(loans, fund_names=None):
     funds = []
     for fund_name, fund_loans in sorted(by_fund.items()):
         metrics = {l.id: compute_credit_loan_metrics(l) for l in fund_loans}
-        total_hold = sum((l.hold_size or 0) for l in fund_loans)
+        total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans)
         total_issue = sum((l.issue_size or 0) for l in fund_loans)
+        total_committed = sum((getattr(l, 'committed_amount', None) or 0) for l in fund_loans)
+        total_entry_loan = sum((getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans)
 
         # Weighted averages
-        w_yield = sum((l.coupon_rate or 0) * (l.hold_size or 0) for l in fund_loans)
-        w_ltv = sum((l.current_ltv or 0) * (l.hold_size or 0) for l in fund_loans)
-        denom = sum((l.hold_size or 0) for l in fund_loans if l.coupon_rate is not None)
-        ltv_denom = sum((l.hold_size or 0) for l in fund_loans if l.current_ltv is not None)
+        w_yield = sum((l.coupon_rate or 0) * (l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans)
+        w_ltv = sum((l.current_ltv or 0) * (l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans)
+        denom = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.coupon_rate is not None)
+        ltv_denom = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.current_ltv is not None)
+
+        # NEW: IRR, MOIC, cash margin averages
+        w_irr = sum((l.gross_irr or 0) * (l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.gross_irr is not None)
+        irr_denom = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.gross_irr is not None)
+        w_moic = sum((l.moic or 0) * (l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.moic is not None)
+        moic_denom = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if l.moic is not None)
+        w_cm = sum((getattr(l, 'cash_margin', None) or 0) * (l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if getattr(l, 'cash_margin', None) is not None)
+        cm_denom = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in fund_loans if getattr(l, 'cash_margin', None) is not None)
+
+        total_warrant_val = sum((getattr(l, 'unrealized_warrant_equity_value', None) or 0) for l in fund_loans)
 
         performing = sum(1 for l in fund_loans if (l.default_status or "") == "Performing")
         defaults = sum(1 for l in fund_loans if (l.default_status or "") in ("Default", "Restructured"))
@@ -534,6 +795,12 @@ def compute_credit_vintage_comparison(loans, fund_names=None):
             "default_count": defaults,
             "loss_rate": safe_divide(defaults, len(fund_loans), 0.0),
             "rating_distribution": _rating_dist(fund_loans),
+            "total_committed": total_committed,
+            "total_entry_loan": total_entry_loan,
+            "avg_irr": safe_divide(w_irr, irr_denom),
+            "avg_moic": safe_divide(w_moic, moic_denom),
+            "avg_cash_margin": safe_divide(w_cm, cm_denom),
+            "warrant_coverage": safe_divide(total_warrant_val, total_hold) if total_hold > 0 else None,
         })
 
     return {"funds": funds}
@@ -552,6 +819,39 @@ def _rating_dist(loans):
 # ---------------------------------------------------------------------------
 
 
+def _parse_loan_term(term_str, entry_date=None):
+    """Parse loan_term string into estimated maturity date.
+
+    Patterns: "5 years", "60 months", "5Y", "3-5 years", "18M", "18m"
+    Returns a date or None.
+    """
+    if not term_str or not entry_date:
+        return None
+    import re
+    from datetime import timedelta
+    s = str(term_str).strip().lower()
+
+    # "5 years" or "5 year" or "5yr" or "5y"
+    m = re.match(r'^(\d+(?:\.\d+)?)\s*(?:years?|yr?s?)$', s)
+    if m:
+        years = float(m.group(1))
+        return entry_date + timedelta(days=years * 365.25)
+
+    # "60 months" or "60 month" or "60m" or "18mo"
+    m = re.match(r'^(\d+(?:\.\d+)?)\s*(?:months?|mos?|m)$', s)
+    if m:
+        months = float(m.group(1))
+        return entry_date + timedelta(days=months * 30.44)
+
+    # "3-5 years" (range, use midpoint)
+    m = re.match(r'^(\d+)-(\d+)\s*(?:years?|yr?s?)$', s)
+    if m:
+        avg = (float(m.group(1)) + float(m.group(2))) / 2
+        return entry_date + timedelta(days=avg * 365.25)
+
+    return None
+
+
 def compute_credit_maturity_profile(loans):
     """Build maturity wall data and weighted average life."""
     from collections import defaultdict
@@ -563,15 +863,22 @@ def compute_credit_maturity_profile(loans):
     today = date.today()
 
     for loan in loans:
-        hold = loan.hold_size or 0.0
+        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
         total_hold += hold
 
-        if loan.maturity_date:
-            key = loan.maturity_date.strftime("%Y-%m")
+        mat_date = loan.maturity_date
+        # Fallback: derive from loan_term + close_date
+        if mat_date is None:
+            loan_term = getattr(loan, 'loan_term', None)
+            entry = loan.close_date
+            mat_date = _parse_loan_term(loan_term, entry)
+
+        if mat_date:
+            key = mat_date.strftime("%Y-%m")
             by_month[key]["hold"] += hold
             by_month[key]["count"] += 1
 
-            years_to_maturity = max((loan.maturity_date - today).days / 365.25, 0)
+            years_to_maturity = max((mat_date - today).days / 365.25, 0)
             if hold > 0:
                 weighted_life += years_to_maturity * hold
                 life_denom += hold
@@ -586,9 +893,16 @@ def compute_credit_maturity_profile(loans):
     ]
 
     # Loans maturing within windows
-    maturing_6m = sum(1 for l in loans if l.maturity_date and 0 < (l.maturity_date - today).days <= 180)
-    maturing_12m = sum(1 for l in loans if l.maturity_date and 0 < (l.maturity_date - today).days <= 365)
-    already_matured = sum(1 for l in loans if l.maturity_date and (l.maturity_date - today).days <= 0)
+    def _effective_maturity(loan):
+        if loan.maturity_date:
+            return loan.maturity_date
+        lt = getattr(loan, 'loan_term', None)
+        return _parse_loan_term(lt, loan.close_date)
+
+    maturing_6m = sum(1 for l in loans if _effective_maturity(l) and 0 < (_effective_maturity(l) - today).days <= 180)
+    maturing_12m = sum(1 for l in loans if _effective_maturity(l) and 0 < (_effective_maturity(l) - today).days <= 365)
+    already_matured = sum(1 for l in loans if _effective_maturity(l) and (_effective_maturity(l) - today).days <= 0)
+    no_maturity = sum(1 for l in loans if not _effective_maturity(l))
 
     return {
         "weighted_average_life": wal,
@@ -597,5 +911,5 @@ def compute_credit_maturity_profile(loans):
         "maturing_6m": maturing_6m,
         "maturing_12m": maturing_12m,
         "already_matured": already_matured,
-        "no_maturity_date": sum(1 for l in loans if not l.maturity_date),
+        "no_maturity_date": no_maturity,
     }
