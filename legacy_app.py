@@ -1347,6 +1347,10 @@ def _run_db_migrations():
         ensure_schema_updates()
         migrate_stamp(revision="head")
     migrate_upgrade()
+    # Always run idempotent schema updates (adds new columns, indexes, etc.)
+    # even on Alembic-managed databases. This covers columns added to models
+    # that don't yet have a dedicated Alembic migration file.
+    ensure_schema_updates()
 
 
 @app.cli.command("db-upgrade")
