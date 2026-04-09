@@ -98,7 +98,6 @@
                 <th class="num">Loans</th>
                 <th class="num">Funds</th>
                 <th>Fund Names</th>
-                <th>Last Upload</th>
                 <th class="num">Action</th>
             </tr>
         </thead>
@@ -109,7 +108,6 @@
                 <td class="num">{{ cf.loan_count }}</td>
                 <td class="num">{{ cf.fund_count }}</td>
                 <td style="font-size: 12px;">{{ cf.fund_names|join(", ") }}</td>
-                <td>{{ cf.last_upload.strftime("%Y-%m-%d %H:%M") if cf.last_upload else "—" }}</td>
                 <td class="num">
                     <form method="POST"
                         action="{{ url_for('delete_credit_firm_data', firm_id=cf.firm_id) }}"

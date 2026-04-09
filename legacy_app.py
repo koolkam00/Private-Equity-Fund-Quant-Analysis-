@@ -4193,37 +4193,38 @@ def upload_credit_loans():
         # Build per-firm credit upload summary
         credit_firms = []
         if team_id:
-            from sqlalchemy import func as sa_func
+            try:
+                from sqlalchemy import func as sa_func
 
-            firm_stats = (
-                db.session.query(
-                    CreditLoan.firm_id,
-                    Firm.name,
-                    sa_func.count(CreditLoan.id).label("loan_count"),
-                    sa_func.count(sa_func.distinct(CreditLoan.fund_name)).label("fund_count"),
-                    sa_func.max(CreditLoan.created_at).label("last_upload"),
-                )
-                .join(Firm, Firm.id == CreditLoan.firm_id)
-                .filter(CreditLoan.team_id == team_id)
-                .group_by(CreditLoan.firm_id, Firm.name)
-                .order_by(Firm.name)
-                .all()
-            )
-            for row in firm_stats:
-                fund_names = [
-                    r[0]
-                    for r in db.session.query(sa_func.distinct(CreditLoan.fund_name))
-                    .filter(CreditLoan.firm_id == row.firm_id, CreditLoan.team_id == team_id)
+                firm_stats = (
+                    db.session.query(
+                        CreditLoan.firm_id,
+                        Firm.name,
+                        sa_func.count(CreditLoan.id).label("loan_count"),
+                        sa_func.count(sa_func.distinct(CreditLoan.fund_name)).label("fund_count"),
+                    )
+                    .join(Firm, Firm.id == CreditLoan.firm_id)
+                    .filter(CreditLoan.team_id == team_id)
+                    .group_by(CreditLoan.firm_id, Firm.name)
+                    .order_by(Firm.name)
                     .all()
-                ]
-                credit_firms.append({
-                    "firm_id": row.firm_id,
-                    "firm_name": row.name,
-                    "loan_count": row.loan_count,
-                    "fund_count": row.fund_count,
-                    "fund_names": sorted(fund_names),
-                    "last_upload": row.last_upload,
-                })
+                )
+                for row in firm_stats:
+                    fund_names = [
+                        r[0]
+                        for r in db.session.query(sa_func.distinct(CreditLoan.fund_name))
+                        .filter(CreditLoan.firm_id == row.firm_id, CreditLoan.team_id == team_id)
+                        .all()
+                    ]
+                    credit_firms.append({
+                        "firm_id": row.firm_id,
+                        "firm_name": row.name,
+                        "loan_count": row.loan_count,
+                        "fund_count": row.fund_count,
+                        "fund_names": sorted(fund_names),
+                    })
+            except Exception:
+                db.session.rollback()
 
         return render_template(
             "upload_credit.html",
