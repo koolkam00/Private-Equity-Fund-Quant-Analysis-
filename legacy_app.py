@@ -4186,7 +4186,50 @@ def credit_analysis_series_api(page):
 @login_required
 def upload_credit_loans():
     if request.method == "GET":
-        return render_template("upload_credit.html")
+        membership = _current_membership()
+        team_id = membership.team_id if membership else None
+        firms = _accessible_firms_for_team(team_id) if team_id else []
+
+        # Build per-firm credit upload summary
+        credit_firms = []
+        if team_id:
+            from sqlalchemy import func as sa_func
+
+            firm_stats = (
+                db.session.query(
+                    CreditLoan.firm_id,
+                    Firm.name,
+                    sa_func.count(CreditLoan.id).label("loan_count"),
+                    sa_func.count(sa_func.distinct(CreditLoan.fund_name)).label("fund_count"),
+                    sa_func.max(CreditLoan.created_at).label("last_upload"),
+                )
+                .join(Firm, Firm.id == CreditLoan.firm_id)
+                .filter(CreditLoan.team_id == team_id)
+                .group_by(CreditLoan.firm_id, Firm.name)
+                .order_by(Firm.name)
+                .all()
+            )
+            for row in firm_stats:
+                fund_names = [
+                    r[0]
+                    for r in db.session.query(sa_func.distinct(CreditLoan.fund_name))
+                    .filter(CreditLoan.firm_id == row.firm_id, CreditLoan.team_id == team_id)
+                    .all()
+                ]
+                credit_firms.append({
+                    "firm_id": row.firm_id,
+                    "firm_name": row.name,
+                    "loan_count": row.loan_count,
+                    "fund_count": row.fund_count,
+                    "fund_names": sorted(fund_names),
+                    "last_upload": row.last_upload,
+                })
+
+        return render_template(
+            "upload_credit.html",
+            accessible_firms=firms,
+            credit_firms=credit_firms,
+        )
 
     try:
         from services.credit_parser import parse_credit_loan_tape
@@ -4195,14 +4238,11 @@ def upload_credit_loans():
         if membership is None:
             abort(403)
         team_id = membership.team_id
-        firm_id = _active_firm_id_from_session()
 
-        # Check TeamFirmAccess
-        if firm_id:
-            access = TeamFirmAccess.query.filter_by(team_id=team_id, firm_id=firm_id).first()
-            if not access:
-                flash("You do not have access to upload to this firm.", "danger")
-                return redirect(url_for("upload_credit_loans"))
+        firm_name = (request.form.get("firm_name") or "").strip()
+        if not firm_name:
+            flash("Firm name is required.", "danger")
+            return redirect(url_for("upload_credit_loans"))
 
         file = request.files.get("file")
         if not file or not file.filename:
@@ -4211,11 +4251,15 @@ def upload_credit_loans():
 
         result = parse_credit_loan_tape(
             file_stream=file,
-            firm_id=firm_id,
+            firm_name=firm_name,
             team_id=team_id,
         )
 
-        msg = f"Uploaded {result['loans']} credit loans across {len(result['funds'])} fund(s)."
+        # Switch active firm to the one just uploaded so analysis pages show its data
+        if result.get("firm_id"):
+            _set_active_firm_scope(result["firm_id"])
+
+        msg = f"Uploaded {result['loans']} credit loans across {len(result['funds'])} fund(s) for {firm_name}."
         if result.get("snapshots", 0) > 0:
             msg += f" {result['snapshots']} quarterly snapshots imported."
         if result.get("warnings", 0) > 0:
@@ -4431,6 +4475,38 @@ def download_credit_template():
         download_name="credit_loan_template.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@app.route("/upload/credit-loans/<int:firm_id>/delete", methods=["POST"])
+@login_required
+def delete_credit_firm_data(firm_id):
+    membership = _current_membership()
+    if membership is None:
+        abort(403)
+    team_id = membership.team_id
+
+    access = TeamFirmAccess.query.filter_by(team_id=team_id, firm_id=firm_id).first()
+    if not access:
+        flash("You do not have access to this firm.", "danger")
+        return redirect(url_for("upload_credit_loans"))
+
+    firm = Firm.query.get(firm_id)
+    firm_name = firm.name if firm else f"Firm #{firm_id}"
+
+    try:
+        snap_count = CreditLoanSnapshot.query.filter(
+            CreditLoanSnapshot.credit_loan_id.in_(
+                db.session.query(CreditLoan.id).filter_by(firm_id=firm_id, team_id=team_id)
+            )
+        ).delete(synchronize_session=False)
+        loan_count = CreditLoan.query.filter_by(firm_id=firm_id, team_id=team_id).delete()
+        db.session.commit()
+        flash(f"Deleted {loan_count} credit loan(s) and {snap_count} snapshot(s) for {firm_name}.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        flash(f"Delete failed: {exc}", "danger")
+
+    return redirect(url_for("upload_credit_loans"))
 
 
 @app.route("/api/analysis/<page>/series")

@@ -10,6 +10,21 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div style="margin-bottom: 24px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; letter-spacing: 0.01em; color: var(--ink-muted); margin-bottom: 8px;">Firm Name</label>
+            <input type="text" name="firm_name" required
+                list="firm-suggestions"
+                placeholder="e.g. Owl Rock, Ares Capital, Blue Owl"
+                value="{{ request.form.get('firm_name', '') }}"
+                style="width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-body); font-size: 14px;">
+            <datalist id="firm-suggestions">
+                {% for firm in accessible_firms %}
+                <option value="{{ firm.name }}">
+                {% endfor %}
+            </datalist>
+            <span style="font-size: 11px; color: var(--ink-faint); margin-top: 4px; display: block;">Select an existing firm or type a new name. Each firm's loans are tracked separately.</span>
+        </div>
+
+        <div style="margin-bottom: 24px;">
             <label style="display: block; font-size: 12px; font-weight: 500; letter-spacing: 0.01em; color: var(--ink-muted); margin-bottom: 8px;">Loan Tape File (.xlsx)</label>
             <input type="file" name="file" accept=".xlsx,.xls" required
                 style="width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-body);">
@@ -69,5 +84,50 @@
         </p>
     </div>
 </div>
+
+<section class="panel" style="max-width: 640px; margin-top: 24px;">
+    <h3 style="font-size: 14px; margin-bottom: 4px;">Uploaded Credit Firms</h3>
+    <p style="font-size: 12px; color: var(--ink-muted); margin-bottom: 16px;">
+        Each firm's loan data is separate. Use the firm picker in the nav to switch between firms for analysis.
+    </p>
+    {% if credit_firms %}
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Firm</th>
+                <th class="num">Loans</th>
+                <th class="num">Funds</th>
+                <th>Fund Names</th>
+                <th>Last Upload</th>
+                <th class="num">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cf in credit_firms %}
+            <tr>
+                <td><strong>{{ cf.firm_name }}</strong></td>
+                <td class="num">{{ cf.loan_count }}</td>
+                <td class="num">{{ cf.fund_count }}</td>
+                <td style="font-size: 12px;">{{ cf.fund_names|join(", ") }}</td>
+                <td>{{ cf.last_upload.strftime("%Y-%m-%d %H:%M") if cf.last_upload else "—" }}</td>
+                <td class="num">
+                    <form method="POST"
+                        action="{{ url_for('delete_credit_firm_data', firm_id=cf.firm_id) }}"
+                        class="inline-form"
+                        onsubmit="return confirm('Delete ALL credit loans for {{ cf.firm_name }}? This cannot be undone.');">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn-upload btn-sm btn-danger-soft">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 24px; color: var(--ink-muted); font-size: 13px;">
+        No credit data uploaded yet. Upload a loan tape above to get started.
+    </div>
+    {% endif %}
+</section>
 
 {% endblock %}
