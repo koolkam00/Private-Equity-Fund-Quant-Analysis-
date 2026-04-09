@@ -4062,7 +4062,13 @@ def credit_analysis_page(page):
             if not access:
                 abort(403)
 
-        filters = {k: request.args.getlist(k) for k in request.args if request.args.getlist(k)}
+        # Strip empty-string values (from unselected form dropdowns) so they
+        # don't get applied as filter criteria that would match zero rows.
+        filters = {}
+        for k in request.args:
+            vals = [v for v in request.args.getlist(k) if v not in ("", None)]
+            if vals:
+                filters[k] = vals
         ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
         loans = ctx["loans"]
         metrics_by_id = ctx["metrics_by_id"]
@@ -4141,7 +4147,13 @@ def credit_analysis_series_api(page):
             return jsonify({"error": "Not authenticated"}), 403
         team_id = membership.team_id
         firm_id = _active_firm_id_from_session()
-        filters = {k: request.args.getlist(k) for k in request.args if request.args.getlist(k)}
+        # Strip empty-string values (from unselected form dropdowns) so they
+        # don't get applied as filter criteria that would match zero rows.
+        filters = {}
+        for k in request.args:
+            vals = [v for v in request.args.getlist(k) if v not in ("", None)]
+            if vals:
+                filters[k] = vals
         ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
         loans = ctx["loans"]
         metrics_by_id = ctx["metrics_by_id"]

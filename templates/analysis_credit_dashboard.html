@@ -31,6 +31,7 @@
                     {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sector') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
                 </select>
             </label>
+            {% if filter_options.get('internal_credit_rating') %}
             <label class="filter-field">
                 <span>Rating</span>
                 <select name="internal_credit_rating">
@@ -38,6 +39,34 @@
                     {% for r in filter_options.get('internal_credit_rating', []) %}<option value="{{ r }}" {% if r in (active_filters.get('internal_credit_rating') or []) %}selected{% endif %}>{{ r }}</option>{% endfor %}
                 </select>
             </label>
+            {% endif %}
+            {% if filter_options.get('location') %}
+            <label class="filter-field">
+                <span>Location</span>
+                <select name="location">
+                    <option value="">All Locations</option>
+                    {% for l in filter_options.get('location', []) %}<option value="{{ l }}" {% if l in (active_filters.get('location') or []) %}selected{% endif %}>{{ l }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('sourcing_channel') %}
+            <label class="filter-field">
+                <span>Sourcing</span>
+                <select name="sourcing_channel">
+                    <option value="">All Channels</option>
+                    {% for s in filter_options.get('sourcing_channel', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sourcing_channel') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('is_public') %}
+            <label class="filter-field">
+                <span>Public / Private</span>
+                <select name="is_public">
+                    <option value="">All</option>
+                    {% for p in filter_options.get('is_public', []) %}<option value="{{ p }}" {% if p in (active_filters.get('is_public') or []) %}selected{% endif %}>{% if p == 'True' or p == '1' or p == 'Yes' %}Public{% else %}Private{% endif %}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
         </div>
         <div class="filter-actions">
             <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
