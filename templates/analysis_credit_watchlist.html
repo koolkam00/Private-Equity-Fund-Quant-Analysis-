@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, credit_firm_banner with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Coverage banner --- #}
+<div class="panel" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; gap: 16px;">
+    <i class="bi bi-clock-history" style="font-size: 20px; color: var(--accent);"></i>
+    <div style="flex: 1;">
+        <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
+            Watchlist coverage: {{ analysis.coverage.loans_covered }} of {{ analysis.coverage.loans_total }} loans have snapshot history
+        </div>
+        <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">
+            {% if analysis.coverage.latest_snapshot_date %}
+            Latest snapshot: {{ analysis.coverage.latest_snapshot_date.strftime('%b %d, %Y') }}.
+            {% endif %}
+            Loans without snapshot history are still scored on hard triggers (status, covenant), but trend signals require ≥2 observations.
+        </div>
+    </div>
+</div>
+
+{# --- Bucket KPI cards --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Urgent</div>
+        <div class="kpi-value" style="color: var(--danger);">{{ analysis.urgent_count }}</div>
+        <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">Score ≥ {{ analysis.thresholds.urgent }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Attention</div>
+        <div class="kpi-value" style="color: var(--accent-2);">{{ analysis.attention_count }}</div>
+        <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">Score ≥ {{ analysis.thresholds.attention }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Monitor</div>
+        <div class="kpi-value">{{ analysis.monitor_count }}</div>
+        <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">Score ≥ {{ analysis.thresholds.monitor }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Clear</div>
+        <div class="kpi-value" style="color: var(--accent);">{{ analysis.clear_count }}</div>
+        <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">No active signals</div>
+    </div>
+</div>
+
+{# --- Scoring rubric (collapsible) --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3 style="margin: 0 0 8px 0;">Scoring rubric</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 0 0 12px 0;">
+        Loans are scored against an audited rubric. Hard triggers cap the score at {{ analysis.weights.status_auto }}. Trend signals stack and are individually capped to their listed weights.
+    </p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 12px;">
+        <div><span style="color: var(--danger); font-weight: 600;">Status non-Performing</span> &nbsp;+{{ analysis.weights.status_auto }}</div>
+        <div><span style="color: var(--danger); font-weight: 600;">Covenant non-compliant</span> &nbsp;+{{ analysis.weights.covenant }}</div>
+        <div><span style="color: var(--ink); font-weight: 600;">LTV climbing</span> &nbsp;+{{ analysis.weights.ltv_trend }} max</div>
+        <div><span style="color: var(--ink); font-weight: 600;">ICR falling</span> &nbsp;+{{ analysis.weights.icr_trend }} max</div>
+        <div><span style="color: var(--ink); font-weight: 600;">EBITDA falling</span> &nbsp;+{{ analysis.weights.ebitda_trend }}</div>
+        <div><span style="color: var(--ink); font-weight: 600;">Sponsor history</span> &nbsp;+{{ analysis.weights.sponsor_history }}</div>
+        <div><span style="color: var(--ink); font-weight: 600;">Floor rolloff risk</span> &nbsp;+{{ analysis.weights.floor_rolloff }}</div>
+    </div>
+</div>
+
+{# --- Watchlist table with expandable breakdown --- #}
+{% set scored_rows = analysis.rows | selectattr('score', 'gt', 0) | list %}
+<div class="panel">
+    <h3>Watchlist</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Click any row to see the per-factor score breakdown. Sorted by score (urgent first), then hold size.
+    </p>
+    {% if not scored_rows %}
+    <div style="border: 1px dashed var(--line); text-align: center; padding: 32px 16px; color: var(--ink-muted);">
+        No loans have any active watchlist signals. Either every loan is performing with no trend deterioration, or snapshot history is too thin to compute trends.
+    </div>
+    {% else %}
+    <table class="data-table" id="watchlist-table">
+        <thead>
+            <tr>
+                <th style="width: 36px;"></th>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th>Sponsor</th>
+                <th>Status</th>
+                <th style="text-align: right;">Hold size</th>
+                <th style="text-align: right;">Score</th>
+                <th>Bucket</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in scored_rows %}
+            {% set bucket_color = 'var(--danger)' if r.bucket == 'urgent' else ('var(--accent-2)' if r.bucket == 'attention' else 'var(--ink)') %}
+            <tr class="watchlist-row" data-loan-id="{{ r.loan_id }}" style="cursor: pointer;">
+                <td style="text-align: center; color: var(--ink-muted);">
+                    <i class="bi bi-chevron-right watchlist-chevron" data-loan-id="{{ r.loan_id }}"></i>
+                </td>
+                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.sponsor or '—' }}</td>
+                <td style="color: {% if r.default_status and r.default_status|lower != 'performing' %}var(--danger){% else %}var(--ink-muted){% endif %};">
+                    {{ r.default_status or '—' }}
+                </td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(r.hold_size_usd) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: {{ bucket_color }};">{{ r.score }}</td>
+                <td>
+                    <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+                        background: {% if r.bucket == 'urgent' %}rgba(184, 60, 74, 0.12); color: var(--danger);
+                        {% elif r.bucket == 'attention' %}rgba(201, 152, 46, 0.12); color: var(--accent-2);
+                        {% elif r.bucket == 'monitor' %}rgba(107, 107, 99, 0.12); color: var(--ink);
+                        {% else %}rgba(10, 107, 88, 0.12); color: var(--accent);{% endif %}">
+                        {{ r.bucket }}
+                    </span>
+                </td>
+            </tr>
+            <tr class="watchlist-breakdown" data-breakdown-for="{{ r.loan_id }}" style="display: none; background: var(--surface-alt);">
+                <td></td>
+                <td colspan="8" style="padding: 16px 24px;">
+                    <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                        Score breakdown
+                    </div>
+                    {% if not r.breakdown %}
+                    <div style="font-size: 13px; color: var(--ink-muted);">No active signals.</div>
+                    {% else %}
+                    <table style="width: 100%; font-size: 13px;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--line);">
+                                <th style="text-align: left; padding: 4px 8px; color: var(--ink-muted); font-weight: 500;">Factor</th>
+                                <th style="text-align: left; padding: 4px 8px; color: var(--ink-muted); font-weight: 500;">Reason</th>
+                                <th style="text-align: right; padding: 4px 8px; color: var(--ink-muted); font-weight: 500;">Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for b in r.breakdown %}
+                            <tr>
+                                <td style="padding: 6px 8px; color: var(--ink); font-weight: 500;">{{ b.factor.replace('_', ' ') }}</td>
+                                <td style="padding: 6px 8px; color: var(--ink-muted);">{{ b.reason }}</td>
+                                <td style="padding: 6px 8px; text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 600;">+{{ b.points }}</td>
+                            </tr>
+                            {% endfor %}
+                            <tr style="border-top: 1px solid var(--line);">
+                                <td colspan="2" style="padding: 6px 8px; color: var(--ink); font-weight: 600;">Total</td>
+                                <td style="padding: 6px 8px; text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--ink);">{{ r.score }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+<script>
+(function() {
+    var table = document.getElementById('watchlist-table');
+    if (!table) return;
+    table.addEventListener('click', function(e) {
+        var row = e.target.closest('tr.watchlist-row');
+        if (!row) return;
+        var loanId = row.getAttribute('data-loan-id');
+        var breakdown = table.querySelector('tr.watchlist-breakdown[data-breakdown-for="' + loanId + '"]');
+        var chevron = row.querySelector('.watchlist-chevron');
+        if (!breakdown) return;
+        var isOpen = breakdown.style.display !== 'none';
+        breakdown.style.display = isOpen ? 'none' : 'table-row';
+        if (chevron) {
+            chevron.classList.toggle('bi-chevron-right', isOpen);
+            chevron.classList.toggle('bi-chevron-down', !isOpen);
+        }
+    });
+})();
+</script>
+
+{% endif %}
+{% endblock %}

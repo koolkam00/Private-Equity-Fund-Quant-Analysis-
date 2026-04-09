@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp, credit_firm_banner with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Coverage banner --- #}
+<div class="panel" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; gap: 16px;">
+    <i class="bi bi-clock-history" style="font-size: 20px; color: var(--accent);"></i>
+    <div style="flex: 1;">
+        <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
+            Fundamentals coverage:
+            EBITDA {{ "%.0f"|format(analysis.coverage.per_field_coverage.current_ebitda * 100) }}%
+            · Revenue {{ "%.0f"|format(analysis.coverage.per_field_coverage.current_revenue * 100) }}%
+        </div>
+        <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">
+            {% if analysis.coverage.latest_snapshot_date %}
+            Latest snapshot: {{ analysis.coverage.latest_snapshot_date.strftime('%b %d, %Y') }}.
+            {% endif %}
+            {{ analysis.loans_with_ebitda_trend }} loans have ≥2 EBITDA observations and contribute to the weighted growth rate.
+        </div>
+    </div>
+</div>
+
+{# --- Top-line KPI cards --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd avg EBITDA growth</div>
+        <div class="kpi-value" style="color: {% if analysis.wavg_ebitda_growth and analysis.wavg_ebitda_growth >= 0 %}var(--accent){% elif analysis.wavg_ebitda_growth %}var(--danger){% else %}var(--ink-faint){% endif %};">
+            {% if analysis.wavg_ebitda_growth is not none %}{{ fmt_pct_1dp(analysis.wavg_ebitda_growth) }}{% else %}—{% endif %}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd avg revenue growth</div>
+        <div class="kpi-value" style="color: {% if analysis.wavg_revenue_growth and analysis.wavg_revenue_growth >= 0 %}var(--accent){% elif analysis.wavg_revenue_growth %}var(--danger){% else %}var(--ink-faint){% endif %};">
+            {% if analysis.wavg_revenue_growth is not none %}{{ fmt_pct_1dp(analysis.wavg_revenue_growth) }}{% else %}—{% endif %}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Loans with EBITDA trend</div>
+        <div class="kpi-value">{{ analysis.loans_with_ebitda_trend }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Declining EBITDA</div>
+        <div class="kpi-value" style="color: var(--danger);">{{ analysis.ebitda_decliners|length }}</div>
+    </div>
+</div>
+
+{# --- Per-loan trend table --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Per-loan fundamentals</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Earliest -> latest snapshot reading for each loan with at least one fundamentals observation. Decliners sorted to the top.
+    </p>
+    {% if not analysis.rows %}
+    <div style="border: 1px dashed var(--line); text-align: center; padding: 32px 16px; color: var(--ink-muted);">
+        No loans have snapshot fundamentals yet. Upload snapshots with current_revenue or current_ebitda to populate this view.
+    </div>
+    {% else %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th style="text-align: right;">Revenue (earliest)</th>
+                <th style="text-align: right;">Revenue (latest)</th>
+                <th style="text-align: right;">Δ Rev</th>
+                <th style="text-align: right;">EBITDA (earliest)</th>
+                <th style="text-align: right;">EBITDA (latest)</th>
+                <th style="text-align: right;">Δ EBITDA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in analysis.rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_earliest is not none %}{{ fmt_currency_symbol(r.revenue_earliest) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_latest is not none %}{{ fmt_currency_symbol(r.revenue_latest) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.revenue_direction == 'up' %}var(--accent){% elif r.revenue_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
+                    {% if r.revenue_growth_pct is not none %}{{ fmt_pct_1dp(r.revenue_growth_pct) }}{% else %}—{% endif %}
+                </td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_earliest is not none %}{{ fmt_currency_symbol(r.ebitda_earliest) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_latest is not none %}{{ fmt_currency_symbol(r.ebitda_latest) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.ebitda_direction == 'up' %}var(--accent){% elif r.ebitda_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
+                    {% if r.ebitda_growth_pct is not none %}{{ fmt_pct_1dp(r.ebitda_growth_pct) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+{# --- Deteriorating borrowers --- #}
+{% if analysis.ebitda_decliners %}
+<div class="panel">
+    <h3>EBITDA decliners</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Loans whose EBITDA fell across the snapshot window. Worst absolute decline first.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th style="text-align: right;">EBITDA (earliest)</th>
+                <th style="text-align: right;">EBITDA (latest)</th>
+                <th style="text-align: right;">Δ Absolute</th>
+                <th style="text-align: right;">Δ %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in analysis.ebitda_decliners %}
+            <tr>
+                <td style="font-weight: 500;">{{ d.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ d.fund or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ d.sector or '—' }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(d.earliest) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(d.latest) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(d.delta) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 500;">{{ fmt_pct_1dp(d.growth_pct) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

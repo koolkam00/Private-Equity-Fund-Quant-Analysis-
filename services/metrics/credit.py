@@ -15,6 +15,33 @@ FLOATING_NAV_HAIRCUT_PER_100BPS = 0.015
 
 
 # ---------------------------------------------------------------------------
+# Watchlist scoring weights
+# ---------------------------------------------------------------------------
+# These weights are deliberately exposed at module level so the score breakdown
+# returned per-loan is auditable: 12 months from now, when an analyst asks
+# "why did this loan score 92?", we can answer by inspecting the breakdown
+# against these constants. Tune them only with deliberate intent.
+
+WATCHLIST_WEIGHT_LTV_TREND = 20
+WATCHLIST_WEIGHT_ICR_TREND = 20
+WATCHLIST_WEIGHT_EBITDA_TREND = 15
+WATCHLIST_WEIGHT_STATUS_AUTO = 100  # Hard trigger: any non-Performing status
+WATCHLIST_WEIGHT_COVENANT = 100     # Hard trigger: covenant_compliant is False
+WATCHLIST_WEIGHT_SPONSOR_HISTORY = 10
+WATCHLIST_WEIGHT_FLOOR_ROLLOFF = 5
+
+WATCHLIST_SCORE_CAP = 100
+WATCHLIST_URGENT_THRESHOLD = 80
+WATCHLIST_ATTENTION_THRESHOLD = 50
+WATCHLIST_MONITOR_THRESHOLD = 20
+
+# Sub-thresholds within trend scoring so the function reads cleanly
+WATCHLIST_LTV_TREND_DELTA_THRESHOLD = 0.05  # +5pp LTV climb -> full LTV trend points
+WATCHLIST_ICR_TREND_DELTA_THRESHOLD = 0.5   # -0.5x ICR drop -> full ICR trend points
+WATCHLIST_LOW_FLOOR_THRESHOLD = 0.02         # Floor below 2% is vulnerable to rate cuts
+
+
+# ---------------------------------------------------------------------------
 # Per-loan metrics
 # ---------------------------------------------------------------------------
 
@@ -611,6 +638,668 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
 
 
 # ---------------------------------------------------------------------------
+# Snapshot coverage helper
+# ---------------------------------------------------------------------------
+
+
+def compute_snapshot_coverage(loans, snapshots_by_loan=None, *, required_field=None):
+    """Snapshot coverage stats for the page-top coverage banner.
+
+    Tells the caller "what fraction of loans have snapshot data" so the UI can
+    show a coverage indicator and gracefully degrade when the snapshots upload
+    sheet is sparse or missing entirely. Pages that depend on a specific field
+    (e.g., Migration Matrix needs ``internal_credit_rating``) should pass that
+    field via ``required_field`` so the coverage count reflects field-level
+    availability rather than just "any snapshot exists".
+
+    Args:
+        loans: CreditLoan objects in the current portfolio scope.
+        snapshots_by_loan: Dict mapping loan_id -> list of snapshots, sorted by
+            ``snapshot_date`` ascending. ``None`` is treated as empty.
+        required_field: Optional snapshot attribute name. When provided, a loan
+            only counts as "covered" if at least one of its snapshots has a
+            non-null value for that attribute.
+
+    Returns:
+        dict with:
+            coverage_pct: float in [0.0, 1.0]
+            loans_covered: int
+            loans_total: int
+            latest_snapshot_date: date or None (max snapshot_date across portfolio)
+            per_field_coverage: {field: pct} when required_field given, else {}
+    """
+    snapshots_by_loan = snapshots_by_loan or {}
+    loans_total = len(loans)
+
+    if loans_total == 0:
+        return {
+            "coverage_pct": 0.0,
+            "loans_covered": 0,
+            "loans_total": 0,
+            "latest_snapshot_date": None,
+            "per_field_coverage": {},
+        }
+
+    loans_covered = 0
+    latest_date = None
+
+    for loan in loans:
+        snaps = snapshots_by_loan.get(loan.id, [])
+        if not snaps:
+            continue
+
+        # Track the latest snapshot date across the whole portfolio
+        for s in snaps:
+            sd = getattr(s, "snapshot_date", None)
+            if sd is not None and (latest_date is None or sd > latest_date):
+                latest_date = sd
+
+        # Coverage check: required_field forces "field non-null in at least one snap"
+        if required_field is None:
+            loans_covered += 1
+        else:
+            if any(getattr(s, required_field, None) is not None for s in snaps):
+                loans_covered += 1
+
+    coverage_pct = safe_divide(loans_covered, loans_total) or 0.0
+
+    per_field = {}
+    if required_field is not None:
+        per_field[required_field] = coverage_pct
+
+    return {
+        "coverage_pct": coverage_pct,
+        "loans_covered": loans_covered,
+        "loans_total": loans_total,
+        "latest_snapshot_date": latest_date,
+        "per_field_coverage": per_field,
+    }
+
+
+def _latest_snapshot_value(snapshots_by_loan, loan_id, field):
+    """Return the most recent non-null snapshot value for a field, or None.
+
+    Snapshots in ``snapshots_by_loan`` are sorted by ``snapshot_date`` ascending
+    (see ``peqa/services/credit_filtering.py``), so we walk in reverse and return
+    the first non-null hit. This lets the watchlist/migration/fundamentals
+    aggregators ask "what's the latest reading of X for this loan" without
+    re-sorting per call.
+    """
+    snaps = (snapshots_by_loan or {}).get(loan_id, [])
+    for s in reversed(snaps):
+        v = getattr(s, field, None)
+        if v is not None:
+            return v
+    return None
+
+
+def _snapshot_trend(snapshots_by_loan, loan_id, field):
+    """Compute the earliest -> latest trend for a snapshot field.
+
+    Returns a dict with the earliest and latest non-null values, the delta
+    (latest - earliest), a "up"/"down"/"flat" direction tag, and the snapshot
+    dates that bracket the trend. Returns ``None`` when fewer than two non-null
+    samples exist (a single point isn't a trend; the watchlist must not score
+    a fake "deteriorating" signal off one observation).
+
+    Used by the watchlist scorer (LTV trend, ICR trend, EBITDA trend) and by
+    the migration matrix to detect rating drift across the snapshot window.
+    """
+    snaps = (snapshots_by_loan or {}).get(loan_id, [])
+    if not snaps:
+        return None
+
+    non_null = [s for s in snaps if getattr(s, field, None) is not None]
+    if len(non_null) < 2:
+        return None
+
+    earliest = non_null[0]
+    latest = non_null[-1]
+    earliest_v = getattr(earliest, field)
+    latest_v = getattr(latest, field)
+    delta = latest_v - earliest_v
+
+    if delta > 0:
+        direction = "up"
+    elif delta < 0:
+        direction = "down"
+    else:
+        direction = "flat"
+
+    return {
+        "earliest": earliest_v,
+        "latest": latest_v,
+        "delta": delta,
+        "direction": direction,
+        "earliest_date": getattr(earliest, "snapshot_date", None),
+        "latest_date": getattr(latest, "snapshot_date", None),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Migration matrix
+# ---------------------------------------------------------------------------
+
+
+# Default rating labels for the standard 1-5 internal scale used by most
+# credit funds. The matrix dynamically expands if a portfolio uses ratings
+# outside this range; labels are looked up by integer key.
+DEFAULT_RATING_LABELS = {
+    1: "AAA",
+    2: "AA",
+    3: "A",
+    4: "BBB",
+    5: "BB+/Below",
+}
+
+
+def compute_credit_migration_matrix(loans, metrics_by_id=None, *, snapshots_by_loan=None):
+    """Internal credit rating migration across the snapshot window.
+
+    For each loan, finds the earliest non-null ``internal_credit_rating`` from
+    its snapshots and the latest (snapshot or current loan field, whichever is
+    most recent), then bins the from -> to transitions into a 2D matrix. Loans
+    without two distinct rating observations are excluded from the matrix and
+    counted separately as ``loans_without_history``.
+
+    The matrix is a flat list-of-lists indexed by ``rating_order`` so the
+    template can render it with two nested ``{% for %}`` loops without any
+    nested-dict gymnastics.
+
+    Args:
+        loans: CreditLoan objects in scope.
+        metrics_by_id: Unused, accepted for signature consistency with other
+            page-level metric functions.
+        snapshots_by_loan: Dict mapping loan_id -> list of snapshots sorted by
+            snapshot_date asc.
+
+    Returns:
+        dict with rating_order, rating_labels, matrix (rows=from, cols=to),
+        totals_from, totals_to, upgrade/stable/downgrade counts, at_risk_loans
+        (downgraded by >= 1 notch, sorted by severity), loans_with_rating_data,
+        loans_without_history, and a coverage block from compute_snapshot_coverage.
+    """
+    snapshots_by_loan = snapshots_by_loan or {}
+
+    # Step 1: collect (from_rating, to_rating, loan) triples for every loan
+    # that has at least two rating observations.
+    transitions = []
+    loans_without_history = 0
+    loans_with_any_rating = 0
+
+    # Discover the rating universe from actual data so the matrix scales to
+    # whatever rating scale this portfolio uses.
+    rating_universe = set()
+
+    for loan in loans:
+        # Earliest snapshot rating
+        snap_trend = _snapshot_trend(snapshots_by_loan, loan.id, "internal_credit_rating")
+
+        if snap_trend is not None:
+            from_rating = snap_trend["earliest"]
+            to_rating = snap_trend["latest"]
+            loans_with_any_rating += 1
+            rating_universe.add(int(from_rating))
+            rating_universe.add(int(to_rating))
+            transitions.append((int(from_rating), int(to_rating), loan))
+        else:
+            # Maybe one snapshot OR no snapshots, but loan still has a current
+            # rating on the row itself. Track for the "no history" stat so the
+            # template can show "12 loans rated, 0 history yet".
+            current = getattr(loan, "internal_credit_rating", None)
+            latest_snap = _latest_snapshot_value(
+                snapshots_by_loan, loan.id, "internal_credit_rating"
+            )
+            if current is not None or latest_snap is not None:
+                loans_with_any_rating += 1
+                loans_without_history += 1
+                if current is not None:
+                    rating_universe.add(int(current))
+                if latest_snap is not None:
+                    rating_universe.add(int(latest_snap))
+
+    # Always include the standard 1-5 range so the matrix doesn't look sparse
+    # for small portfolios. Caller can crop visually if needed.
+    rating_universe.update(DEFAULT_RATING_LABELS.keys())
+    rating_order = sorted(rating_universe)
+    rating_labels = [DEFAULT_RATING_LABELS.get(r, str(r)) for r in rating_order]
+    rating_index = {r: i for i, r in enumerate(rating_order)}
+
+    n = len(rating_order)
+    matrix = [[0 for _ in range(n)] for _ in range(n)]
+
+    upgrades = 0
+    stable = 0
+    downgrades = 0
+    at_risk = []
+
+    for from_r, to_r, loan in transitions:
+        i = rating_index[from_r]
+        j = rating_index[to_r]
+        matrix[i][j] += 1
+
+        # Lower integer = better rating, so to_r > from_r is a downgrade
+        if to_r < from_r:
+            upgrades += 1
+        elif to_r == from_r:
+            stable += 1
+        else:
+            downgrades += 1
+            at_risk.append({
+                "loan_id": loan.id,
+                "company": getattr(loan, "company_name", None),
+                "fund": getattr(loan, "fund_name", None),
+                "sector": getattr(loan, "sector", None),
+                "from_rating": from_r,
+                "from_label": DEFAULT_RATING_LABELS.get(from_r, str(from_r)),
+                "to_rating": to_r,
+                "to_label": DEFAULT_RATING_LABELS.get(to_r, str(to_r)),
+                "notches_down": to_r - from_r,
+            })
+
+    # Sort at_risk by severity (most notches down first), then by company name
+    # for stable ordering.
+    at_risk.sort(key=lambda r: (-r["notches_down"], r["company"] or ""))
+
+    totals_from = [sum(matrix[i]) for i in range(n)]
+    totals_to = [sum(matrix[i][j] for i in range(n)) for j in range(n)]
+
+    coverage = compute_snapshot_coverage(
+        loans, snapshots_by_loan, required_field="internal_credit_rating"
+    )
+
+    return {
+        "rating_order": rating_order,
+        "rating_labels": rating_labels,
+        "matrix": matrix,
+        "totals_from": totals_from,
+        "totals_to": totals_to,
+        "upgrades_count": upgrades,
+        "stable_count": stable,
+        "downgrades_count": downgrades,
+        "at_risk_loans": at_risk,
+        "loans_with_rating_data": loans_with_any_rating,
+        "loans_with_migration_history": len(transitions),
+        "loans_without_history": loans_without_history,
+        "coverage": coverage,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Borrower fundamentals
+# ---------------------------------------------------------------------------
+
+
+def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=None):
+    """Borrower fundamentals: revenue and EBITDA growth across the snapshot window.
+
+    Reads ``current_revenue`` and ``current_ebitda`` from the snapshot history
+    via ``_snapshot_trend``, then aggregates a hold-weighted growth rate so the
+    portfolio-level KPI matches what an analyst would compute by hand. Loans
+    without two non-null observations for a field are excluded from that
+    field's aggregate (silently dropping them would skew the average).
+
+    The page also surfaces the "deteriorating" tail: every loan whose latest
+    EBITDA or revenue is below its earliest. Sorted by absolute decline so the
+    biggest drops are first, and capped to keep the table scannable.
+
+    Returns the standard ``coverage`` block plus the field-level aggregates,
+    grower / decliner lists, and per-loan trend rows for the main table.
+    """
+    snapshots_by_loan = snapshots_by_loan or {}
+
+    weighted_revenue_growth_num = 0.0
+    weighted_revenue_growth_denom = 0.0
+    weighted_ebitda_growth_num = 0.0
+    weighted_ebitda_growth_denom = 0.0
+
+    loans_with_revenue_trend = 0
+    loans_with_ebitda_trend = 0
+
+    rows = []
+    revenue_decliners = []
+    ebitda_decliners = []
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        entry_amt = (loan.entry_loan_amount or 0.0) * fx
+        hold = (loan.hold_size or 0.0) * fx
+        weight = entry_amt if entry_amt > 0 else hold
+
+        rev_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_revenue")
+        ebitda_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_ebitda")
+
+        rev_growth = None
+        if rev_trend is not None and rev_trend["earliest"] not in (0, None):
+            rev_growth = (rev_trend["latest"] - rev_trend["earliest"]) / rev_trend["earliest"]
+            loans_with_revenue_trend += 1
+            if weight > 0:
+                weighted_revenue_growth_num += rev_growth * weight
+                weighted_revenue_growth_denom += weight
+            if rev_trend["delta"] < 0:
+                revenue_decliners.append({
+                    "loan_id": loan.id,
+                    "company": getattr(loan, "company_name", None),
+                    "fund": getattr(loan, "fund_name", None),
+                    "sector": getattr(loan, "sector", None),
+                    "earliest": rev_trend["earliest"],
+                    "latest": rev_trend["latest"],
+                    "delta": rev_trend["delta"],
+                    "growth_pct": rev_growth,
+                })
+
+        ebitda_growth = None
+        if ebitda_trend is not None and ebitda_trend["earliest"] not in (0, None):
+            ebitda_growth = (
+                ebitda_trend["latest"] - ebitda_trend["earliest"]
+            ) / ebitda_trend["earliest"]
+            loans_with_ebitda_trend += 1
+            if weight > 0:
+                weighted_ebitda_growth_num += ebitda_growth * weight
+                weighted_ebitda_growth_denom += weight
+            if ebitda_trend["delta"] < 0:
+                ebitda_decliners.append({
+                    "loan_id": loan.id,
+                    "company": getattr(loan, "company_name", None),
+                    "fund": getattr(loan, "fund_name", None),
+                    "sector": getattr(loan, "sector", None),
+                    "earliest": ebitda_trend["earliest"],
+                    "latest": ebitda_trend["latest"],
+                    "delta": ebitda_trend["delta"],
+                    "growth_pct": ebitda_growth,
+                })
+
+        # Per-loan row for the main table — only include loans with at least
+        # one fundamental trend so we don't fill the table with blanks.
+        if rev_trend is not None or ebitda_trend is not None:
+            rows.append({
+                "loan_id": loan.id,
+                "company": getattr(loan, "company_name", None),
+                "fund": getattr(loan, "fund_name", None),
+                "sector": getattr(loan, "sector", None),
+                "revenue_earliest": rev_trend["earliest"] if rev_trend else None,
+                "revenue_latest": rev_trend["latest"] if rev_trend else None,
+                "revenue_growth_pct": rev_growth,
+                "revenue_direction": rev_trend["direction"] if rev_trend else None,
+                "ebitda_earliest": ebitda_trend["earliest"] if ebitda_trend else None,
+                "ebitda_latest": ebitda_trend["latest"] if ebitda_trend else None,
+                "ebitda_growth_pct": ebitda_growth,
+                "ebitda_direction": ebitda_trend["direction"] if ebitda_trend else None,
+            })
+
+    # Sort decliners by absolute delta (worst first)
+    revenue_decliners.sort(key=lambda r: r["delta"])
+    ebitda_decliners.sort(key=lambda r: r["delta"])
+
+    # Sort the main rows: ebitda decliners first, then by company
+    rows.sort(key=lambda r: (
+        0 if (r["ebitda_direction"] == "down" or r["revenue_direction"] == "down") else 1,
+        r["company"] or "",
+    ))
+
+    coverage_revenue = compute_snapshot_coverage(
+        loans, snapshots_by_loan, required_field="current_revenue"
+    )
+    coverage_ebitda = compute_snapshot_coverage(
+        loans, snapshots_by_loan, required_field="current_ebitda"
+    )
+    # Top-level coverage banner uses ebitda since that's the primary fundamental
+    coverage = compute_snapshot_coverage(loans, snapshots_by_loan)
+    coverage["per_field_coverage"] = {
+        "current_revenue": coverage_revenue["per_field_coverage"].get("current_revenue", 0.0),
+        "current_ebitda": coverage_ebitda["per_field_coverage"].get("current_ebitda", 0.0),
+    }
+
+    return {
+        "wavg_revenue_growth": safe_divide(
+            weighted_revenue_growth_num, weighted_revenue_growth_denom
+        ),
+        "wavg_ebitda_growth": safe_divide(
+            weighted_ebitda_growth_num, weighted_ebitda_growth_denom
+        ),
+        "loans_with_revenue_trend": loans_with_revenue_trend,
+        "loans_with_ebitda_trend": loans_with_ebitda_trend,
+        "rows": rows,
+        "revenue_decliners": revenue_decliners,
+        "ebitda_decliners": ebitda_decliners,
+        "coverage": coverage,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Watchlist scoring
+# ---------------------------------------------------------------------------
+
+
+def _score_loan(loan, snapshots_by_loan, metrics_by_id, sponsor_history):
+    """Compute the watchlist score for a single loan with full breakdown.
+
+    Returns a dict with ``score`` (int 0-100), ``bucket`` (urgent/attention/monitor/clear),
+    and ``breakdown`` (list of {factor, points, reason}). The breakdown is the
+    point of this function: every point added must be auditable so analysts can
+    interrogate why a loan scored what it did.
+
+    Hard triggers (status non-Performing, covenant breach) cap the score at the
+    ``STATUS_AUTO`` weight regardless of trend signals. Trend signals stack but
+    are individually capped to their weights.
+    """
+    breakdown = []
+    score = 0
+
+    # Hard trigger 1: status. "Default", "Restructured", "Watch", "Non-Accrual"
+    # all jump to the auto threshold.
+    status = (getattr(loan, "default_status", None) or "").strip()
+    if status and status.lower() != "performing":
+        breakdown.append({
+            "factor": "status",
+            "points": WATCHLIST_WEIGHT_STATUS_AUTO,
+            "reason": f"Status: {status}",
+        })
+        score += WATCHLIST_WEIGHT_STATUS_AUTO
+
+    # Hard trigger 2: covenant breach. Explicit False (not None).
+    if getattr(loan, "covenant_compliant", None) is False:
+        breakdown.append({
+            "factor": "covenant",
+            "points": WATCHLIST_WEIGHT_COVENANT,
+            "reason": "Covenant non-compliant",
+        })
+        score += WATCHLIST_WEIGHT_COVENANT
+
+    # Trend signal: LTV climbing across snapshots. Larger climb = more points,
+    # capped at WATCHLIST_WEIGHT_LTV_TREND.
+    ltv_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_ltv")
+    if ltv_trend is not None and ltv_trend["delta"] > 0:
+        # Linear scale: 0 -> 0 points, threshold -> full points, beyond -> capped
+        scale = min(1.0, ltv_trend["delta"] / WATCHLIST_LTV_TREND_DELTA_THRESHOLD)
+        points = int(round(WATCHLIST_WEIGHT_LTV_TREND * scale))
+        if points > 0:
+            breakdown.append({
+                "factor": "ltv_trend",
+                "points": points,
+                "reason": (
+                    f"LTV climbed {ltv_trend['earliest']:.2f} -> "
+                    f"{ltv_trend['latest']:.2f}"
+                ),
+            })
+            score += points
+
+    # Trend signal: ICR (interest coverage) deteriorating across snapshots.
+    icr_trend = _snapshot_trend(snapshots_by_loan, loan.id, "interest_coverage_ratio")
+    if icr_trend is not None and icr_trend["delta"] < 0:
+        scale = min(1.0, abs(icr_trend["delta"]) / WATCHLIST_ICR_TREND_DELTA_THRESHOLD)
+        points = int(round(WATCHLIST_WEIGHT_ICR_TREND * scale))
+        if points > 0:
+            breakdown.append({
+                "factor": "icr_trend",
+                "points": points,
+                "reason": (
+                    f"ICR fell {icr_trend['earliest']:.2f}x -> "
+                    f"{icr_trend['latest']:.2f}x"
+                ),
+            })
+            score += points
+
+    # Trend signal: EBITDA falling across snapshots.
+    ebitda_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_ebitda")
+    if ebitda_trend is not None and ebitda_trend["delta"] < 0:
+        breakdown.append({
+            "factor": "ebitda_trend",
+            "points": WATCHLIST_WEIGHT_EBITDA_TREND,
+            "reason": (
+                f"EBITDA fell {ebitda_trend['earliest']:.1f} -> "
+                f"{ebitda_trend['latest']:.1f}"
+            ),
+        })
+        score += WATCHLIST_WEIGHT_EBITDA_TREND
+
+    # Sponsor history: this sponsor has had at least one prior default or
+    # restructuring in the same portfolio. sponsor_history is a dict
+    # {sponsor_name: {"defaults": int, "restructured": int}} built once by
+    # the caller from the same loan list (avoids per-loan recompute).
+    sponsor = getattr(loan, "sponsor", None)
+    if sponsor and sponsor_history:
+        prior = sponsor_history.get(sponsor, {})
+        prior_count = prior.get("defaults", 0) + prior.get("restructured", 0)
+        if prior_count > 0:
+            breakdown.append({
+                "factor": "sponsor_history",
+                "points": WATCHLIST_WEIGHT_SPONSOR_HISTORY,
+                "reason": f"Sponsor {sponsor} has {prior_count} prior problem loan(s)",
+            })
+            score += WATCHLIST_WEIGHT_SPONSOR_HISTORY
+
+    # Floor rolloff: if loan has a floor and it's below the typical rate cut
+    # buffer, the loan is vulnerable to losing floor protection in a rate-cut
+    # cycle. Heuristic-only, low weight.
+    floor_rate = getattr(loan, "floor_rate", None)
+    fixed_or_floating = (getattr(loan, "fixed_or_floating", None) or "").lower()
+    if (
+        fixed_or_floating == "floating"
+        and floor_rate is not None
+        and floor_rate < WATCHLIST_LOW_FLOOR_THRESHOLD
+    ):
+        breakdown.append({
+            "factor": "floor_rolloff",
+            "points": WATCHLIST_WEIGHT_FLOOR_ROLLOFF,
+            "reason": f"Low floor ({floor_rate:.2%}) vulnerable to rate cuts",
+        })
+        score += WATCHLIST_WEIGHT_FLOOR_ROLLOFF
+
+    # Cap at 100. The hard triggers already push above this individually, so
+    # we cap after the fact rather than gating each adder.
+    capped_score = min(score, WATCHLIST_SCORE_CAP)
+
+    # Bucket assignment
+    if capped_score >= WATCHLIST_URGENT_THRESHOLD:
+        bucket = "urgent"
+    elif capped_score >= WATCHLIST_ATTENTION_THRESHOLD:
+        bucket = "attention"
+    elif capped_score >= WATCHLIST_MONITOR_THRESHOLD:
+        bucket = "monitor"
+    else:
+        bucket = "clear"
+
+    return {
+        "score": capped_score,
+        "raw_score": score,  # Pre-cap, for debugging
+        "bucket": bucket,
+        "breakdown": breakdown,
+    }
+
+
+def _build_sponsor_history(loans):
+    """Aggregate per-sponsor problem-loan counts for the watchlist scorer.
+
+    Returns ``{sponsor: {"defaults": int, "restructured": int}}``. Built once
+    per page render so the per-loan scorer can do an O(1) dict lookup.
+    """
+    history = defaultdict(lambda: {"defaults": 0, "restructured": 0})
+    for loan in loans:
+        sponsor = getattr(loan, "sponsor", None)
+        if not sponsor:
+            continue
+        status = (getattr(loan, "default_status", None) or "").strip().lower()
+        if status == "default":
+            history[sponsor]["defaults"] += 1
+        elif status == "restructured":
+            history[sponsor]["restructured"] += 1
+    return dict(history)
+
+
+def compute_credit_watchlist(
+    loans, metrics_by_id=None, *, snapshots_by_loan=None, sponsor_history=None
+):
+    """Score every loan against the watchlist rubric and bucket the results.
+
+    Returns the per-loan rows sorted by score desc, plus bucket counts and a
+    coverage block. The page template renders the rows in three sections
+    (urgent, attention, monitor) and lets the user expand each row to see the
+    full point-by-point breakdown — that's how an analyst defends "this is on
+    the watchlist because..." in a quarterly review.
+    """
+    snapshots_by_loan = snapshots_by_loan or {}
+
+    if sponsor_history is None:
+        sponsor_history = _build_sponsor_history(loans)
+
+    rows = []
+    bucket_counts = {"urgent": 0, "attention": 0, "monitor": 0, "clear": 0}
+
+    for loan in loans:
+        scored = _score_loan(loan, snapshots_by_loan, metrics_by_id, sponsor_history)
+
+        fx = loan.fx_rate_to_usd or 1.0
+        hold = (loan.hold_size or 0.0) * fx
+
+        rows.append({
+            "loan_id": loan.id,
+            "company": getattr(loan, "company_name", None),
+            "fund": getattr(loan, "fund_name", None),
+            "sector": getattr(loan, "sector", None),
+            "sponsor": getattr(loan, "sponsor", None),
+            "hold_size_usd": hold,
+            "default_status": getattr(loan, "default_status", None),
+            "score": scored["score"],
+            "bucket": scored["bucket"],
+            "breakdown": scored["breakdown"],
+        })
+
+        bucket_counts[scored["bucket"]] += 1
+
+    # Sort by score desc, then hold size desc (bigger problems first), then
+    # company name for stability.
+    rows.sort(key=lambda r: (-r["score"], -r["hold_size_usd"], r["company"] or ""))
+
+    coverage = compute_snapshot_coverage(loans, snapshots_by_loan)
+
+    return {
+        "rows": rows,
+        "bucket_counts": bucket_counts,
+        "urgent_count": bucket_counts["urgent"],
+        "attention_count": bucket_counts["attention"],
+        "monitor_count": bucket_counts["monitor"],
+        "clear_count": bucket_counts["clear"],
+        "total_loans": len(loans),
+        "coverage": coverage,
+        "weights": {
+            "ltv_trend": WATCHLIST_WEIGHT_LTV_TREND,
+            "icr_trend": WATCHLIST_WEIGHT_ICR_TREND,
+            "ebitda_trend": WATCHLIST_WEIGHT_EBITDA_TREND,
+            "status_auto": WATCHLIST_WEIGHT_STATUS_AUTO,
+            "covenant": WATCHLIST_WEIGHT_COVENANT,
+            "sponsor_history": WATCHLIST_WEIGHT_SPONSOR_HISTORY,
+            "floor_rolloff": WATCHLIST_WEIGHT_FLOOR_ROLLOFF,
+        },
+        "thresholds": {
+            "urgent": WATCHLIST_URGENT_THRESHOLD,
+            "attention": WATCHLIST_ATTENTION_THRESHOLD,
+            "monitor": WATCHLIST_MONITOR_THRESHOLD,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Yield attribution
 # ---------------------------------------------------------------------------
 
@@ -693,6 +1382,41 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
             by_fund[fund]["pik_margin"] = by_fund[fund].get("pik_margin", 0) + (pm or 0) * entry_amt
             by_fund[fund]["warrant_upside"] = by_fund[fund].get("warrant_upside", 0) + uwev
 
+    # --- Floor coverage ---
+    # For floating-rate loans, the floor is the minimum reference rate. If the
+    # reference rate (e.g. SOFR) drops below the floor, the loan still pays the
+    # floor rate. This is yield protection in a rate-cut cycle. The page-level
+    # question is: what share of the floating book has a floor set, and at
+    # what hold-weighted rate?
+    floating_loans_count = 0
+    floating_loans_with_floor_count = 0
+    floating_hold_total = 0.0
+    floating_hold_with_floor = 0.0
+    floor_rate_weighted_sum = 0.0
+    floor_weight_total = 0.0
+
+    for loan in loans:
+        if (getattr(loan, "fixed_or_floating", None) or "").lower() != "floating":
+            continue
+        fx = loan.fx_rate_to_usd or 1.0
+        hold = (loan.hold_size or 0.0) * fx
+        floating_loans_count += 1
+        floating_hold_total += hold
+
+        floor = getattr(loan, "floor_rate", None)
+        if floor is not None and floor > 0:
+            floating_loans_with_floor_count += 1
+            floating_hold_with_floor += hold
+            # Weight floors by hold (USD). Loans with zero hold contribute zero.
+            if hold > 0:
+                floor_rate_weighted_sum += floor * hold
+                floor_weight_total += hold
+
+    floor_coverage_pct = safe_divide(
+        floating_loans_with_floor_count, floating_loans_count
+    )
+    wavg_floor_rate = safe_divide(floor_rate_weighted_sum, floor_weight_total)
+
     return {
         "coupon_income": total_interest,
         "fee_income": total_fees,
@@ -707,6 +1431,13 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         "warrant_upside": total_warrant_upside if total_warrant_upside > 0 else None,
         "price_return_new": total_price_return_new if has_new_yield else None,
         "has_new_yield": has_new_yield,
+        # --- Floor coverage block ---
+        "floating_loans_count": floating_loans_count,
+        "floating_loans_with_floor_count": floating_loans_with_floor_count,
+        "floor_coverage_pct": floor_coverage_pct,
+        "wavg_floor_rate": wavg_floor_rate,
+        "floating_hold_total": floating_hold_total,
+        "floating_hold_with_floor": floating_hold_with_floor,
     }
 
 

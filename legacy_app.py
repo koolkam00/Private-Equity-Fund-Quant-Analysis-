@@ -108,12 +108,15 @@ from services.metrics import (
 )
 from services.metrics.credit import (
     compute_credit_concentration,
+    compute_credit_fundamentals,
     compute_credit_loan_metrics,
     compute_credit_maturity_profile,
+    compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
     compute_credit_stress_scenarios,
     compute_credit_vintage_comparison,
+    compute_credit_watchlist,
     compute_credit_yield_attribution,
 )
 from services.metrics.common import resolve_analysis_as_of_date
@@ -298,12 +301,27 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Fund Vintage Comparison",
         "description": "Side-by-side comparison of credit fund performance across vintages.",
     },
+    "credit-migration": {
+        "title": "Credit Rating Migration",
+        "description": "Internal credit rating drift across the snapshot window with at-risk loan list.",
+    },
+    "credit-fundamentals": {
+        "title": "Borrower Fundamentals",
+        "description": "Revenue and EBITDA growth across the snapshot window with deteriorating-borrower watch list.",
+    },
+    "credit-watchlist": {
+        "title": "Credit Watchlist",
+        "description": "Loans scored against an audited rubric of trend signals and hard triggers, bucketed by urgency.",
+    },
 }
 
 CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-dashboard", "label": "Credit Dashboard", "icon": "bi bi-bank2"},
     {"page_key": "credit-yield", "label": "Yield Attribution", "icon": "bi bi-cash-stack"},
     {"page_key": "credit-risk", "label": "Risk & Watch List", "icon": "bi bi-shield-exclamation"},
+    {"page_key": "credit-watchlist", "label": "Watchlist", "icon": "bi bi-eye"},
+    {"page_key": "credit-fundamentals", "label": "Borrower Fundamentals", "icon": "bi bi-graph-up-arrow"},
+    {"page_key": "credit-migration", "label": "Rating Migration", "icon": "bi bi-arrow-down-up"},
     {"page_key": "credit-maturity", "label": "Maturity Profile", "icon": "bi bi-calendar-range"},
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
     {"page_key": "credit-stress", "label": "Stress Lab", "icon": "bi bi-lightning"},
@@ -4235,6 +4253,19 @@ def credit_analysis_page(page):
             payload = compute_credit_stress_scenarios(loans, scenario)
         elif page == "credit-vintage":
             payload = compute_credit_vintage_comparison(loans)
+        elif page == "credit-migration":
+            # TODO(credit-refactor): dedupe HTML and JSON dispatch chains
+            payload = compute_credit_migration_matrix(
+                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
+            )
+        elif page == "credit-fundamentals":
+            payload = compute_credit_fundamentals(
+                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
+            )
+        elif page == "credit-watchlist":
+            payload = compute_credit_watchlist(
+                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
+            )
 
         template_map = {
             "credit-dashboard": "analysis_credit_dashboard.html",
@@ -4244,6 +4275,9 @@ def credit_analysis_page(page):
             "credit-concentration": "analysis_credit_concentration.html",
             "credit-stress": "analysis_credit_stress.html",
             "credit-vintage": "analysis_credit_vintage.html",
+            "credit-migration": "analysis_credit_migration.html",
+            "credit-fundamentals": "analysis_credit_fundamentals.html",
+            "credit-watchlist": "analysis_credit_watchlist.html",
         }
 
         return render_template(

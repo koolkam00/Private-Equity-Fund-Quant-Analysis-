@@ -71,6 +71,39 @@
         data-warrant="{{ analysis.warrant_upside or 0 }}"></canvas>
 </div>
 
+{# --- Floor coverage --- #}
+{% if analysis.floating_loans_count > 0 %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Floor coverage</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Floors are the contractual minimum reference rate on floating-rate loans. They protect coupon income in a rate-cut cycle. Coverage = share of the floating book that has a floor set.
+    </p>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Floating loans</div>
+            <div class="kpi-value">{{ analysis.floating_loans_count }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">With a floor</div>
+            <div class="kpi-value">{{ analysis.floating_loans_with_floor_count }}</div>
+            <div class="kpi-sublabel">{{ fmt_pct_1dp(analysis.floor_coverage_pct) }} of floating</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg floor rate</div>
+            <div class="kpi-value">
+                {% if analysis.wavg_floor_rate is not none %}{{ fmt_pct_1dp(analysis.wavg_floor_rate) }}{% else %}—{% endif %}
+            </div>
+            <div class="kpi-sublabel">Hold-weighted</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Floating hold protected</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.floating_hold_with_floor) }}</div>
+            <div class="kpi-sublabel">of {{ fmt_currency_symbol(analysis.floating_hold_total) }} total</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {# --- By Fund Breakdown --- #}
 <div class="panel">
     <h3>Yield Attribution by Fund</h3>

@@ -50,14 +50,18 @@ from services.metrics.executive_summary import compute_executive_summary_analysi
 from services.metrics.organic_growth import compute_organic_growth_analysis
 from services.metrics.data_cuts import compute_data_cuts_analytics
 from services.metrics.credit import (
+    compute_credit_fundamentals,
     compute_credit_loan_metrics,
+    compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
+    compute_credit_watchlist,
     compute_credit_yield_attribution,
     compute_credit_stress_scenarios,
     compute_credit_concentration,
     compute_credit_vintage_comparison,
     compute_credit_maturity_profile,
+    compute_snapshot_coverage,
     compute_traffic_lights,
     compute_top_concerns,
 )
@@ -116,7 +120,11 @@ __all__ = [
     "compute_credit_stress_scenarios",
     "compute_credit_concentration",
     "compute_credit_vintage_comparison",
+    "compute_credit_fundamentals",
     "compute_credit_maturity_profile",
+    "compute_credit_migration_matrix",
+    "compute_credit_watchlist",
+    "compute_snapshot_coverage",
     "compute_traffic_lights",
     "compute_top_concerns",
 ]

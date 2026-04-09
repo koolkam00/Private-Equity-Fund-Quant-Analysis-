@@ -313,6 +313,9 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         "credit-concentration",
         "credit-stress",
         "credit-vintage",
+        "credit-migration",
+        "credit-fundamentals",
+        "credit-watchlist",
     ]
     failures = []
     for page in pages:

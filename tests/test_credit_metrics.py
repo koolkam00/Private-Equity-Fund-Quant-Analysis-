@@ -4,19 +4,38 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock
 
+from types import SimpleNamespace
+
 from services.metrics.credit import (
+    compute_credit_fundamentals,
     compute_credit_loan_metrics,
+    compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
+    compute_credit_watchlist,
     compute_credit_yield_attribution,
     compute_credit_stress_scenarios,
     compute_credit_concentration,
     compute_credit_vintage_comparison,
     compute_credit_maturity_profile,
+    compute_snapshot_coverage,
     compute_traffic_lights,
     compute_top_concerns,
+    WATCHLIST_ATTENTION_THRESHOLD,
+    WATCHLIST_MONITOR_THRESHOLD,
+    WATCHLIST_SCORE_CAP,
+    WATCHLIST_URGENT_THRESHOLD,
+    WATCHLIST_WEIGHT_COVENANT,
+    WATCHLIST_WEIGHT_EBITDA_TREND,
+    WATCHLIST_WEIGHT_LTV_TREND,
+    WATCHLIST_WEIGHT_SPONSOR_HISTORY,
+    WATCHLIST_WEIGHT_STATUS_AUTO,
+    _build_sponsor_history,
+    _latest_snapshot_value,
     _loan_traffic_light,
     _parse_loan_term,
+    _score_loan,
+    _snapshot_trend,
 )
 
 
@@ -447,6 +466,54 @@ class TestYieldAttribution:
         assert "by_fund" in result
         assert "PCOF I" in result["by_fund"]
 
+    def test_floor_coverage_no_floating(self):
+        """Portfolio with only fixed-rate loans -> floor coverage block all zero.
+
+        We never want to display "0% floor coverage" as a problem when there's
+        no floating book to cover. The template gates the section on
+        floating_loans_count > 0.
+        """
+        fixed_loan = _make_loan(id=1, fixed_or_floating="Fixed", floor_rate=None)
+        result = compute_credit_yield_attribution([fixed_loan])
+        assert result["floating_loans_count"] == 0
+        assert result["floating_loans_with_floor_count"] == 0
+        assert result["floor_coverage_pct"] is None
+        assert result["wavg_floor_rate"] is None
+        assert result["floating_hold_total"] == 0.0
+        assert result["floating_hold_with_floor"] == 0.0
+
+    def test_floor_coverage_weighted_avg(self):
+        """Two floating loans with different sizes and floors -> hold-weighted floor.
+
+        SmallLoan: hold $10M, floor 1.0%
+        BigLoan:   hold $90M, floor 2.0%
+        Wtd avg floor: (0.01 * 10 + 0.02 * 90) / 100 = 0.019 = 1.9%
+
+        A third loan is fixed (no floor) and must NOT show up in any of the
+        floating-side counts.
+        """
+        small = _make_loan(
+            id=1, company_name="SmallLoan", fixed_or_floating="Floating",
+            hold_size=10.0, floor_rate=0.01,
+        )
+        big = _make_loan(
+            id=2, company_name="BigLoan", fixed_or_floating="Floating",
+            hold_size=90.0, floor_rate=0.02,
+        )
+        fixed = _make_loan(
+            id=3, company_name="FixedLoan", fixed_or_floating="Fixed",
+            hold_size=50.0, floor_rate=None,
+        )
+        result = compute_credit_yield_attribution([small, big, fixed])
+
+        assert result["floating_loans_count"] == 2
+        assert result["floating_loans_with_floor_count"] == 2
+        assert result["floor_coverage_pct"] == pytest.approx(1.0, abs=0.001)
+        # Hold-weighted: (0.01 * 10 + 0.02 * 90) / 100 = 0.019
+        assert result["wavg_floor_rate"] == pytest.approx(0.019, abs=0.0001)
+        assert result["floating_hold_total"] == pytest.approx(100.0, abs=0.01)
+        assert result["floating_hold_with_floor"] == pytest.approx(100.0, abs=0.01)
+
 
 # ---------------------------------------------------------------------------
 # Stress scenarios
@@ -732,3 +799,669 @@ class TestLoanTermParsing:
         """Unparseable strings return None."""
         assert _parse_loan_term("TBD", date(2022, 1, 1)) is None
         assert _parse_loan_term("N/A", date(2022, 1, 1)) is None
+
+
+# ---------------------------------------------------------------------------
+# Snapshot coverage helper
+# ---------------------------------------------------------------------------
+
+
+def _make_snapshot(loan_id=1, snapshot_date=None, **kwargs):
+    """Build a fake CreditLoanSnapshot for coverage tests.
+
+    Uses SimpleNamespace instead of MagicMock so missing attributes raise
+    AttributeError (a real bug surface) instead of silently returning a Mock
+    that compares truthy.
+    """
+    defaults = {
+        "credit_loan_id": loan_id,
+        "snapshot_date": snapshot_date or date(2024, 6, 1),
+        "current_ltv": None,
+        "fair_value": None,
+        "internal_credit_rating": None,
+        "current_ebitda": None,
+        "current_revenue": None,
+        "interest_coverage_ratio": None,
+        "dscr": None,
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+class TestSnapshotCoverage:
+    def test_coverage_helper_no_snapshots(self):
+        """Empty snapshots_by_loan -> 0% coverage, total reflects loan count."""
+        loans = [_make_loan(id=1), _make_loan(id=2), _make_loan(id=3)]
+        result = compute_snapshot_coverage(loans, snapshots_by_loan={})
+
+        assert result["coverage_pct"] == 0.0
+        assert result["loans_covered"] == 0
+        assert result["loans_total"] == 3
+        assert result["latest_snapshot_date"] is None
+        assert result["per_field_coverage"] == {}
+
+    def test_coverage_helper_full_coverage(self):
+        """Every loan has at least one snapshot -> 100% coverage, latest date is correct."""
+        loans = [_make_loan(id=1), _make_loan(id=2)]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1)),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 6, 1)),
+            ],
+            2: [_make_snapshot(loan_id=2, snapshot_date=date(2024, 3, 1))],
+        }
+        result = compute_snapshot_coverage(loans, snapshots_by_loan)
+
+        assert result["coverage_pct"] == 1.0
+        assert result["loans_covered"] == 2
+        assert result["loans_total"] == 2
+        assert result["latest_snapshot_date"] == date(2024, 6, 1)
+        assert result["per_field_coverage"] == {}
+
+    def test_coverage_helper_required_field(self):
+        """required_field excludes loans whose snapshots are all null for that field.
+
+        Loan 1: has internal_credit_rating in one snapshot -> covered
+        Loan 2: has snapshots but ALL null for internal_credit_rating -> NOT covered
+        Loan 3: no snapshots at all -> NOT covered
+        Expected coverage_pct = 1/3.
+        """
+        loans = [_make_loan(id=1), _make_loan(id=2), _make_loan(id=3)]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), internal_credit_rating=None),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 6, 1), internal_credit_rating=3),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 3, 1), internal_credit_rating=None),
+            ],
+        }
+        result = compute_snapshot_coverage(
+            loans, snapshots_by_loan, required_field="internal_credit_rating"
+        )
+
+        assert result["coverage_pct"] == pytest.approx(1 / 3, abs=0.001)
+        assert result["loans_covered"] == 1
+        assert result["loans_total"] == 3
+        assert result["latest_snapshot_date"] == date(2024, 6, 1)
+        assert result["per_field_coverage"] == {
+            "internal_credit_rating": pytest.approx(1 / 3, abs=0.001)
+        }
+
+    def test_coverage_helper_per_field_only_when_requested(self):
+        """per_field_coverage stays empty when required_field is None, populated otherwise."""
+        loans = [_make_loan(id=1)]
+        snapshots_by_loan = {
+            1: [_make_snapshot(loan_id=1, snapshot_date=date(2024, 6, 1), current_ltv=0.65)],
+        }
+
+        # No required_field -> per_field_coverage is empty
+        no_field = compute_snapshot_coverage(loans, snapshots_by_loan)
+        assert no_field["per_field_coverage"] == {}
+        assert no_field["coverage_pct"] == 1.0
+
+        # With required_field -> per_field_coverage has exactly one entry
+        with_field = compute_snapshot_coverage(
+            loans, snapshots_by_loan, required_field="current_ltv"
+        )
+        assert with_field["per_field_coverage"] == {"current_ltv": 1.0}
+        assert with_field["coverage_pct"] == 1.0
+
+        # Empty loans list -> all zeros, per_field still {}
+        empty = compute_snapshot_coverage([], {}, required_field="current_ltv")
+        assert empty["coverage_pct"] == 0.0
+        assert empty["loans_total"] == 0
+        assert empty["per_field_coverage"] == {}
+
+
+class TestSnapshotHelpers:
+    def test_latest_snapshot_value_returns_most_recent_non_null(self):
+        """Walks snapshots in reverse, returning the first non-null hit.
+
+        Setup: 3 snapshots, latest is null for current_ltv, middle has 0.65,
+        earliest has 0.55. Expected: returns 0.65 (the most recent NON-null).
+        """
+        snapshots_by_loan = {
+            42: [
+                _make_snapshot(loan_id=42, snapshot_date=date(2024, 1, 1), current_ltv=0.55),
+                _make_snapshot(loan_id=42, snapshot_date=date(2024, 4, 1), current_ltv=0.65),
+                _make_snapshot(loan_id=42, snapshot_date=date(2024, 7, 1), current_ltv=None),
+            ],
+        }
+        assert _latest_snapshot_value(snapshots_by_loan, 42, "current_ltv") == 0.65
+
+        # Loan with no snapshots -> None
+        assert _latest_snapshot_value(snapshots_by_loan, 999, "current_ltv") is None
+
+        # Field that's null in every snapshot -> None
+        assert _latest_snapshot_value(snapshots_by_loan, 42, "internal_credit_rating") is None
+
+        # Empty / None safety
+        assert _latest_snapshot_value(None, 42, "current_ltv") is None
+        assert _latest_snapshot_value({}, 42, "current_ltv") is None
+
+    def test_snapshot_trend_returns_none_with_insufficient_data(self):
+        """Trend requires >= 2 non-null observations. One sample is not a trend."""
+        snapshots_by_loan = {
+            1: [_make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ltv=0.55)],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), current_ltv=None),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 4, 1), current_ltv=0.60),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 7, 1), current_ltv=None),
+            ],
+            3: [],
+        }
+        # Single non-null sample -> None
+        assert _snapshot_trend(snapshots_by_loan, 1, "current_ltv") is None
+        # Two snapshots but only one non-null -> None
+        assert _snapshot_trend(snapshots_by_loan, 2, "current_ltv") is None
+        # Empty list -> None
+        assert _snapshot_trend(snapshots_by_loan, 3, "current_ltv") is None
+        # Loan id not in dict -> None
+        assert _snapshot_trend(snapshots_by_loan, 999, "current_ltv") is None
+        # None safety
+        assert _snapshot_trend(None, 1, "current_ltv") is None
+
+    def test_snapshot_trend_computes_delta_and_direction(self):
+        """Two+ non-null points -> dict with delta + direction.
+
+        Up case: 0.55 -> 0.72 (LTV deteriorating)
+        Down case: 2.5 -> 1.4 (ICR deteriorating, delta is negative)
+        Flat case: 3 -> 3 (no change)
+        Mid-window nulls are skipped, earliest and latest are the boundary
+        non-null observations.
+        """
+        snapshots_by_loan = {
+            10: [
+                _make_snapshot(loan_id=10, snapshot_date=date(2024, 1, 1), current_ltv=0.55),
+                _make_snapshot(loan_id=10, snapshot_date=date(2024, 4, 1), current_ltv=None),
+                _make_snapshot(loan_id=10, snapshot_date=date(2024, 7, 1), current_ltv=0.72),
+            ],
+            20: [
+                _make_snapshot(loan_id=20, snapshot_date=date(2024, 1, 1), interest_coverage_ratio=2.5),
+                _make_snapshot(loan_id=20, snapshot_date=date(2024, 7, 1), interest_coverage_ratio=1.4),
+            ],
+            30: [
+                _make_snapshot(loan_id=30, snapshot_date=date(2024, 1, 1), internal_credit_rating=3),
+                _make_snapshot(loan_id=30, snapshot_date=date(2024, 7, 1), internal_credit_rating=3),
+            ],
+        }
+
+        up = _snapshot_trend(snapshots_by_loan, 10, "current_ltv")
+        assert up is not None
+        assert up["earliest"] == 0.55
+        assert up["latest"] == 0.72
+        assert up["delta"] == pytest.approx(0.17, abs=0.001)
+        assert up["direction"] == "up"
+        assert up["earliest_date"] == date(2024, 1, 1)
+        assert up["latest_date"] == date(2024, 7, 1)
+
+        down = _snapshot_trend(snapshots_by_loan, 20, "interest_coverage_ratio")
+        assert down is not None
+        assert down["earliest"] == 2.5
+        assert down["latest"] == 1.4
+        assert down["delta"] == pytest.approx(-1.1, abs=0.001)
+        assert down["direction"] == "down"
+
+        flat = _snapshot_trend(snapshots_by_loan, 30, "internal_credit_rating")
+        assert flat is not None
+        assert flat["delta"] == 0
+        assert flat["direction"] == "flat"
+
+
+# ---------------------------------------------------------------------------
+# Migration matrix
+# ---------------------------------------------------------------------------
+
+
+class TestCreditMigrationMatrix:
+    def test_migration_matrix_no_snapshots(self):
+        """No snapshots at all -> empty matrix, all counts zero, default 1-5 rating universe."""
+        loans = [_make_loan(id=1), _make_loan(id=2)]
+        result = compute_credit_migration_matrix(loans, snapshots_by_loan={})
+
+        assert result["upgrades_count"] == 0
+        assert result["stable_count"] == 0
+        assert result["downgrades_count"] == 0
+        assert result["loans_with_migration_history"] == 0
+        # Loans have a current rating (default 2) but no snapshot history
+        assert result["loans_without_history"] == 2
+        # Default 1-5 rating universe is always present
+        assert result["rating_order"] == [1, 2, 3, 4, 5]
+        assert result["rating_labels"] == ["AAA", "AA", "A", "BBB", "BB+/Below"]
+        # Matrix is 5x5 of zeros
+        assert len(result["matrix"]) == 5
+        assert all(len(row) == 5 for row in result["matrix"])
+        assert all(cell == 0 for row in result["matrix"] for cell in row)
+        assert result["at_risk_loans"] == []
+
+    def test_migration_matrix_counts_upgrades_stable_downgrades(self):
+        """Mix of upgrades, stable, and downgrades land in the right buckets and matrix cells."""
+        loans = [
+            _make_loan(id=1, company_name="UpCo"),       # upgrade 3 -> 2
+            _make_loan(id=2, company_name="StableCo"),    # stable 2 -> 2
+            _make_loan(id=3, company_name="DownCo"),      # downgrade 2 -> 4 (2 notches)
+            _make_loan(id=4, company_name="BadCo"),       # downgrade 3 -> 5 (2 notches)
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), internal_credit_rating=3),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), internal_credit_rating=2),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), internal_credit_rating=2),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 7, 1), internal_credit_rating=2),
+            ],
+            3: [
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 1, 1), internal_credit_rating=2),
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 7, 1), internal_credit_rating=4),
+            ],
+            4: [
+                _make_snapshot(loan_id=4, snapshot_date=date(2024, 1, 1), internal_credit_rating=3),
+                _make_snapshot(loan_id=4, snapshot_date=date(2024, 7, 1), internal_credit_rating=5),
+            ],
+        }
+        result = compute_credit_migration_matrix(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert result["upgrades_count"] == 1
+        assert result["stable_count"] == 1
+        assert result["downgrades_count"] == 2
+        assert result["loans_with_migration_history"] == 4
+
+        # Rating universe is the standard 1-5 since all observed ratings are in range
+        idx = {r: i for i, r in enumerate(result["rating_order"])}
+
+        # UpCo: 3 -> 2 lands at matrix[idx[3]][idx[2]]
+        assert result["matrix"][idx[3]][idx[2]] == 1
+        # StableCo: 2 -> 2 lands on the diagonal
+        assert result["matrix"][idx[2]][idx[2]] == 1
+        # DownCo: 2 -> 4
+        assert result["matrix"][idx[2]][idx[4]] == 1
+        # BadCo: 3 -> 5
+        assert result["matrix"][idx[3]][idx[5]] == 1
+
+        # Row totals (totals_from): how many loans started at each rating
+        assert result["totals_from"][idx[2]] == 2  # StableCo + DownCo
+        assert result["totals_from"][idx[3]] == 2  # UpCo + BadCo
+
+        # Column totals (totals_to): how many loans ended at each rating
+        assert result["totals_to"][idx[2]] == 2  # UpCo + StableCo
+        assert result["totals_to"][idx[4]] == 1  # DownCo
+        assert result["totals_to"][idx[5]] == 1  # BadCo
+
+    def test_migration_matrix_at_risk_sorted_by_severity(self):
+        """at_risk_loans only includes downgraded loans, sorted by notches_down desc."""
+        loans = [
+            _make_loan(id=1, company_name="Alpha"),  # 1 notch down
+            _make_loan(id=2, company_name="Beta"),   # 3 notches down (worst)
+            _make_loan(id=3, company_name="Gamma"),  # 2 notches down
+            _make_loan(id=4, company_name="Delta"),  # upgrade — should NOT appear
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), internal_credit_rating=2),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), internal_credit_rating=3),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), internal_credit_rating=1),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 7, 1), internal_credit_rating=4),
+            ],
+            3: [
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 1, 1), internal_credit_rating=2),
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 7, 1), internal_credit_rating=4),
+            ],
+            4: [
+                _make_snapshot(loan_id=4, snapshot_date=date(2024, 1, 1), internal_credit_rating=4),
+                _make_snapshot(loan_id=4, snapshot_date=date(2024, 7, 1), internal_credit_rating=2),
+            ],
+        }
+        result = compute_credit_migration_matrix(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert len(result["at_risk_loans"]) == 3  # Delta is upgrade, excluded
+        # Sorted by severity: Beta (3) -> Gamma (2) -> Alpha (1)
+        assert result["at_risk_loans"][0]["company"] == "Beta"
+        assert result["at_risk_loans"][0]["notches_down"] == 3
+        assert result["at_risk_loans"][0]["from_label"] == "AAA"
+        assert result["at_risk_loans"][0]["to_label"] == "BBB"
+        assert result["at_risk_loans"][1]["company"] == "Gamma"
+        assert result["at_risk_loans"][1]["notches_down"] == 2
+        assert result["at_risk_loans"][2]["company"] == "Alpha"
+        assert result["at_risk_loans"][2]["notches_down"] == 1
+
+    def test_migration_matrix_loans_without_history_counted_separately(self):
+        """A loan with only ONE rating observation goes into loans_without_history,
+        not into the matrix. The coverage block reflects the field-level signal.
+        """
+        loans = [
+            _make_loan(id=1),  # has history
+            _make_loan(id=2),  # only one snapshot — no history
+            _make_loan(id=3),  # has current rating on loan but no snapshots at all
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), internal_credit_rating=2),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), internal_credit_rating=3),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), internal_credit_rating=4),
+            ],
+        }
+        result = compute_credit_migration_matrix(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert result["loans_with_migration_history"] == 1  # only loan 1
+        assert result["loans_without_history"] == 2  # loans 2 and 3
+        assert result["loans_with_rating_data"] == 3  # all three have rating signals
+
+        # Coverage block from compute_snapshot_coverage uses required_field
+        assert "internal_credit_rating" in result["coverage"]["per_field_coverage"]
+        # Loans 1 and 2 have at least one snapshot with internal_credit_rating; loan 3 has none
+        assert result["coverage"]["per_field_coverage"]["internal_credit_rating"] == pytest.approx(2 / 3, abs=0.001)
+
+
+# ---------------------------------------------------------------------------
+# Borrower fundamentals
+# ---------------------------------------------------------------------------
+
+
+class TestCreditFundamentals:
+    def test_fundamentals_no_snapshots(self):
+        """No snapshot history -> all aggregates None, empty rows, coverage shows 0%."""
+        loans = [_make_loan(id=1), _make_loan(id=2)]
+        result = compute_credit_fundamentals(loans, snapshots_by_loan={})
+
+        assert result["wavg_revenue_growth"] is None
+        assert result["wavg_ebitda_growth"] is None
+        assert result["loans_with_revenue_trend"] == 0
+        assert result["loans_with_ebitda_trend"] == 0
+        assert result["rows"] == []
+        assert result["revenue_decliners"] == []
+        assert result["ebitda_decliners"] == []
+        assert result["coverage"]["per_field_coverage"]["current_revenue"] == 0.0
+        assert result["coverage"]["per_field_coverage"]["current_ebitda"] == 0.0
+
+    def test_fundamentals_weighted_growth_aggregation(self):
+        """Hold-weighted growth uses entry_loan_amount as the weight.
+
+        Two loans with different growth rates and different sizes should produce
+        a weighted average that's neither the unweighted mean nor a simple sum.
+
+        Loan A: entry $100M, EBITDA 10 -> 12 (+20%)
+        Loan B: entry $400M, EBITDA 20 -> 19 (-5%)
+        Weighted: (0.20 * 100 + -0.05 * 400) / (100 + 400) = (20 - 20) / 500 = 0.0
+        """
+        loans = [
+            _make_loan(id=1, company_name="A", entry_loan_amount=100.0, hold_size=100.0),
+            _make_loan(id=2, company_name="B", entry_loan_amount=400.0, hold_size=400.0),
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ebitda=10.0, current_revenue=80.0),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ebitda=12.0, current_revenue=88.0),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), current_ebitda=20.0, current_revenue=200.0),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 7, 1), current_ebitda=19.0, current_revenue=180.0),
+            ],
+        }
+        result = compute_credit_fundamentals(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert result["loans_with_ebitda_trend"] == 2
+        assert result["loans_with_revenue_trend"] == 2
+
+        # EBITDA: (0.20 * 100 + -0.05 * 400) / 500 = 0
+        assert result["wavg_ebitda_growth"] == pytest.approx(0.0, abs=0.001)
+        # Revenue: A grew (88-80)/80 = 0.10, B fell (180-200)/200 = -0.10
+        # Weighted: (0.10 * 100 + -0.10 * 400) / 500 = (10 - 40) / 500 = -0.06
+        assert result["wavg_revenue_growth"] == pytest.approx(-0.06, abs=0.001)
+
+        # Both loans show in rows; the decliner (B) gets sorted to the top
+        assert len(result["rows"]) == 2
+        assert result["rows"][0]["company"] == "B"  # decliner first
+        assert result["rows"][1]["company"] == "A"
+
+    def test_fundamentals_decliners_sorted_by_absolute_drop(self):
+        """ebitda_decliners only contains loans where EBITDA fell, sorted worst first.
+
+        SmallDrop:  EBITDA 10 -> 9 (delta = -1)
+        BigDrop:    EBITDA 50 -> 30 (delta = -20)
+        Grower:     EBITDA 10 -> 15 (delta = +5, NOT a decliner)
+        """
+        loans = [
+            _make_loan(id=1, company_name="SmallDrop"),
+            _make_loan(id=2, company_name="BigDrop"),
+            _make_loan(id=3, company_name="Grower"),
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ebitda=10.0),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ebitda=9.0),
+            ],
+            2: [
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 1, 1), current_ebitda=50.0),
+                _make_snapshot(loan_id=2, snapshot_date=date(2024, 7, 1), current_ebitda=30.0),
+            ],
+            3: [
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 1, 1), current_ebitda=10.0),
+                _make_snapshot(loan_id=3, snapshot_date=date(2024, 7, 1), current_ebitda=15.0),
+            ],
+        }
+        result = compute_credit_fundamentals(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert len(result["ebitda_decliners"]) == 2  # Grower excluded
+        assert result["ebitda_decliners"][0]["company"] == "BigDrop"
+        assert result["ebitda_decliners"][0]["delta"] == pytest.approx(-20.0, abs=0.001)
+        assert result["ebitda_decliners"][0]["growth_pct"] == pytest.approx(-0.40, abs=0.001)
+        assert result["ebitda_decliners"][1]["company"] == "SmallDrop"
+        assert result["ebitda_decliners"][1]["delta"] == pytest.approx(-1.0, abs=0.001)
+
+
+class TestCreditWatchlist:
+    """Watchlist scoring is the audit trail for "why is this loan on the list."
+
+    Every test here pins a single rubric line so when an analyst asks "why did
+    that loan get +20 points," we have a test that proves the answer.
+    """
+
+    def test_watchlist_no_loans(self):
+        """Empty portfolio -> empty rows, all bucket counts zero."""
+        result = compute_credit_watchlist([], snapshots_by_loan={})
+        assert result["rows"] == []
+        assert result["urgent_count"] == 0
+        assert result["attention_count"] == 0
+        assert result["monitor_count"] == 0
+        assert result["clear_count"] == 0
+        assert result["total_loans"] == 0
+        # Weights and thresholds always exposed so the template can render the rubric
+        assert "ltv_trend" in result["weights"]
+        assert "urgent" in result["thresholds"]
+
+    def test_watchlist_status_auto_triggers_score_100(self):
+        """A loan with default_status != Performing must score >= STATUS_AUTO weight.
+
+        This is the contractual hard trigger: any non-Performing loan lands on
+        the urgent bucket regardless of trend signals.
+        """
+        loan = _make_loan(id=1, default_status="Default", covenant_compliant=True)
+        result = compute_credit_watchlist([loan], snapshots_by_loan={})
+
+        row = result["rows"][0]
+        assert row["score"] >= WATCHLIST_WEIGHT_STATUS_AUTO or row["score"] == WATCHLIST_SCORE_CAP
+        assert row["bucket"] == "urgent"
+        # Breakdown must contain the status factor with the full weight
+        status_entries = [b for b in row["breakdown"] if b["factor"] == "status"]
+        assert len(status_entries) == 1
+        assert status_entries[0]["points"] == WATCHLIST_WEIGHT_STATUS_AUTO
+
+    def test_watchlist_covenant_breach_auto_triggers_score_100(self):
+        """covenant_compliant=False is a hard trigger at COVENANT weight."""
+        loan = _make_loan(id=1, default_status="Performing", covenant_compliant=False)
+        result = compute_credit_watchlist([loan], snapshots_by_loan={})
+
+        row = result["rows"][0]
+        assert row["score"] >= WATCHLIST_WEIGHT_COVENANT or row["score"] == WATCHLIST_SCORE_CAP
+        assert row["bucket"] == "urgent"
+        cov_entries = [b for b in row["breakdown"] if b["factor"] == "covenant"]
+        assert len(cov_entries) == 1
+        assert cov_entries[0]["points"] == WATCHLIST_WEIGHT_COVENANT
+
+    def test_watchlist_ltv_trend_adds_points(self):
+        """Climbing LTV across snapshots adds proportional points up to LTV_TREND weight.
+
+        We construct a +10pp LTV climb (well above the 5pp full-points threshold)
+        on an otherwise clean Performing loan with no covenant breach. The only
+        active signal must be ltv_trend, and it must hit the full weight.
+        """
+        loan = _make_loan(id=1, default_status="Performing", covenant_compliant=True)
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ltv=0.50),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ltv=0.60),
+            ],
+        }
+        result = compute_credit_watchlist([loan], snapshots_by_loan=snapshots_by_loan)
+        row = result["rows"][0]
+
+        ltv_entries = [b for b in row["breakdown"] if b["factor"] == "ltv_trend"]
+        assert len(ltv_entries) == 1
+        # +10pp climb >> +5pp threshold, so the LTV trend signal should hit max
+        assert ltv_entries[0]["points"] == WATCHLIST_WEIGHT_LTV_TREND
+        assert row["score"] >= WATCHLIST_WEIGHT_LTV_TREND
+
+    def test_watchlist_ebitda_trend_adds_points(self):
+        """Falling EBITDA across snapshots adds the full EBITDA_TREND weight."""
+        loan = _make_loan(id=1, default_status="Performing", covenant_compliant=True)
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ebitda=20.0),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ebitda=15.0),
+            ],
+        }
+        result = compute_credit_watchlist([loan], snapshots_by_loan=snapshots_by_loan)
+        row = result["rows"][0]
+
+        ebitda_entries = [b for b in row["breakdown"] if b["factor"] == "ebitda_trend"]
+        assert len(ebitda_entries) == 1
+        assert ebitda_entries[0]["points"] == WATCHLIST_WEIGHT_EBITDA_TREND
+
+    def test_watchlist_sponsor_history_adds_points(self):
+        """A sponsor with a prior default in the same portfolio adds SPONSOR_HISTORY points.
+
+        Two loans, same sponsor 'BadSponsor'. Loan 1 defaulted. Loan 2 is
+        performing but should still get the +SPONSOR_HISTORY adder because of
+        loan 1's status.
+        """
+        defaulted = _make_loan(id=1, company_name="LoanA", sponsor="BadSponsor", default_status="Default")
+        performing = _make_loan(
+            id=2, company_name="LoanB", sponsor="BadSponsor",
+            default_status="Performing", covenant_compliant=True,
+        )
+        result = compute_credit_watchlist([defaulted, performing], snapshots_by_loan={})
+
+        # Find the performing loan in the result
+        performing_row = next(r for r in result["rows"] if r["company"] == "LoanB")
+        sponsor_entries = [b for b in performing_row["breakdown"] if b["factor"] == "sponsor_history"]
+        assert len(sponsor_entries) == 1
+        assert sponsor_entries[0]["points"] == WATCHLIST_WEIGHT_SPONSOR_HISTORY
+
+    def test_watchlist_score_capped_at_100(self):
+        """Stacking multiple signals must not produce a score above the cap."""
+        # Worst-case loan: defaulted + covenant breach + bad LTV + bad EBITDA + sponsor
+        loan = _make_loan(
+            id=1, default_status="Default", covenant_compliant=False, sponsor="ProblemSponsor",
+        )
+        # Make sponsor history non-trivial so we get the +10
+        other_default = _make_loan(id=2, default_status="Default", sponsor="ProblemSponsor")
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ltv=0.50, current_ebitda=20.0),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ltv=0.95, current_ebitda=5.0),
+            ],
+        }
+        result = compute_credit_watchlist([loan, other_default], snapshots_by_loan=snapshots_by_loan)
+
+        focal_row = next(r for r in result["rows"] if r["loan_id"] == 1)
+        # raw_score (pre-cap) should be way above 100
+        # final score must equal the cap
+        assert focal_row["score"] == WATCHLIST_SCORE_CAP
+
+    def test_watchlist_score_breakdown_contract(self):
+        """Every breakdown entry must have factor, points, reason — the audit trail.
+
+        This is the central contract for the page: an analyst must be able to
+        defend "this loan scored 65 because" with a per-factor receipt.
+        """
+        loan = _make_loan(id=1, default_status="Performing", covenant_compliant=False)
+        result = compute_credit_watchlist([loan], snapshots_by_loan={})
+
+        row = result["rows"][0]
+        assert isinstance(row["breakdown"], list)
+        assert len(row["breakdown"]) > 0
+        for entry in row["breakdown"]:
+            assert "factor" in entry
+            assert "points" in entry
+            assert "reason" in entry
+            assert isinstance(entry["points"], int)
+            assert entry["points"] > 0
+            assert isinstance(entry["reason"], str) and entry["reason"]
+
+    def test_watchlist_buckets_urgent_attention_monitor(self):
+        """Bucket assignment must respect URGENT/ATTENTION/MONITOR thresholds.
+
+        Build four loans whose scores land in each bucket and verify the
+        bucket_counts and individual bucket field assignments.
+        """
+        # urgent: any non-Performing status fires the auto trigger
+        urgent_loan = _make_loan(id=1, company_name="UrgentCo", default_status="Default")
+        # attention: stack ltv_trend (20) + ebitda_trend (15) + ICR drop (20) = 55 -> attention (>=50)
+        attention_loan = _make_loan(
+            id=2, company_name="AttentionCo",
+            default_status="Performing", covenant_compliant=True,
+        )
+        attention_snapshots = [
+            _make_snapshot(
+                loan_id=2, snapshot_date=date(2024, 1, 1),
+                current_ltv=0.50, current_ebitda=20.0, interest_coverage_ratio=3.0,
+            ),
+            _make_snapshot(
+                loan_id=2, snapshot_date=date(2024, 7, 1),
+                current_ltv=0.60, current_ebitda=15.0, interest_coverage_ratio=2.0,
+            ),
+        ]
+        # monitor: just ebitda decline (15) + small icr drop (~8) -> monitor (>=20)
+        monitor_loan = _make_loan(
+            id=3, company_name="MonitorCo",
+            default_status="Performing", covenant_compliant=True,
+        )
+        monitor_snapshots = [
+            _make_snapshot(
+                loan_id=3, snapshot_date=date(2024, 1, 1),
+                current_ebitda=20.0, interest_coverage_ratio=3.0,
+            ),
+            _make_snapshot(
+                loan_id=3, snapshot_date=date(2024, 7, 1),
+                current_ebitda=15.0, interest_coverage_ratio=2.8,
+            ),
+        ]
+        # clear: performing, no signals
+        clear_loan = _make_loan(
+            id=4, company_name="ClearCo",
+            default_status="Performing", covenant_compliant=True,
+            floor_rate=0.05,  # above the 0.02 floor rolloff threshold
+        )
+
+        snapshots_by_loan = {2: attention_snapshots, 3: monitor_snapshots}
+        result = compute_credit_watchlist(
+            [urgent_loan, attention_loan, monitor_loan, clear_loan],
+            snapshots_by_loan=snapshots_by_loan,
+        )
+
+        bucket_by_company = {r["company"]: r["bucket"] for r in result["rows"]}
+        assert bucket_by_company["UrgentCo"] == "urgent"
+        assert bucket_by_company["AttentionCo"] == "attention"
+        assert bucket_by_company["MonitorCo"] == "monitor"
+        assert bucket_by_company["ClearCo"] == "clear"
+
+        assert result["urgent_count"] == 1
+        assert result["attention_count"] == 1
+        assert result["monitor_count"] == 1
+        assert result["clear_count"] == 1

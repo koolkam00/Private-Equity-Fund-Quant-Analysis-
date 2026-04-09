@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% from "_macros.html" import credit_firm_banner with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# --- Snapshot coverage banner --- #}
+<div class="panel" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; gap: 16px;">
+    <i class="bi bi-clock-history" style="font-size: 20px; color: var(--accent);"></i>
+    <div style="flex: 1;">
+        <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
+            Rating coverage: {{ "%.0f"|format(analysis.coverage.coverage_pct * 100) }}%
+            ({{ analysis.coverage.loans_covered }} of {{ analysis.coverage.loans_total }} loans have rating data)
+        </div>
+        <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">
+            {% if analysis.coverage.latest_snapshot_date %}
+            Latest snapshot: {{ analysis.coverage.latest_snapshot_date.strftime('%b %d, %Y') }}.
+            {% endif %}
+            {{ analysis.loans_with_migration_history }} loans have ≥2 rating observations and appear in the matrix below.
+            {% if analysis.loans_without_history > 0 %}
+            {{ analysis.loans_without_history }} loans have a current rating but no history yet.
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{# --- Top-line KPI cards --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Upgrades</div>
+        <div class="kpi-value" style="color: var(--accent);">{{ analysis.upgrades_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Stable</div>
+        <div class="kpi-value">{{ analysis.stable_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Downgrades</div>
+        <div class="kpi-value" style="color: var(--danger);">{{ analysis.downgrades_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Loans with history</div>
+        <div class="kpi-value">{{ analysis.loans_with_migration_history }}</div>
+    </div>
+</div>
+
+{# --- Migration matrix heatmap --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Rating migration matrix</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Rows = rating at earliest snapshot. Columns = rating at latest snapshot. Cells off the diagonal show migrations.
+    </p>
+    {% if analysis.loans_with_migration_history == 0 %}
+    <div style="border: 1px dashed var(--line); text-align: center; padding: 32px 16px; color: var(--ink-muted);">
+        Not enough rating history to draw a migration matrix. Upload at least two snapshots with internal credit ratings to populate this view.
+    </div>
+    {% else %}
+    <div style="overflow-x: auto;">
+        <table class="data-table" style="font-family: var(--font-mono);">
+            <thead>
+                <tr>
+                    <th style="background: var(--surface-alt);">From \ To</th>
+                    {% for label in analysis.rating_labels %}
+                    <th style="text-align: center; background: var(--surface-alt);">{{ label }}</th>
+                    {% endfor %}
+                    <th style="text-align: right; background: var(--surface-alt); color: var(--ink-muted);">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for i in range(analysis.rating_order|length) %}
+                <tr>
+                    <td style="font-weight: 600; background: var(--surface-alt);">{{ analysis.rating_labels[i] }}</td>
+                    {% for j in range(analysis.rating_order|length) %}
+                    {% set count = analysis.matrix[i][j] %}
+                    {% set is_diag = (i == j) %}
+                    {% set is_upgrade = (j < i) %}
+                    {% set is_downgrade = (j > i) %}
+                    <td style="text-align: center;
+                        {% if count == 0 %}color: var(--ink-faint);
+                        {% elif is_diag %}background: rgba(107, 107, 99, 0.08); color: var(--ink); font-weight: 500;
+                        {% elif is_upgrade %}background: rgba(10, 107, 88, 0.10); color: var(--accent); font-weight: 500;
+                        {% elif is_downgrade %}background: rgba(184, 60, 74, 0.10); color: var(--danger); font-weight: 500;
+                        {% endif %}">
+                        {{ count if count > 0 else '·' }}
+                    </td>
+                    {% endfor %}
+                    <td style="text-align: right; color: var(--ink-muted);">{{ analysis.totals_from[i] }}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td style="font-weight: 600; color: var(--ink-muted); background: var(--surface-alt);">Total</td>
+                    {% for total in analysis.totals_to %}
+                    <td style="text-align: center; color: var(--ink-muted); background: var(--surface-alt);">{{ total }}</td>
+                    {% endfor %}
+                    <td style="text-align: right; background: var(--surface-alt); color: var(--ink-muted); font-weight: 600;">
+                        {{ analysis.loans_with_migration_history }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div style="display: flex; gap: 24px; margin-top: 12px; font-size: 12px; color: var(--ink-muted);">
+        <div><span style="display: inline-block; width: 10px; height: 10px; background: rgba(10, 107, 88, 0.25); margin-right: 4px;"></span>Upgrade</div>
+        <div><span style="display: inline-block; width: 10px; height: 10px; background: rgba(107, 107, 99, 0.20); margin-right: 4px;"></span>Stable</div>
+        <div><span style="display: inline-block; width: 10px; height: 10px; background: rgba(184, 60, 74, 0.25); margin-right: 4px;"></span>Downgrade</div>
+    </div>
+    {% endif %}
+</div>
+
+{# --- At-risk downgraded loans --- #}
+{% if analysis.at_risk_loans %}
+<div class="panel">
+    <h3>Downgraded loans</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Loans whose internal credit rating moved at least one notch lower (numerically higher) over the snapshot window. Sorted by severity.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th style="text-align: center;">From</th>
+                <th style="text-align: center;">To</th>
+                <th style="text-align: right;">Notches down</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in analysis.at_risk_loans %}
+            <tr>
+                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
+                <td style="text-align: center; font-family: var(--font-mono);">{{ r.from_label }}</td>
+                <td style="text-align: center; font-family: var(--font-mono); color: var(--danger);">{{ r.to_label }}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 500;">−{{ r.notches_down }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
