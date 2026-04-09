@@ -23,6 +23,8 @@ from werkzeug.utils import secure_filename
 from models import (
     BenchmarkPoint,
     ChartBuilderTemplate,
+    CreditLoan,
+    CreditLoanSnapshot,
     Deal,
     DealCashflowEvent,
     DealQuarterSnapshot,
