@@ -109,6 +109,7 @@ from services.metrics.credit import (
     compute_credit_loan_metrics,
     compute_credit_maturity_profile,
     compute_credit_portfolio_analytics,
+    compute_credit_risk_metrics,
     compute_credit_stress_scenarios,
     compute_credit_vintage_comparison,
     compute_credit_yield_attribution,
@@ -4089,7 +4090,7 @@ def credit_analysis_page(page):
         elif page == "credit-yield":
             payload = compute_credit_yield_attribution(loans, metrics_by_id)
         elif page == "credit-risk":
-            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+            payload = compute_credit_risk_metrics(loans, metrics_by_id)
             payload["snapshots_by_loan"] = snapshots_by_loan
         elif page == "credit-maturity":
             payload = compute_credit_maturity_profile(loans)

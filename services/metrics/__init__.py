@@ -52,6 +52,7 @@ from services.metrics.data_cuts import compute_data_cuts_analytics
 from services.metrics.credit import (
     compute_credit_loan_metrics,
     compute_credit_portfolio_analytics,
+    compute_credit_risk_metrics,
     compute_credit_yield_attribution,
     compute_credit_stress_scenarios,
     compute_credit_concentration,
@@ -110,6 +111,7 @@ __all__ = [
     "compute_data_cuts_analytics",
     "compute_credit_loan_metrics",
     "compute_credit_portfolio_analytics",
+    "compute_credit_risk_metrics",
     "compute_credit_yield_attribution",
     "compute_credit_stress_scenarios",
     "compute_credit_concentration",

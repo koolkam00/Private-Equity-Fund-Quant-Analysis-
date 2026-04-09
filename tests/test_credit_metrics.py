@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from services.metrics.credit import (
     compute_credit_loan_metrics,
     compute_credit_portfolio_analytics,
+    compute_credit_risk_metrics,
     compute_credit_yield_attribution,
     compute_credit_stress_scenarios,
     compute_credit_concentration,
@@ -292,7 +293,19 @@ class TestCreditLoanMetrics:
 
 class TestTrafficLights:
     def test_traffic_light_null_ltv(self):
-        loan = _make_loan(current_ltv=None, interest_coverage_ratio=None, default_status="Performing")
+        # No LTV/coverage AND no LP signals -> gray (truly insufficient data).
+        # _make_loan defaults moic=1.15 and gross_irr=0.10, so both must be
+        # explicitly nulled to exercise the gray fallback.
+        loan = _make_loan(
+            current_ltv=None,
+            interest_coverage_ratio=None,
+            default_status="Performing",
+            moic=None,
+            gross_irr=None,
+            total_value=None,
+            entry_loan_amount=None,
+            hold_size=None,
+        )
         signal = _loan_traffic_light(loan)
         assert signal == "gray"
 
@@ -446,6 +459,10 @@ class TestStressScenarios:
         scenario = {"default_rate_shock": 0, "recovery_rate_shock": 0.40, "rate_shock_bps": 200}
         result = compute_credit_stress_scenarios([loan], scenario)
         assert result["base_nav"] > 0
+        # +200bps with 1.5% per 100bps = 3% haircut on floating NAV
+        assert result["stressed_nav"] < result["base_nav"]
+        expected_haircut = result["base_nav"] * (200 / 100.0) * 0.015
+        assert (result["base_nav"] - result["stressed_nav"]) == pytest.approx(expected_haircut, abs=0.01)
 
     def test_stress_fixed_unaffected(self):
         loan = _make_loan(fixed_or_floating="Fixed")
@@ -472,6 +489,114 @@ class TestStressScenarios:
         assert result["defaults_triggered"] >= 1
         impacted = [l["company"] for l in result["impacted_loans"]]
         assert bad.company_name in impacted
+
+
+# ---------------------------------------------------------------------------
+# Risk metrics (Bug 6 — credit-risk page aggregates)
+# ---------------------------------------------------------------------------
+
+
+class TestCreditRiskMetrics:
+    """compute_credit_risk_metrics returns the existing template fields PLUS
+    ICR / DSCR / covenant / recovery aggregates that the parser ingests but
+    no other metric used to surface."""
+
+    def test_risk_metrics_basic_aggregates(self):
+        loans = [_make_loan(id=i, hold_size=10 + i) for i in range(5)]
+        result = compute_credit_risk_metrics(loans)
+        # Existing fields the template still consumes
+        assert result["pct_performing"] == 1.0
+        assert result["wavg_ltv"] is not None
+        assert "Performing" in result["status_distribution"]
+        # Bug 6 additions
+        assert result["wavg_icr"] is not None
+        assert result["wavg_dscr"] is not None
+        assert result["loans_with_icr_count"] == 5
+        assert result["loans_with_dscr_count"] == 5
+
+    def test_risk_metrics_icr_hold_weighted(self):
+        """ICR weight follows entry_amt > 0 else hold_size convention."""
+        small = _make_loan(id=1, hold_size=10, interest_coverage_ratio=1.0)
+        big = _make_loan(id=2, hold_size=90, interest_coverage_ratio=3.0)
+        result = compute_credit_risk_metrics([small, big])
+        # Hold-weighted: (1.0*10 + 3.0*90) / 100 = 2.8
+        assert result["wavg_icr"] == pytest.approx(2.8, abs=0.01)
+
+    def test_risk_metrics_dscr_hold_weighted(self):
+        small = _make_loan(id=1, hold_size=20, dscr=1.0)
+        big = _make_loan(id=2, hold_size=80, dscr=2.0)
+        result = compute_credit_risk_metrics([small, big])
+        # (1.0*20 + 2.0*80) / 100 = 1.8
+        assert result["wavg_dscr"] == pytest.approx(1.8, abs=0.01)
+
+    def test_risk_metrics_covenant_breach_count(self):
+        loans = [
+            _make_loan(id=1, covenant_compliant=True, hold_size=10),
+            _make_loan(id=2, covenant_compliant=False, hold_size=20),
+            _make_loan(id=3, covenant_compliant=False, hold_size=30),
+            _make_loan(id=4, covenant_compliant=None, hold_size=40),
+        ]
+        result = compute_credit_risk_metrics(loans)
+        assert result["covenant_breach_count"] == 2
+        # 3 loans have covenant data (None excluded)
+        assert result["loans_with_covenant_data"] == 3
+        # Breach hold = 20 + 30 = 50; total hold = 100; pct = 0.5
+        assert result["covenant_breach_pct"] == pytest.approx(0.5, abs=0.01)
+
+    def test_risk_metrics_recovery_only_defaulted(self):
+        """recovery_rate aggregate considers ONLY default/restructured loans."""
+        performing = _make_loan(id=1, default_status="Performing", recovery_rate=0.9, hold_size=50)
+        defaulted = _make_loan(id=2, default_status="Default", recovery_rate=0.4, hold_size=50)
+        restructured = _make_loan(id=3, default_status="Restructured", recovery_rate=0.6, hold_size=50)
+        result = compute_credit_risk_metrics([performing, defaulted, restructured])
+        # Performing 0.9 must be excluded; only 0.4 and 0.6 averaged equally weighted by hold
+        assert result["wavg_recovery_rate"] == pytest.approx(0.5, abs=0.01)
+
+    def test_risk_metrics_no_icr_data_returns_none(self):
+        loans = [_make_loan(id=i, interest_coverage_ratio=None, dscr=None) for i in range(3)]
+        result = compute_credit_risk_metrics(loans)
+        assert result["wavg_icr"] is None
+        assert result["wavg_dscr"] is None
+        assert result["loans_with_icr_count"] == 0
+        assert result["loans_with_dscr_count"] == 0
+
+    def test_risk_metrics_no_covenant_data_returns_none_pct(self):
+        loans = [_make_loan(id=i, covenant_compliant=None, hold_size=10) for i in range(3)]
+        result = compute_credit_risk_metrics(loans)
+        assert result["covenant_breach_count"] == 0
+        assert result["loans_with_covenant_data"] == 0
+
+    def test_risk_metrics_lp_fields_use_entry_loan_weight(self):
+        """Hold-weight convention: entry_loan_amount > 0 else hold_size."""
+        loans = [
+            _make_lp_loan(id=100, entry_loan_amount=50.0, interest_coverage_ratio=1.0),
+            _make_lp_loan(id=101, entry_loan_amount=50.0, interest_coverage_ratio=3.0),
+        ]
+        result = compute_credit_risk_metrics(loans)
+        # Equal weights: (1.0 + 3.0) / 2 = 2.0
+        assert result["wavg_icr"] == pytest.approx(2.0, abs=0.01)
+        assert result["has_new_fields"] is True
+        assert result["total_entry_loan"] == pytest.approx(100.0, abs=0.1)
+
+    def test_risk_metrics_status_distribution(self):
+        loans = [
+            _make_loan(id=1, default_status="Performing"),
+            _make_loan(id=2, default_status="Performing"),
+            _make_loan(id=3, default_status="Watch List"),
+            _make_loan(id=4, default_status="Default"),
+        ]
+        result = compute_credit_risk_metrics(loans)
+        assert result["status_distribution"]["Performing"] == 2
+        assert result["status_distribution"]["Watch List"] == 1
+        assert result["status_distribution"]["Default"] == 1
+        assert result["pct_performing"] == 0.5
+
+    def test_risk_metrics_empty_portfolio(self):
+        result = compute_credit_risk_metrics([])
+        assert result["pct_performing"] == 0.0
+        assert result["wavg_ltv"] is None
+        assert result["wavg_icr"] is None
+        assert result["covenant_breach_count"] == 0
 
 
 # ---------------------------------------------------------------------------

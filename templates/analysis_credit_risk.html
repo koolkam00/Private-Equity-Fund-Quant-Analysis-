@@ -59,6 +59,46 @@
 </div>
 {% endif %}
 
+{# --- NEW: Coverage / covenant / recovery KPIs (only when data present) --- #}
+{% if analysis.loans_with_icr_count or analysis.loans_with_dscr_count or analysis.loans_with_covenant_data or analysis.wavg_recovery_rate %}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    {% if analysis.loans_with_icr_count %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg ICR</div>
+        <div class="kpi-value" style="font-family: var(--font-mono); {% if analysis.wavg_icr and analysis.wavg_icr < 1.5 %}color: var(--accent-2);{% endif %}">
+            {% if analysis.wavg_icr is not none %}{{ "%.2f"|format(analysis.wavg_icr) }}x{% else %}&mdash;{% endif %}
+        </div>
+        <div class="kpi-sublabel">{{ analysis.loans_with_icr_count }} loans</div>
+    </div>
+    {% endif %}
+    {% if analysis.loans_with_dscr_count %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg DSCR</div>
+        <div class="kpi-value" style="font-family: var(--font-mono); {% if analysis.wavg_dscr and analysis.wavg_dscr < 1.2 %}color: var(--accent-2);{% endif %}">
+            {% if analysis.wavg_dscr is not none %}{{ "%.2f"|format(analysis.wavg_dscr) }}x{% else %}&mdash;{% endif %}
+        </div>
+        <div class="kpi-sublabel">{{ analysis.loans_with_dscr_count }} loans</div>
+    </div>
+    {% endif %}
+    {% if analysis.loans_with_covenant_data %}
+    <div class="kpi-card">
+        <div class="kpi-label">Covenant Breaches</div>
+        <div class="kpi-value" style="{% if analysis.covenant_breach_count > 0 %}color: var(--danger);{% endif %}">{{ analysis.covenant_breach_count }}</div>
+        {% if analysis.covenant_breach_pct is not none %}
+        <div class="kpi-sublabel">{{ fmt_pct_1dp(analysis.covenant_breach_pct) }} by hold</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if analysis.wavg_recovery_rate is not none and analysis.wavg_recovery_rate > 0 %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Recovery</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_recovery_rate) }}</div>
+        <div class="kpi-sublabel">defaulted loans</div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {# --- Status Distribution --- #}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
     <div class="panel">

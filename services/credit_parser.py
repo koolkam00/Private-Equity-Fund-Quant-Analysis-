@@ -20,6 +20,7 @@ from models import (
     UploadIssue,
     db,
 )
+from services.deal_parser import _resolve_or_create_firm
 
 # ---------------------------------------------------------------------------
 # Column mapping — flexible header recognition
@@ -84,6 +85,7 @@ CREDIT_COLUMN_MAP = {
     "all-in rate": "coupon_rate",
     "spread": "spread_bps",
     "spread bps": "spread_bps",
+    "spread (bps)": "spread_bps",
     "credit spread": "spread_bps",
     "floor": "floor_rate",
     "rate floor": "floor_rate",
@@ -104,6 +106,7 @@ CREDIT_COLUMN_MAP = {
     "pik toggle": "pik_toggle",
     "pik rate": "pik_rate",
     "call protection": "call_protection_months",
+    "call protection (months)": "call_protection_months",
     "non-call period": "call_protection_months",
     "make whole": "make_whole_premium",
     "make-whole premium": "make_whole_premium",
@@ -455,15 +458,15 @@ def parse_credit_loan_tape(
             resolved_firm_name = first_firm
 
     if resolved_firm_id is None and resolved_firm_name:
-        firm = Firm.query.filter_by(name=resolved_firm_name).first()
-        if firm:
+        # Reuse the deal_parser helper so slug + uniqueness + base_currency are handled
+        # in one place. Previously created Firm() inline without a slug, which crashed
+        # on the NOT NULL constraint for firms.slug.
+        existing = Firm.query.filter_by(name=resolved_firm_name).first()
+        is_new = existing is None
+        firm = _resolve_or_create_firm(resolved_firm_name, "USD")
+        if firm is not None:
             resolved_firm_id = firm.id
-        else:
-            firm = Firm(name=resolved_firm_name, base_currency="USD")
-            db.session.add(firm)
-            db.session.flush()
-            resolved_firm_id = firm.id
-            if team_id:
+            if is_new and team_id:
                 db.session.add(TeamFirmAccess(team_id=team_id, firm_id=resolved_firm_id))
 
     # Per-fund replace: delete existing loans for funds in this upload

@@ -8,6 +8,12 @@ from collections import defaultdict
 from services.metrics.common import safe_divide
 
 
+# Stress assumption: floating loan NAV haircut for spread compression risk
+# under a parallel rate shock. 1.5% of fair value per +100bps captures the
+# observed mark-to-market sensitivity for senior secured floating-rate paper.
+FLOATING_NAV_HAIRCUT_PER_100BPS = 0.015
+
+
 # ---------------------------------------------------------------------------
 # Per-loan metrics
 # ---------------------------------------------------------------------------
@@ -122,21 +128,37 @@ def compute_credit_loan_metrics(loan, as_of_date=None):
 
 
 def _loan_traffic_light(loan):
-    """Return 'green', 'yellow', 'red', or 'gray' for a single loan."""
+    """Return 'green', 'yellow', 'red', or 'gray' for a single loan.
+
+    Evaluates LTV/coverage signals AND IRR/MOIC/total-value signals so loans
+    coming from LP-style uploads (no LTV but with MOIC/IRR) get a real color
+    instead of falling through to gray.
+    """
     ds = (loan.default_status or "").strip()
-    if ds in ("Default", "Restructured"):
-        return "red"
+    status = (loan.status or "").strip()
     ltv = loan.current_ltv
     cov = loan.interest_coverage_ratio
     covenant_ok = loan.covenant_compliant
+    moic_val = loan.moic
+    irr_val = loan.gross_irr
+    tv = getattr(loan, "total_value", None)
+    entry_amt = getattr(loan, "entry_loan_amount", None) or loan.hold_size
+    est_irr = getattr(loan, "estimated_irr_at_entry", None)
 
-    # Red: LTV > 90% or coverage < 1.0
+    # ----- Hard reds -----
+    if ds in ("Default", "Restructured"):
+        return "red"
     if ltv is not None and ltv > 0.90:
         return "red"
     if cov is not None and cov < 1.0:
         return "red"
+    # Underwater: total_value < 80% of entry amount
+    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.8:
+        return "red"
+    if moic_val is not None and moic_val < 0.8:
+        return "red"
 
-    # Yellow: Watch List OR LTV 75-90% OR coverage 1.0-1.5 OR covenant breach
+    # ----- Yellows -----
     if ds == "Watch List":
         return "yellow"
     if ltv is not None and ltv > 0.75:
@@ -145,40 +167,31 @@ def _loan_traffic_light(loan):
         return "yellow"
     if covenant_ok is False:
         return "yellow"
-
-    # Green: Performing + LTV < 75% + coverage > 1.5 + no covenant breach
-    if ds == "Performing":
-        if ltv is not None and cov is not None:
-            return "green"
-        # Insufficient data for full classification
-        return "green" if ltv is not None or cov is not None else "gray"
-
-    # --- NEW: IRR/MOIC-based signals (when LP provides these instead of LTV/coverage) ---
-    status = (loan.status or "").strip()
-    moic_val = loan.moic
-    irr_val = loan.gross_irr
-    tv = getattr(loan, 'total_value', None)
-    entry_amt = getattr(loan, 'entry_loan_amount', None) or loan.hold_size
-
-    # Red: underwater (total_value < entry amount) or MOIC < 0.8
-    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.8:
-        return "red"
-    if moic_val is not None and moic_val < 0.8:
-        return "red"
-
-    # Yellow: underperforming (MOIC 0.8-1.0, or IRR below estimated)
+    # Underperforming MOIC (0.8-1.0)
     if moic_val is not None and moic_val < 1.0:
         return "yellow"
-    est_irr = getattr(loan, 'estimated_irr_at_entry', None)
+    # IRR materially below entry expectation
     if irr_val is not None and est_irr is not None and irr_val < est_irr * 0.5:
         return "yellow"
+    # Slightly underwater (total_value < entry)
+    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt:
+        return "yellow"
 
-    # Green: Realized with MOIC >= 1.0 or positive IRR
+    # ----- Greens -----
+    # Performing with both LTV and coverage in good shape
+    if ds == "Performing" and ltv is not None and cov is not None:
+        return "green"
+    # Realized with positive MOIC
     if status == "Realized" and moic_val is not None and moic_val >= 1.0:
         return "green"
+    # Positive IRR signal
     if irr_val is not None and irr_val > 0:
         return "green"
+    # MOIC >= 1.0
     if moic_val is not None and moic_val >= 1.0:
+        return "green"
+    # Performing with at least partial LTV/coverage signal
+    if ds == "Performing" and (ltv is not None or cov is not None):
         return "green"
 
     return "gray"
@@ -475,6 +488,129 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
 
 
 # ---------------------------------------------------------------------------
+# Risk-page metrics (dedicated)
+# ---------------------------------------------------------------------------
+
+
+def compute_credit_risk_metrics(loans, metrics_by_id=None):
+    """Risk-specific aggregates for the credit-risk page.
+
+    Returns the fields the risk template uses today (status / rating / LTV /
+    IRR / MOIC) PLUS new aggregates for ICR, DSCR, covenant breach, and
+    recovery rate that the parser ingests but no existing metric surfaces.
+
+    Uses the same `entry_amt if entry_amt > 0 else hold` weighting convention
+    as compute_credit_portfolio_analytics so the two functions stay consistent.
+    """
+    if metrics_by_id is None:
+        metrics_by_id = {l.id: compute_credit_loan_metrics(l) for l in loans}
+
+    weighted_ltv = 0.0
+    ltv_denom = 0.0
+    weighted_irr = 0.0
+    irr_denom = 0.0
+    weighted_moic = 0.0
+    moic_denom = 0.0
+    weighted_icr = 0.0
+    icr_denom = 0.0
+    weighted_dscr = 0.0
+    dscr_denom = 0.0
+    weighted_recovery = 0.0
+    recovery_denom = 0.0
+
+    total_total_value = 0.0
+    total_entry_loan = 0.0
+    total_hold = 0.0
+    covenant_breach_hold = 0.0
+    covenant_breach_count = 0
+    loans_with_icr = 0
+    loans_with_dscr = 0
+    loans_with_covenant_data = 0
+    has_new_fields = False
+
+    status_dist = defaultdict(int)
+    rating_dist = defaultdict(int)
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
+        hold = (loan.hold_size or 0.0) * fx
+        weight = entry_amt if entry_amt > 0 else hold
+
+        total_hold += hold
+        total_entry_loan += entry_amt
+        total_total_value += (getattr(loan, "total_value", None) or 0.0) * fx
+
+        if loan.current_ltv is not None and weight > 0:
+            weighted_ltv += loan.current_ltv * weight
+            ltv_denom += weight
+
+        if loan.gross_irr is not None and weight > 0:
+            weighted_irr += loan.gross_irr * weight
+            irr_denom += weight
+        if loan.moic is not None and weight > 0:
+            weighted_moic += loan.moic * weight
+            moic_denom += weight
+
+        if loan.interest_coverage_ratio is not None and weight > 0:
+            weighted_icr += loan.interest_coverage_ratio * weight
+            icr_denom += weight
+            loans_with_icr += 1
+
+        if loan.dscr is not None and weight > 0:
+            weighted_dscr += loan.dscr * weight
+            dscr_denom += weight
+            loans_with_dscr += 1
+
+        if loan.covenant_compliant is not None:
+            loans_with_covenant_data += 1
+            if loan.covenant_compliant is False:
+                covenant_breach_count += 1
+                covenant_breach_hold += weight if weight > 0 else hold
+
+        rec_rate = getattr(loan, "recovery_rate", None)
+        if rec_rate is not None and (loan.default_status or "") in ("Default", "Restructured"):
+            default_weight = weight if weight > 0 else hold
+            if default_weight > 0:
+                weighted_recovery += rec_rate * default_weight
+                recovery_denom += default_weight
+
+        status_dist[loan.default_status or "Unknown"] += 1
+        if loan.internal_credit_rating is not None:
+            rating_dist[loan.internal_credit_rating] += 1
+
+        if any(getattr(loan, f, None) is not None for f in ("entry_loan_amount", "total_value", "committed_amount")):
+            has_new_fields = True
+
+    performing_count = status_dist.get("Performing", 0)
+    pct_performing = safe_divide(performing_count, len(loans), 0.0) if loans else 0.0
+    covenant_breach_pct = safe_divide(covenant_breach_hold, total_hold) if total_hold > 0 else None
+
+    return {
+        # Existing fields the risk template already consumes
+        "pct_performing": pct_performing,
+        "wavg_ltv": safe_divide(weighted_ltv, ltv_denom),
+        "status_distribution": dict(status_dist),
+        "rating_distribution": dict(rating_dist),
+        "weighted_avg_irr": safe_divide(weighted_irr, irr_denom),
+        "weighted_avg_moic": safe_divide(weighted_moic, moic_denom),
+        "total_total_value": total_total_value if has_new_fields else None,
+        "total_entry_loan": total_entry_loan if has_new_fields else None,
+        "has_new_fields": has_new_fields,
+        "has_revenue_data": any(getattr(l, "ttm_revenue_entry", None) is not None for l in loans),
+        # NEW: ICR / DSCR / covenant / recovery aggregates
+        "wavg_icr": safe_divide(weighted_icr, icr_denom),
+        "wavg_dscr": safe_divide(weighted_dscr, dscr_denom),
+        "loans_with_icr_count": loans_with_icr,
+        "loans_with_dscr_count": loans_with_dscr,
+        "covenant_breach_count": covenant_breach_count,
+        "covenant_breach_pct": covenant_breach_pct,
+        "loans_with_covenant_data": loans_with_covenant_data,
+        "wavg_recovery_rate": safe_divide(weighted_recovery, recovery_denom),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Yield attribution
 # ---------------------------------------------------------------------------
 
@@ -638,11 +774,12 @@ def compute_credit_stress_scenarios(loans, scenario):
             # Already defaulted, apply recovery rate
             stressed_nav += hold * recovery_shock
         else:
-            # Rate shock: floating loans lose value proportional to rate increase
+            # Rate shock: floating loans take a NAV haircut for spread compression.
+            # Fixed loans are unaffected here (the fair_value mark already prices in
+            # rate moves) — see test_stress_fixed_unaffected.
             if (loan.fixed_or_floating or "").lower() == "floating" and rate_shock != 0:
-                # Approximate: rate shock affects yield, not directly NAV for floating
-                # But spread compression could reduce fair value
-                stressed_nav += fv
+                haircut = (rate_shock / 100.0) * FLOATING_NAV_HAIRCUT_PER_100BPS
+                stressed_nav += fv * (1.0 - haircut)
             else:
                 stressed_nav += fv
 
