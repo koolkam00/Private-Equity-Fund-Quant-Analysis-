@@ -182,3 +182,34 @@
     </nav>
     {%- endif -%}
 {%- endmacro %}
+
+{% macro credit_firm_banner() -%}
+    {%- if app_firms and app_firms|length > 1 -%}
+    <div class="panel panel-tight" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); margin-bottom: 2px;">Analyzing Credit For</div>
+            <div style="font-size: 16px; font-weight: 500; color: var(--ink);">
+                {{ app_active_firm.name if app_active_firm else "No firm selected" }}
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" class="btn-upload btn-secondary firm-picker-trigger" aria-haspopup="dialog" aria-controls="firm-picker-modal">
+                <i class="bi bi-arrow-left-right"></i> Switch Firm
+            </button>
+            <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload btn-secondary" style="text-decoration: none;">
+                <i class="bi bi-gear"></i> Manage Data
+            </a>
+        </div>
+    </div>
+    {%- elif app_active_firm -%}
+    <div class="panel panel-tight" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); margin-bottom: 2px;">Analyzing Credit For</div>
+            <div style="font-size: 16px; font-weight: 500; color: var(--ink);">{{ app_active_firm.name }}</div>
+        </div>
+        <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload btn-secondary" style="text-decoration: none;">
+            <i class="bi bi-gear"></i> Manage Data
+        </a>
+    </div>
+    {%- endif -%}
+{%- endmacro %}

@@ -2749,6 +2749,8 @@ function initFirmPicker() {
     const payload = getJsonScriptPayload('firm-picker-data-payload');
     const modal = document.getElementById('firm-picker-modal');
     const trigger = document.getElementById('firm-picker-trigger');
+    const extraTriggers = Array.from(document.querySelectorAll('.firm-picker-trigger'))
+        .filter((el) => el.id !== 'firm-picker-trigger');
     const searchInput = document.getElementById('firm-picker-search');
     const sections = document.getElementById('firm-picker-sections');
     const empty = document.getElementById('firm-picker-empty');
@@ -2784,6 +2786,7 @@ function initFirmPicker() {
     saveFirmPickerPreferences();
 
     trigger.addEventListener('click', () => openFirmPicker());
+    extraTriggers.forEach((btn) => btn.addEventListener('click', () => openFirmPicker()));
     searchInput.addEventListener('input', () => renderFirmPicker());
     modal.querySelectorAll('[data-firm-picker-close]').forEach((btn) => {
         btn.addEventListener('click', () => closeFirmPicker());

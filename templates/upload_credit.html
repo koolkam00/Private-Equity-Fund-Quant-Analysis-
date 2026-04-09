@@ -5,6 +5,20 @@
 
 {% block content %}
 
+{% if app_firms and app_firms|length > 1 %}
+<div class="panel" style="max-width: 640px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+    <div>
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); margin-bottom: 2px;">Analyzing Credit For</div>
+        <div style="font-size: 16px; font-weight: 500; color: var(--ink);">
+            {{ app_active_firm.name if app_active_firm else "No firm selected" }}
+        </div>
+    </div>
+    <button type="button" class="btn-upload btn-secondary firm-picker-trigger" aria-haspopup="dialog" aria-controls="firm-picker-modal">
+        <i class="bi bi-arrow-left-right"></i> Switch Firm
+    </button>
+</div>
+{% endif %}
+
 <div class="panel" style="max-width: 640px;">
     <form method="POST" action="{{ url_for('upload_credit_loans') }}" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

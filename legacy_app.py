@@ -1155,7 +1155,7 @@ def _resolve_active_firm_for_team():
                 return firm
 
     accessible_ids = [firm.id for firm in accessible]
-    with_data_ids = {
+    deal_firm_ids = {
         row[0]
         for row in db.session.query(Deal.firm_id)
         .filter(Deal.firm_id.in_(accessible_ids))
@@ -1163,6 +1163,15 @@ def _resolve_active_firm_for_team():
         .all()
         if row[0] is not None
     }
+    credit_firm_ids = {
+        row[0]
+        for row in db.session.query(CreditLoan.firm_id)
+        .filter(CreditLoan.firm_id.in_(accessible_ids))
+        .distinct()
+        .all()
+        if row[0] is not None
+    }
+    with_data_ids = deal_firm_ids | credit_firm_ids
     candidate = next((firm for firm in accessible if firm.id in with_data_ids), accessible[0])
     _set_active_firm_scope(candidate.id)
     return candidate

@@ -1,10 +1,12 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, credit_firm_banner with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}{{ page_meta.description }}{% endblock %}
 
 {% block content %}
+
+{{ credit_firm_banner() }}
 
 {# --- Filters --- #}
 <div class="panel panel-tight filter-panel">
