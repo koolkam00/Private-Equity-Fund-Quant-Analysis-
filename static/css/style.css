@@ -2037,6 +2037,34 @@ body.pe-app {
 .btn-danger-soft:hover {
     background: #f0d0d3;
 }
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+}
+.btn-danger:hover {
+    background: #b91c2a;
+}
+.badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    vertical-align: middle;
+    background: var(--line);
+    color: var(--ink-muted);
+}
+.badge-danger {
+    background: var(--danger-light);
+    color: var(--danger);
+}
+.badge-ok {
+    background: rgba(34, 139, 80, 0.12);
+    color: #1a7a3f;
+}
+.row-muted td {
+    opacity: 0.5;
+}
 .inline-form {
     display: inline-block;
     margin-right: 6px;

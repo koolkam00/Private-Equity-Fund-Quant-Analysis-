@@ -3601,6 +3601,122 @@ def accept_invite(token):
     return render_template("accept_invite.html", invite=invite, team=team_obj)
 
 
+@app.route("/team/members/<int:user_id>/toggle-active", methods=["POST"])
+@login_required
+def toggle_member_active(user_id):
+    """Owner/admin can activate or deactivate any team member (except themselves)."""
+    membership = _require_team_scope()
+    if not _is_team_admin(membership):
+        abort(403)
+
+    # Can't deactivate yourself
+    if user_id == current_user.id:
+        flash("You cannot deactivate your own account.", "warning")
+        return redirect(url_for("team"))
+
+    target_membership = TeamMembership.query.filter_by(
+        team_id=membership.team_id, user_id=user_id
+    ).first_or_404()
+
+    # Only owners can touch other owners/admins
+    if target_membership.role in {TEAM_ROLE_OWNER, TEAM_ROLE_ADMIN} and membership.role != TEAM_ROLE_OWNER:
+        flash("Only owners can activate or deactivate admins.", "warning")
+        return redirect(url_for("team"))
+
+    target_user = db.session.get(User, user_id)
+    if target_user is None:
+        abort(404)
+
+    target_user.is_active = not target_user.is_active
+    db.session.commit()
+    state = "activated" if target_user.is_active else "deactivated"
+    flash(f"{target_user.email} has been {state}.", "success")
+    return redirect(url_for("team"))
+
+
+@app.route("/team/members/<int:user_id>/delete", methods=["POST"])
+@login_required
+def delete_team_member(user_id):
+    """Owner can remove a user from the team (and deactivate them if they have no other team)."""
+    membership = _require_team_scope()
+    if membership.role != TEAM_ROLE_OWNER:
+        abort(403)
+
+    if user_id == current_user.id:
+        flash("You cannot remove yourself from the team.", "warning")
+        return redirect(url_for("team"))
+
+    target_membership = TeamMembership.query.filter_by(
+        team_id=membership.team_id, user_id=user_id
+    ).first_or_404()
+
+    target_user = db.session.get(User, user_id)
+    email = target_user.email if target_user else f"User #{user_id}"
+
+    db.session.delete(target_membership)
+
+    # If the user has no remaining team memberships, deactivate their account
+    remaining = TeamMembership.query.filter_by(user_id=user_id).count()
+    if remaining == 0 and target_user is not None:
+        target_user.is_active = False
+
+    db.session.commit()
+    flash(f"{email} has been removed from the team.", "success")
+    return redirect(url_for("team"))
+
+
+@app.route("/team/members/add", methods=["POST"])
+@login_required
+def add_team_member_direct():
+    """Owner can add a user directly (create account + membership in one step, no invite needed)."""
+    membership = _require_team_scope()
+    if membership.role != TEAM_ROLE_OWNER:
+        abort(403)
+
+    email = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password") or ""
+    role = request.form.get("role") or TEAM_ROLE_MEMBER
+
+    if not email or "@" not in email:
+        flash("A valid email is required.", "danger")
+        return redirect(url_for("team"))
+    if len(password) < 8:
+        flash("Password must be at least 8 characters.", "danger")
+        return redirect(url_for("team"))
+    if role not in TEAM_ALLOWED_ROLES:
+        role = TEAM_ROLE_MEMBER
+
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user is not None:
+        # User exists — reactivate and add to team if not already a member
+        existing_user.is_active = True
+        existing_user.password_hash = generate_password_hash(password)
+        user = existing_user
+    else:
+        user = User(
+            email=email,
+            password_hash=generate_password_hash(password),
+            is_active=True,
+        )
+        db.session.add(user)
+        db.session.flush()
+
+    existing_membership = TeamMembership.query.filter_by(
+        team_id=membership.team_id, user_id=user.id
+    ).first()
+    if existing_membership is not None:
+        existing_membership.role = role
+        flash(f"{email} already on team — role updated to {role} and account reactivated.", "success")
+    else:
+        db.session.add(
+            TeamMembership(team_id=membership.team_id, user_id=user.id, role=role)
+        )
+        flash(f"{email} added to team as {role}.", "success")
+
+    db.session.commit()
+    return redirect(url_for("team"))
+
+
 @app.route("/firms")
 @login_required
 def firms():

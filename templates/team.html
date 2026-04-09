@@ -1,50 +1,123 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_field with context %}
-{% block title %}Team Collaboration — PE Portfolio Lab{% endblock %}
-{% block page_title %}Team Collaboration{% endblock %}
+{% block title %}Team — PE Portfolio Lab{% endblock %}
+{% block page_title %}Team{% endblock %}
 {% block page_actions %}{% if team %}<span class="record-count">{{ team.name }}</span>{% endif %}{% endblock %}
 
 {% block content %}
-<div class="panel two-col">
-    <section>
-        <h3>Members</h3>
-        <table class="data-table compact">
-            <thead>
-                <tr>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Joined</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in member_rows %}
-                <tr>
-                    <td>{{ row[1].email }}</td>
-                    <td>{{ row[0].role }}</td>
-                    <td>{{ row[0].created_at.strftime("%Y-%m-%d") if row[0].created_at else "—" }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="3">No members yet.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </section>
 
+{# --- Members table --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h3 style="margin: 0;">Members</h3>
+    </div>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last Login</th>
+                <th>Joined</th>
+                {% if membership.role in ['owner', 'admin'] %}<th style="width: 160px;"></th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in member_rows %}
+            {% set m = row[0] %}
+            {% set u = row[1] %}
+            {% set is_self = u.id == current_user.id %}
+            {% set can_touch = not is_self and (membership.role == 'owner' or m.role == 'member') %}
+            <tr class="{% if not u.is_active %}row-muted{% endif %}">
+                <td>
+                    {{ u.email }}
+                    {% if not u.is_active %}<span class="badge badge-danger" style="margin-left: 6px;">Inactive</span>{% endif %}
+                    {% if is_self %}<span class="badge" style="margin-left: 6px; opacity: 0.5;">you</span>{% endif %}
+                </td>
+                <td>{{ m.role }}</td>
+                <td>{{ "Active" if u.is_active else "Inactive" }}</td>
+                <td>{{ u.last_login_at.strftime("%Y-%m-%d") if u.last_login_at else "Never" }}</td>
+                <td>{{ m.created_at.strftime("%Y-%m-%d") if m.created_at else "—" }}</td>
+                {% if membership.role in ['owner', 'admin'] %}
+                <td style="text-align: right; white-space: nowrap;">
+                    {% if can_touch %}
+                    <form method="POST" action="{{ url_for('toggle_member_active', user_id=u.id) }}" style="display: inline;">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn-upload btn-secondary btn-sm"
+                            title="{{ 'Reactivate account' if not u.is_active else 'Deactivate account' }}"
+                            style="font-size: 11px; padding: 3px 8px;">
+                            {{ "Reactivate" if not u.is_active else "Deactivate" }}
+                        </button>
+                    </form>
+                    {% if membership.role == 'owner' %}
+                    <form method="POST" action="{{ url_for('delete_team_member', user_id=u.id) }}"
+                        style="display: inline;"
+                        onsubmit="return confirm('Remove {{ u.email }} from the team? This cannot be undone.');">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn-upload btn-danger btn-sm"
+                            style="font-size: 11px; padding: 3px 8px; margin-left: 4px;">
+                            Remove
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% else %}
+                    <span style="font-size: 11px; color: var(--ink-faint);">—</span>
+                    {% endif %}
+                </td>
+                {% endif %}
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No members yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel two-col">
+
+    {# --- Add user directly (owner only) --- #}
+    {% if membership.role == 'owner' %}
     <section>
-        <h3>Invites</h3>
-        <p class="tiny">Teams manage collaboration and access. Data analytics scope is controlled by the active firm selector.</p>
-        {% if membership.role in ['owner', 'admin'] %}
+        <h3>Add User</h3>
+        <p class="tiny">Creates an account immediately with credentials you set. Use this to restore access for expired or inactive accounts too — it will reactivate them and reset their password.</p>
+        <form method="POST" action="{{ url_for('add_team_member_direct') }}" class="auth-form">
+            {{ csrf_field() }}
+            <label class="filter-field">
+                <span>Email</span>
+                <input type="email" name="email" required placeholder="investor@firm.com">
+            </label>
+            <label class="filter-field">
+                <span>Password</span>
+                <input type="password" name="password" required placeholder="Min. 8 characters" autocomplete="new-password">
+            </label>
+            <label class="filter-field">
+                <span>Role</span>
+                <select name="role">
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                    <option value="owner">Owner</option>
+                </select>
+            </label>
+            <button type="submit" class="btn-upload">Add User</button>
+        </form>
+    </section>
+    {% endif %}
+
+    {# --- Invite link (owner/admin) --- #}
+    {% if membership.role in ['owner', 'admin'] %}
+    <section>
+        <h3>Invite via Link</h3>
+        <p class="tiny">Send an invite link that lets the user create their own password. Links expire after 7 days.</p>
         <form method="POST" action="{{ url_for('create_team_invite') }}" class="auth-form">
             {{ csrf_field() }}
             <label class="filter-field">
                 <span>Invite Email</span>
                 <input type="email" name="email" required placeholder="investor@firm.com">
             </label>
-            <button type="submit" class="btn-upload">Create Invite Link</button>
+            <button type="submit" class="btn-upload btn-secondary">Create Invite Link</button>
         </form>
-        {% endif %}
 
-        <table class="data-table compact">
+        <table class="data-table compact" style="margin-top: 16px;">
             <thead>
                 <tr>
                     <th>Email</th>
@@ -54,10 +127,10 @@
             </thead>
             <tbody>
                 {% for invite in invites %}
-                <tr>
+                <tr class="{% if invite.expires_at < now_utc %}row-muted{% endif %}">
                     <td>{{ invite.email }}</td>
-                    <td>{% if invite.expires_at < now_utc %}Expired{% else %}Pending{% endif %}</td>
-                    <td>{{ invite.expires_at.strftime("%Y-%m-%d %H:%M") if invite.expires_at else "—" }} UTC</td>
+                    <td>{% if invite.expires_at < now_utc %}<span class="badge badge-danger">Expired</span>{% else %}<span class="badge badge-ok">Pending</span>{% endif %}</td>
+                    <td>{{ invite.expires_at.strftime("%Y-%m-%d") if invite.expires_at else "—" }}</td>
                 </tr>
                 {% else %}
                 <tr><td colspan="3">No pending invites.</td></tr>
@@ -65,5 +138,7 @@
             </tbody>
         </table>
     </section>
+    {% endif %}
+
 </div>
 {% endblock %}
