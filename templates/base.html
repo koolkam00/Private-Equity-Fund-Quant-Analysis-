@@ -85,7 +85,14 @@
             {% if app_credit_sidebar_items is defined and app_credit_sidebar_items %}
             <div class="nav-section">Private Credit</div>
             {% for item in app_credit_sidebar_items %}
-            <a href="{{ url_for('credit_analysis_page', page=item.page_key) }}" class="nav-item nav-sub {% if page_key is defined and page_key == item.page_key %}active{% endif %}"><i
+            {% if item.page_key %}
+                {% set item_active = page_key is defined and page_key == item.page_key %}
+                {% set item_href = url_for('credit_analysis_page', page=item.page_key) %}
+            {% else %}
+                {% set item_active = request.endpoint in (item.active_endpoints or [item.endpoint]) %}
+                {% set item_href = url_for(item.endpoint) %}
+            {% endif %}
+            <a href="{{ item_href }}" class="nav-item nav-sub {% if item_active %}active{% endif %}"><i
                     class="{{ item.icon }}"></i> {{ item.label }}</a>
             {% endfor %}
             <a href="{{ url_for('upload_credit_loans') }}" class="nav-item nav-sub {% if request.endpoint == 'upload_credit_loans' %}active{% endif %}"><i

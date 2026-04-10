@@ -8,6 +8,7 @@ because the parser map only had `spread bps` and `call protection`.
 """
 
 from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 
@@ -458,6 +459,84 @@ def test_active_credit_analysis_pages_do_not_render_default_status_controls(cred
     underwrite_resp = client.get("/credit/analysis/credit-underwrite-outcome")
     assert underwrite_resp.status_code == 200
     assert "Default status:" not in underwrite_resp.get_data(as_text=True)
+
+
+def test_credit_pdf_pack_live_page_renders_sidebar_export_link_and_targets(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Credit PDF Live Firm")
+    _seed_credit_benchmark_thresholds(team_id)
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+        sess["selected_benchmark_asset_class"] = "Private Credit"
+
+    resp = client.get("/reports/credit-pdf-pack/live")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Download 7 Credit Analysis PDFs" in body
+    assert "Download 7-PDF ZIP" in body
+    assert "/credit/analysis/credit-track-record/pdf" in body
+    assert "/credit/analysis/credit-benchmarking/pdf" in body
+    assert "/credit/analysis/credit-concentration/pdf" in body
+    assert "/credit/analysis/credit-fundamentals/pdf" in body
+    assert "/credit/analysis/credit-pricing-trends/pdf" in body
+    assert "/credit/analysis/credit-underwrite-outcome/pdf" in body
+    assert "/credit/analysis/credit-data-cuts/pdf" in body
+    assert "/reports/credit-pdf-pack/live" in body
+
+
+def test_credit_pdf_pack_download_returns_separate_pdfs(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_name = "Credit PDF Pack Firm"
+    firm_id = _seed_template_loans(client, team_id, firm_name=firm_name)
+    _seed_credit_benchmark_thresholds(team_id)
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+        sess["selected_benchmark_asset_class"] = "Private Credit"
+
+    resp = client.get("/reports/credit-pdf-pack")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/zip"
+
+    disposition = resp.headers.get("Content-Disposition", "")
+    assert "attachment;" in disposition
+    assert ".zip" in disposition
+    assert "Credit%20Analysis%20PDF%20Pack" in disposition or "Credit Analysis PDF Pack" in disposition
+
+    archive = ZipFile(BytesIO(resp.data))
+    names = sorted(archive.namelist())
+    assert len(names) == 7
+    expected_analysis_names = (
+        "Credit Track Record",
+        "Credit Benchmarking Analysis",
+        "Credit Concentration",
+        "Credit Fundamentals",
+        "Credit Pricing Trends",
+        "Credit Underwrite vs Outcome",
+        "Credit Data Cuts Summary",
+    )
+    for analysis_name in expected_analysis_names:
+        assert any(analysis_name in name for name in names)
+    for name in names:
+        assert firm_name in name
+        assert name.endswith(".pdf")
+        assert archive.read(name).startswith(b"%PDF")
+
+
+def test_credit_individual_pdf_download_returns_pdf_bytes(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Credit Single PDF Firm")
+    _seed_credit_benchmark_thresholds(team_id)
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+        sess["selected_benchmark_asset_class"] = "Private Credit"
+
+    resp = client.get("/credit/analysis/credit-track-record/pdf")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/pdf"
+    assert resp.data.startswith(b"%PDF")
 
 
 def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):

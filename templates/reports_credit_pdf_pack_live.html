@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Download 7 Credit Analysis PDFs — PE Portfolio Lab{% endblock %}
+{% block page_title %}Download 7 Credit Analysis PDFs{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h3>Private Credit PDF Export Hub</h3>
+    <p class="subtitle">
+        Download a ZIP containing one PDF per active private credit analysis, or open the individual PDFs one by one.
+        Each filename includes the firm name, analysis name, and data as-of date.
+    </p>
+    <p class="tiny">
+        Benchmark asset class: {{ benchmark_asset_class or "Not Selected" }}.
+        Data as of {{ as_of_date.strftime("%m/%d/%y") if as_of_date else "today" }}.
+    </p>
+    <div class="filter-actions" style="margin-top:10px;">
+        <a class="btn-upload btn-filter-apply" href="{{ bundle_url }}">
+            <i class="bi bi-file-earmark-zip"></i> Download 7-PDF ZIP
+        </a>
+    </div>
+</div>
+
+<div class="panel" style="margin-top:14px;">
+    <h4>Individual Exports</h4>
+    <table class="data-table compact">
+        <thead>
+            <tr>
+                <th>Report</th>
+                <th>Target Filename</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for link in links %}
+            <tr>
+                <td>{{ link.label }}</td>
+                <td><code>{{ link.title }}.pdf</code></td>
+                <td>
+                    <a class="btn-upload btn-secondary" href="{{ link.url }}">
+                        Download PDF
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

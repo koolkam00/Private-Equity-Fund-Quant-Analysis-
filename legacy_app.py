@@ -108,6 +108,8 @@ from services.metrics import (
     run_chart_query,
 )
 from services.metrics.credit import (
+    CREDIT_DIMENSIONS,
+    CREDIT_DIMENSION_LABELS,
     compute_credit_benchmarking_analysis,
     compute_credit_concentration,
     compute_credit_data_cuts,
@@ -318,7 +320,18 @@ CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-pricing-trends", "label": "Pricing Trends", "icon": "bi bi-graph-up-arrow"},
     {"page_key": "credit-underwrite-outcome", "label": "Underwrite vs Outcome", "icon": "bi bi-bullseye"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
+    {"endpoint": "live_credit_pdf_pack", "label": "Download 7 Analysis PDFs", "icon": "bi bi-file-earmark-zip"},
 ]
+
+CREDIT_PDF_EXPORT_PAGES = (
+    {"page": "credit-track-record", "analysis_name": "Credit Track Record"},
+    {"page": "credit-benchmarking", "analysis_name": "Credit Benchmarking Analysis"},
+    {"page": "credit-concentration", "analysis_name": "Credit Concentration"},
+    {"page": "credit-fundamentals", "analysis_name": "Credit Fundamentals"},
+    {"page": "credit-pricing-trends", "analysis_name": "Credit Pricing Trends"},
+    {"page": "credit-underwrite-outcome", "analysis_name": "Credit Underwrite vs Outcome"},
+    {"page": "credit-data-cuts", "analysis_name": "Credit Data Cuts Summary"},
+)
 
 TEAM_ROLE_OWNER = "owner"
 TEAM_ROLE_ADMIN = "admin"
@@ -372,6 +385,9 @@ ROUTE_BLUEPRINTS = {
     "download_track_record_pdf": "reports",
     "live_ic_pdf_pack": "reports",
     "download_ic_pdf_pack": "reports",
+    "live_credit_pdf_pack": "reports",
+    "download_credit_pdf_pack": "reports",
+    "download_credit_analysis_pdf": "reports",
     "memo_studio": "memos",
     "memo_style_library": "memos",
     "memo_source_library": "memos",
@@ -1503,7 +1519,10 @@ def inject_global_scope_context():
         ]
         credit_sidebar_items = [
             item for item in CREDIT_SIDEBAR_ITEMS
-            if item.get("page_key") in CREDIT_ANALYSIS_PAGES
+            if (
+                item.get("page_key") in CREDIT_ANALYSIS_PAGES
+                or item.get("endpoint")
+            )
         ]
         return {
             "app_firms": firms,
@@ -2560,6 +2579,1084 @@ def _build_track_record_pdf(track_record, currency_code=DEFAULT_CURRENCY_CODE, r
     )
     doc.build([title, generated, Spacer(1, 8), table])
     return buffer.getvalue()
+
+
+def _resolve_credit_analysis_as_of_date(loans, fund_performance=None):
+    report_dates = [
+        getattr(row, "report_date", None)
+        for row in (fund_performance or {}).values()
+        if getattr(row, "report_date", None) is not None
+    ]
+    if report_dates:
+        return max(report_dates)
+
+    explicit_as_of_dates = [
+        getattr(loan, "as_of_date", None)
+        for loan in loans
+        if getattr(loan, "as_of_date", None) is not None
+    ]
+    if explicit_as_of_dates:
+        return max(explicit_as_of_dates)
+
+    exit_dates = [
+        getattr(loan, "exit_date", None)
+        for loan in loans
+        if getattr(loan, "exit_date", None) is not None
+    ]
+    if exit_dates:
+        return max(exit_dates)
+
+    close_dates = [
+        getattr(loan, "close_date", None)
+        for loan in loans
+        if getattr(loan, "close_date", None) is not None
+    ]
+    if close_dates:
+        return max(close_dates)
+
+    return date.today()
+
+
+def _credit_pdf_meta_line(as_of_date, currency_code=DEFAULT_CURRENCY_CODE, extras=None):
+    parts = [
+        f"As of {_as_of_ymd(as_of_date)}",
+        currency_unit_label(currency_code),
+    ]
+    parts.extend([extra for extra in (extras or []) if extra])
+    return " | ".join(parts)
+
+
+def _build_empty_report_pdf(
+    report_title,
+    *,
+    as_of_date=None,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    note="No rows available for export.",
+    pagesize=None,
+):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
+    buffer = BytesIO()
+    styles = getSampleStyleSheet()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=pagesize or landscape(letter),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(_credit_pdf_meta_line(as_of_date, currency_code), styles["Normal"]),
+        Spacer(1, 8),
+        Paragraph(note, styles["Normal"]),
+    ]
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_pdf_table(
+    table_data,
+    *,
+    col_widths,
+    numeric_cols=None,
+    repeat_rows=1,
+    header_rows=1,
+    font_size=7.0,
+    emphasized_rows=None,
+    span_rows=None,
+):
+    from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
+
+    numeric_cols = set(numeric_cols or [])
+    emphasized_rows = emphasized_rows or {}
+    span_rows = span_rows or {}
+
+    table = Table(table_data, colWidths=col_widths, repeatRows=repeat_rows)
+    style_cmds = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", font_size),
+        ("FONT", (0, 0), (-1, header_rows - 1), "Helvetica-Bold", font_size + 0.2),
+        ("BACKGROUND", (0, 0), (-1, header_rows - 1), colors.HexColor("#1f4d78")),
+        ("TEXTCOLOR", (0, 0), (-1, header_rows - 1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#b5c6d6")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]
+
+    for idx in numeric_cols:
+        style_cmds.append(("ALIGN", (idx, header_rows), (idx, -1), "RIGHT"))
+
+    for row_idx in range(header_rows, len(table_data)):
+        if row_idx in span_rows:
+            bg = span_rows[row_idx]
+            style_cmds.extend(
+                [
+                    ("SPAN", (0, row_idx), (-1, row_idx)),
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor(bg)),
+                    ("TEXTCOLOR", (0, row_idx), (-1, row_idx), colors.HexColor("#0d2740")),
+                    ("FONT", (0, row_idx), (-1, row_idx), "Helvetica-Bold", font_size + 0.2),
+                    ("ALIGN", (0, row_idx), (-1, row_idx), "LEFT"),
+                ]
+            )
+            continue
+
+        if row_idx in emphasized_rows:
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor(emphasized_rows[row_idx])),
+                    ("FONT", (0, row_idx), (-1, row_idx), "Helvetica-Bold", font_size),
+                ]
+            )
+            continue
+
+        style_cmds.append(
+            (
+                "BACKGROUND",
+                (0, row_idx),
+                (-1, row_idx),
+                colors.HexColor("#f8fbff") if (row_idx - header_rows) % 2 == 0 else colors.HexColor("#edf4fc"),
+            )
+        )
+
+    table.setStyle(TableStyle(style_cmds))
+    return table
+
+
+def _credit_track_totals_to_pdf_row(label, totals, include_fund_size=True, currency_code=DEFAULT_CURRENCY_CODE):
+    return [
+        "",
+        label,
+        "",
+        "",
+        "",
+        _fmt_track_years(totals.get("hold_period")),
+        _fmt_track_pct(totals.get("pct_total_invested")),
+        _fmt_track_pct(totals.get("pct_fund_size")) if include_fund_size else "—",
+        _fmt_track_currency(totals.get("invested_equity"), currency_code=currency_code),
+        _fmt_track_currency(totals.get("realized_value"), currency_code=currency_code),
+        _fmt_track_currency(totals.get("unrealized_value"), currency_code=currency_code),
+        _fmt_track_currency(
+            totals.get("unrealized_warrant_equity_value"), currency_code=currency_code
+        ),
+        _fmt_track_currency(totals.get("total_value"), currency_code=currency_code),
+        _fmt_track_pct(totals.get("gross_irr")),
+        _fmt_track_multiple(totals.get("gross_moic")),
+        _fmt_track_multiple(totals.get("realized_gross_moic")),
+        _fmt_track_multiple(totals.get("unrealized_gross_moic")),
+    ]
+
+
+def _build_credit_track_record_pdf(
+    track_record,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title=None,
+    as_of_date=None,
+):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A3, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    headers = [
+        "#",
+        "Company",
+        "Status",
+        "Close Date",
+        "Exit Date",
+        "Hold Period",
+        "% of Fund Invested",
+        "% of Fund Size",
+        "Current Invested Capital",
+        "Realized Value",
+        "Unrealized Value",
+        "Unrealized Equity Value",
+        "Total Value",
+        "Gross IRR",
+        "Gross MOIC",
+        "Realized MOIC",
+        "Unrealized MOIC",
+    ]
+    rows = [headers]
+    row_tags = ["header"]
+
+    for fund in track_record.get("funds", []):
+        fund_title = fund.get("fund_name") or "Unknown Fund"
+        if fund.get("vintage_year") is not None:
+            fund_title = f"{fund_title} · Vintage {fund['vintage_year']}"
+        if fund.get("fund_size") is not None:
+            fund_title = f"{fund_title} ({format_currency_millions(fund['fund_size'], currency_code=currency_code, show_code=True)})"
+        rows.append([fund_title] + [""] * 16)
+        row_tags.append("fund_header")
+
+        for row in fund.get("rows", []):
+            company_label = row.get("company_name") or "Unknown Company"
+            if row.get("sector"):
+                company_label = f"{company_label} · {row['sector']}"
+            rows.append(
+                [
+                    str(row.get("row_num") or ""),
+                    company_label,
+                    row.get("status") or "—",
+                    _fmt_track_date(row.get("investment_date")),
+                    _fmt_track_date(row.get("exit_date")),
+                    _fmt_track_years(row.get("hold_period")),
+                    _fmt_track_pct(row.get("pct_total_invested")),
+                    _fmt_track_pct(row.get("pct_fund_size")),
+                    _fmt_track_currency(row.get("current_invested_capital"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("realized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("unrealized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("unrealized_warrant_equity_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("total_value"), currency_code=currency_code),
+                    _fmt_track_pct(row.get("gross_irr")),
+                    _fmt_track_multiple(row.get("gross_moic")),
+                    _fmt_track_multiple(row.get("realized_gross_moic")),
+                    _fmt_track_multiple(row.get("unrealized_gross_moic")),
+                ]
+            )
+            row_tags.append("detail")
+
+        for rollup in fund.get("status_rollups", []):
+            rows.append(
+                _credit_track_totals_to_pdf_row(
+                    rollup.get("label", "Status Rollup"),
+                    rollup.get("totals", {}),
+                    include_fund_size=True,
+                    currency_code=currency_code,
+                )
+            )
+            row_tags.append("rollup_status")
+
+        for rollup in fund.get("summary_rollups", []):
+            rows.append(
+                _credit_track_totals_to_pdf_row(
+                    rollup.get("label", "Fund Rollup"),
+                    rollup.get("totals", {}),
+                    include_fund_size=True,
+                    currency_code=currency_code,
+                )
+            )
+            row_tags.append("rollup_summary")
+
+        net = fund.get("net_performance", {})
+        net_irr_val = "N/A" if net.get("net_irr") is None else _fmt_track_pct(net.get("net_irr"))
+        net_tvpi_val = "N/A" if net.get("net_tvpi") is None else _fmt_track_multiple(net.get("net_tvpi"))
+        net_dpi_val = "N/A" if net.get("net_dpi") is None else _fmt_track_multiple(net.get("net_dpi"))
+
+        rows.append(
+            ["", f"{fund.get('fund_name', 'Fund')} Net Performance"] + [""] * 11 + ["Net IRR:", net_irr_val, "Net TVPI:", net_tvpi_val]
+        )
+        row_tags.append("net")
+        rows.append([""] * 13 + ["Net DPI:", net_dpi_val, "", ""])
+        row_tags.append("net")
+        rows.append([""] * 17)
+        row_tags.append("gap")
+
+    rows.append(["All Funds Summary"] + [""] * 16)
+    row_tags.append("overall_header")
+    for rollup in track_record.get("overall", {}).get("status_rollups", []):
+        rows.append(
+            _credit_track_totals_to_pdf_row(
+                rollup.get("label", "Status Rollup"),
+                rollup.get("totals", {}),
+                include_fund_size=False,
+                currency_code=currency_code,
+            )
+        )
+        row_tags.append("rollup_status")
+    for rollup in track_record.get("overall", {}).get("summary_rollups", []):
+        rows.append(
+            _credit_track_totals_to_pdf_row(
+                rollup.get("label", "Overall Rollup"),
+                rollup.get("totals", {}),
+                include_fund_size=False,
+                currency_code=currency_code,
+            )
+        )
+        row_tags.append("rollup_overall")
+
+    page_width, _ = landscape(A3)
+    left_margin = right_margin = 18
+    available_width = page_width - left_margin - right_margin
+    base_widths = [18, 122, 72, 52, 52, 42, 58, 56, 68, 62, 62, 68, 66, 52, 52, 56, 60]
+    scale = available_width / sum(base_widths)
+    col_widths = [w * scale for w in base_widths]
+
+    table = Table(rows, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 6.2),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 6.4),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4d78")),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#9eb3c5")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]
+
+    detail_alt = False
+    for idx, tag in enumerate(row_tags):
+        if idx == 0:
+            continue
+        if tag in {"fund_header", "overall_header"}:
+            style_cmds.extend(
+                [
+                    ("SPAN", (0, idx), (-1, idx)),
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#8eb0cf") if tag == "fund_header" else colors.HexColor("#6f97bd")),
+                    ("TEXTCOLOR", (0, idx), (-1, idx), colors.HexColor("#0d2740")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 6.8),
+                    ("ALIGN", (0, idx), (-1, idx), "LEFT"),
+                ]
+            )
+            detail_alt = False
+        elif tag == "detail":
+            style_cmds.append(
+                ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#f8fbff") if detail_alt else colors.HexColor("#edf4fc"))
+            )
+            detail_alt = not detail_alt
+        elif tag == "rollup_status":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#d8e5f0")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 6.2),
+                ]
+            )
+        elif tag == "rollup_summary":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#c7d9ea")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 6.2),
+                ]
+            )
+        elif tag == "rollup_overall":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#b5cee5")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 6.2),
+                ]
+            )
+        elif tag == "net":
+            style_cmds.extend(
+                [
+                    ("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#dce8f3")),
+                    ("FONT", (0, idx), (-1, idx), "Helvetica-Bold", 6.2),
+                ]
+            )
+        elif tag == "gap":
+            style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#ffffff")))
+
+    table.setStyle(TableStyle(style_cmds))
+
+    styles = getSampleStyleSheet()
+    final_title = report_title or "Credit Track Record"
+    story = [
+        Paragraph(final_title, styles["Heading4"]),
+        Paragraph(_credit_pdf_meta_line(as_of_date, currency_code), styles["Normal"]),
+        Spacer(1, 8),
+        table,
+    ]
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A3),
+        leftMargin=left_margin,
+        rightMargin=right_margin,
+        topMargin=16,
+        bottomMargin=16,
+        title=final_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_credit_concentration_pdf(
+    analysis_payload,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title,
+    as_of_date=None,
+):
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    if not analysis_payload.get("loan_count"):
+        return _build_empty_report_pdf(
+            report_title,
+            as_of_date=as_of_date,
+            currency_code=currency_code,
+            pagesize=landscape(legal),
+        )
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(
+            _credit_pdf_meta_line(
+                as_of_date,
+                currency_code,
+                extras=["Concentration basis: Total Unrealized Value"],
+            ),
+            styles["Normal"],
+        ),
+        Spacer(1, 8),
+    ]
+
+    summary_table = _build_pdf_table(
+        [
+            ["Metric", "Value", "Metric", "Value"],
+            ["Loans", str(analysis_payload.get("loan_count") or 0), "Funds", str(analysis_payload.get("fund_count") or 0)],
+            ["Invested", _fmt_track_currency(analysis_payload.get("total_invested"), currency_code=currency_code), "Realized Value", _fmt_track_currency(analysis_payload.get("total_realized_value"), currency_code=currency_code)],
+            ["Unrealized Loan Value", _fmt_track_currency(analysis_payload.get("total_unrealized_loan_value"), currency_code=currency_code), "Unrealized Equity Value", _fmt_track_currency(analysis_payload.get("total_unrealized_equity_value"), currency_code=currency_code)],
+            ["Total Unrealized Value", _fmt_track_currency(analysis_payload.get("total_unrealized_value"), currency_code=currency_code), "Total Value", _fmt_track_currency(analysis_payload.get("total_value"), currency_code=currency_code)],
+        ],
+        col_widths=[145, 125, 145, 125],
+        numeric_cols=[1, 3],
+        font_size=7.5,
+    )
+    story.extend([Paragraph("Portfolio Summary", styles["Heading5"]), summary_table, Spacer(1, 10)])
+
+    top_10 = analysis_payload.get("top_10") or []
+    top_table = _build_pdf_table(
+        [["Company", "% Portfolio Value", "Invested", "Realized", "Unrealized", "Unrealized Equity", "Total Unrealized", "Total Value"]]
+        + [
+            [
+                row.get("company") or "Unknown Company",
+                _fmt_track_pct(row.get("pct")),
+                _fmt_track_currency(row.get("invested"), currency_code=currency_code),
+                _fmt_track_currency(row.get("realized_value"), currency_code=currency_code),
+                _fmt_track_currency(row.get("unrealized_value"), currency_code=currency_code),
+                _fmt_track_currency(row.get("unrealized_equity_value"), currency_code=currency_code),
+                _fmt_track_currency(row.get("total_unrealized_value"), currency_code=currency_code),
+                _fmt_track_currency(row.get("total_value"), currency_code=currency_code),
+            ]
+            for row in top_10
+        ],
+        col_widths=[150, 72, 72, 72, 72, 78, 84, 72],
+        numeric_cols=[1, 2, 3, 4, 5, 6, 7],
+        font_size=6.9,
+    )
+    story.extend([Paragraph("Top Single-Name Exposures", styles["Heading5"]), top_table])
+
+    breakdown_specs = [
+        ("By Sector", analysis_payload.get("by_sector") or []),
+        ("By Geography", analysis_payload.get("by_geography") or []),
+        ("By Sponsor", analysis_payload.get("by_sponsor") or []),
+        ("By Security Type", analysis_payload.get("by_security") or []),
+        ("By Rating", analysis_payload.get("by_rating") or []),
+    ]
+    if analysis_payload.get("has_sourcing_data"):
+        breakdown_specs.append(("By Sourcing Channel", analysis_payload.get("by_sourcing") or []))
+    if analysis_payload.get("has_public_data"):
+        breakdown_specs.append(("By Public / Private", analysis_payload.get("by_public") or []))
+
+    for idx, (label, rows) in enumerate(breakdown_specs, start=1):
+        story.extend([PageBreak(), Paragraph(label, styles["Heading5"]), Spacer(1, 4)])
+        table_rows = [["Group", "Loans", "% Portfolio Value", "Invested", "Realized", "Unrealized", "Unrealized Equity", "Total Unrealized", "Total Value"]]
+        for row in rows[:15]:
+            table_rows.append(
+                [
+                    row.get("name") or "Unknown",
+                    str(row.get("count") or 0),
+                    _fmt_track_pct(row.get("pct")),
+                    _fmt_track_currency(row.get("invested"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("realized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("unrealized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("unrealized_equity_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("total_unrealized_value"), currency_code=currency_code),
+                    _fmt_track_currency(row.get("total_value"), currency_code=currency_code),
+                ]
+            )
+        story.append(
+            _build_pdf_table(
+                table_rows,
+                col_widths=[145, 44, 72, 68, 68, 68, 74, 80, 70],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7, 8],
+                font_size=6.8,
+            )
+        )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_credit_fundamentals_pdf(
+    analysis_payload,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title,
+    as_of_date=None,
+):
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    if not analysis_payload.get("loan_count"):
+        return _build_empty_report_pdf(
+            report_title,
+            as_of_date=as_of_date,
+            currency_code=currency_code,
+            pagesize=landscape(legal),
+        )
+
+    styles = getSampleStyleSheet()
+    exit_current_label = analysis_payload.get("exit_current_label") or "Exit / Current"
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(
+            _credit_pdf_meta_line(
+                as_of_date,
+                currency_code,
+                extras=["Weighted averages use Current Invested Capital"],
+            ),
+            styles["Normal"],
+        ),
+        Spacer(1, 8),
+        Paragraph("Portfolio Summary", styles["Heading5"]),
+    ]
+
+    summary_rows = [["Metric", "Paired Deals", "Wtd Avg Entry", f"Wtd Avg {exit_current_label}", "Wtd Avg Δ", "Avg Entry", f"Avg {exit_current_label}", "Avg Δ"]]
+    for metric in analysis_payload.get("summary_metrics") or []:
+        kind = metric.get("kind")
+        summary_rows.append(
+            [
+                metric.get("label") or "Metric",
+                str(metric.get("paired_count") or 0),
+                _render_pdf_metric(metric.get("weighted_average_entry"), kind, currency_code=currency_code),
+                _render_pdf_metric(metric.get("weighted_average_exit_current"), kind, currency_code=currency_code),
+                _render_pdf_metric(metric.get("weighted_average_delta"), kind, currency_code=currency_code),
+                _render_pdf_metric(metric.get("average_entry"), kind, currency_code=currency_code),
+                _render_pdf_metric(metric.get("average_exit_current"), kind, currency_code=currency_code),
+                _render_pdf_metric(metric.get("average_delta"), kind, currency_code=currency_code),
+            ]
+        )
+    story.append(
+        _build_pdf_table(
+            summary_rows,
+            col_widths=[120, 54, 78, 86, 78, 74, 82, 74],
+            numeric_cols=[1, 2, 3, 4, 5, 6, 7],
+            font_size=6.9,
+        )
+    )
+
+    story.extend([Spacer(1, 10), Paragraph("Loan Term by Fund", styles["Heading5"])])
+    term_rows = [["Fund", "Loans", "Loans with Term", "Current Invested Capital", "Wtd Avg Term", "Avg Term"]]
+    for row in analysis_payload.get("term_by_fund_rows") or []:
+        term_rows.append(
+            [
+                row.get("fund_name") or "Unknown Fund",
+                str(row.get("loan_count") or 0),
+                str(row.get("term_count") or 0),
+                _fmt_track_currency(row.get("total_current_invested_capital"), currency_code=currency_code),
+                _fmt_track_years(row.get("weighted_average_term_years")),
+                _fmt_track_years(row.get("average_term_years")),
+            ]
+        )
+    story.append(
+        _build_pdf_table(
+            term_rows,
+            col_widths=[170, 46, 70, 108, 70, 70],
+            numeric_cols=[1, 2, 3, 4, 5],
+            font_size=7.0,
+        )
+    )
+
+    for idx, table in enumerate(analysis_payload.get("fund_metric_tables") or []):
+        story.extend([PageBreak(), Paragraph(f"{table.get('label', 'Metric')} by Fund", styles["Heading5"])])
+        table_rows = [["Fund", "Loans", "Current Invested Capital", "Paired Deals", "Wtd Avg Entry", f"Wtd Avg {exit_current_label}", "Wtd Avg Δ", "Avg Entry", f"Avg {exit_current_label}", "Avg Δ"]]
+        for row in table.get("rows") or []:
+            table_rows.append(
+                [
+                    row.get("fund_name") or "Unknown Fund",
+                    str(row.get("loan_count") or 0),
+                    _fmt_track_currency(row.get("total_current_invested_capital"), currency_code=currency_code),
+                    str(row.get("paired_count") or 0),
+                    _render_pdf_metric(row.get("weighted_average_entry"), table.get("kind"), currency_code=currency_code),
+                    _render_pdf_metric(row.get("weighted_average_exit_current"), table.get("kind"), currency_code=currency_code),
+                    _render_pdf_metric(row.get("weighted_average_delta"), table.get("kind"), currency_code=currency_code),
+                    _render_pdf_metric(row.get("average_entry"), table.get("kind"), currency_code=currency_code),
+                    _render_pdf_metric(row.get("average_exit_current"), table.get("kind"), currency_code=currency_code),
+                    _render_pdf_metric(row.get("average_delta"), table.get("kind"), currency_code=currency_code),
+                ]
+            )
+        story.append(
+            _build_pdf_table(
+                table_rows,
+                col_widths=[130, 40, 100, 50, 74, 78, 74, 70, 74, 70],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+                font_size=6.6,
+            )
+        )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _render_pdf_metric(value, kind, *, currency_code=DEFAULT_CURRENCY_CODE):
+    if kind == "currency":
+        return _fmt_track_currency(value, currency_code=currency_code)
+    if kind == "percent":
+        return _fmt_track_pct(value)
+    if kind == "multiple":
+        return _fmt_track_multiple(value)
+    if value is None:
+        return "N/A"
+    return f"{value:.1f}"
+
+
+def _build_credit_pricing_trends_pdf(
+    analysis_payload,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title,
+    as_of_date=None,
+):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    if not analysis_payload.get("loan_count"):
+        return _build_empty_report_pdf(
+            report_title,
+            as_of_date=as_of_date,
+            currency_code=currency_code,
+            pagesize=landscape(letter),
+        )
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(
+            _credit_pdf_meta_line(
+                as_of_date,
+                currency_code,
+                extras=[
+                    f"Time Group: {analysis_payload.get('time_group_label')}",
+                    f"Dimension: {analysis_payload.get('primary_dim_label')}",
+                ],
+            ),
+            styles["Normal"],
+        ),
+        Spacer(1, 8),
+        Paragraph("Summary", styles["Heading5"]),
+    ]
+
+    summary = analysis_payload.get("summary") or {}
+    summary_rows = [
+        ["Metric", "Value", "Metric", "Value"],
+        ["Loans", str(analysis_payload.get("loan_count") or 0), "Funds", str(analysis_payload.get("fund_count") or 0)],
+        ["Weighted Loans", str(analysis_payload.get("weighted_loan_count") or 0), "Current Invested Capital", _fmt_track_currency(analysis_payload.get("total_current_invested_capital"), currency_code=currency_code)],
+        ["Wtd Avg Coupon", _fmt_track_pct(summary.get("weighted_average_coupon_rate")), "Avg Coupon", _fmt_track_pct(summary.get("average_coupon_rate"))],
+        ["Wtd Avg Floor", _fmt_track_pct(summary.get("weighted_average_floor_rate")), "Avg Floor", _fmt_track_pct(summary.get("average_floor_rate"))],
+        ["Avg Upfront Fee", _fmt_track_currency(summary.get("average_upfront_fee"), currency_code=currency_code), "Total Upfront Fees", _fmt_track_currency(summary.get("total_upfront_fees"), currency_code=currency_code)],
+    ]
+    story.append(_build_pdf_table(summary_rows, col_widths=[150, 120, 150, 120], numeric_cols=[1, 3], font_size=7.4))
+
+    def _pricing_table(title, rows, label_key):
+        story.extend([Spacer(1, 10), Paragraph(title, styles["Heading5"])])
+        table_rows = [[label_key, "Loans", "Current Invested", "Wtd Avg Coupon", "Avg Coupon", "Wtd Avg Floor", "Avg Floor", "Avg Upfront Fee"]]
+        for row in rows:
+            table_rows.append(
+                [
+                    row.get("label") or row.get("fund_name") or row.get("dimension_value") or "Unknown",
+                    str(row.get("loan_count") or 0),
+                    _fmt_track_currency(row.get("total_current_invested_capital"), currency_code=currency_code),
+                    _fmt_track_pct(row.get("weighted_average_coupon_rate")),
+                    _fmt_track_pct(row.get("average_coupon_rate")),
+                    _fmt_track_pct(row.get("weighted_average_floor_rate")),
+                    _fmt_track_pct(row.get("average_floor_rate")),
+                    _fmt_track_currency(row.get("average_upfront_fee"), currency_code=currency_code),
+                ]
+            )
+        story.append(
+            _build_pdf_table(
+                table_rows,
+                col_widths=[135, 42, 96, 70, 66, 70, 66, 76],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7],
+                font_size=6.8,
+            )
+        )
+
+    _pricing_table(f"Pricing Trend by {analysis_payload.get('time_group_label')}", analysis_payload.get("time_rows") or [], analysis_payload.get("time_group_label") or "Period")
+    story.append(PageBreak())
+    _pricing_table("By Fund", analysis_payload.get("fund_rows") or [], "Fund")
+    story.append(PageBreak())
+    _pricing_table(f"By {analysis_payload.get('primary_dim_label')}", analysis_payload.get("dimension_rows") or [], analysis_payload.get("primary_dim_label") or "Dimension")
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_credit_underwrite_outcome_pdf(
+    analysis_payload,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title,
+    as_of_date=None,
+):
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(_credit_pdf_meta_line(as_of_date, currency_code), styles["Normal"]),
+        Spacer(1, 8),
+        Paragraph(analysis_payload.get("coverage_note") or "", styles["Normal"]),
+        Spacer(1, 8),
+    ]
+
+    summary = analysis_payload.get("summary") or {}
+    summary_rows = [
+        ["Metric", "Value", "Metric", "Value"],
+        ["Compared Loans", str(summary.get("loan_count") or 0), "Funds", str(summary.get("fund_count") or 0)],
+        ["Weighted Loans", str(summary.get("weighted_loan_count") or 0), "Current Invested Capital", _fmt_track_currency(summary.get("total_current_invested_capital"), currency_code=currency_code)],
+        ["Wtd Est. IRR", _fmt_track_pct(summary.get("weighted_estimated_irr")), "Wtd Actual Gross IRR", _fmt_track_pct(summary.get("weighted_actual_gross_irr"))],
+        ["Wtd Delta IRR", _fmt_track_pct(summary.get("weighted_delta_irr")), "Avg Delta IRR", _fmt_track_pct(summary.get("average_delta_irr"))],
+        ["Hit Rate", _fmt_track_pct(summary.get("hit_rate")), "Miss Count", str(summary.get("miss_count") or 0)],
+        ["Missing Estimate", str(summary.get("missing_estimate_count") or 0), "Missing Actual", str(summary.get("missing_actual_count") or 0)],
+    ]
+    story.extend([Paragraph("Summary", styles["Heading5"]), _build_pdf_table(summary_rows, col_widths=[150, 118, 150, 118], numeric_cols=[1, 3], font_size=7.4)])
+
+    fund_rows = analysis_payload.get("fund_rows") or []
+    if fund_rows:
+        story.extend([Spacer(1, 10), Paragraph("By Fund", styles["Heading5"])])
+        fund_table_rows = [["Fund", "Loans", "Current Invested", "Wtd Est. IRR", "Wtd Actual IRR", "Wtd Delta IRR", "Hit Rate", "Miss Count", "Worst Company"]]
+        for row in fund_rows:
+            fund_table_rows.append(
+                [
+                    row.get("fund_name") or "Unknown Fund",
+                    str(row.get("loan_count") or 0),
+                    _fmt_track_currency(row.get("total_current_invested_capital"), currency_code=currency_code),
+                    _fmt_track_pct(row.get("weighted_estimated_irr")),
+                    _fmt_track_pct(row.get("weighted_actual_gross_irr")),
+                    _fmt_track_pct(row.get("weighted_delta_irr")),
+                    _fmt_track_pct(row.get("hit_rate")),
+                    str(row.get("miss_count") or 0),
+                    row.get("worst_company_name") or "—",
+                ]
+            )
+        story.append(
+            _build_pdf_table(
+                fund_table_rows,
+                col_widths=[110, 40, 94, 64, 70, 70, 54, 48, 122],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7],
+                font_size=6.7,
+            )
+        )
+
+    worst_rows = analysis_payload.get("worst_rows") or []
+    if worst_rows:
+        story.extend([PageBreak(), Paragraph("Worst IRR Misses", styles["Heading5"])])
+        worst_table_rows = [["Company", "Fund", "Sector", "Status", "Current Invested", "Est. IRR", "Actual IRR", "Delta IRR", "Gross MOIC", "Total Value"]]
+        for row in worst_rows:
+            worst_table_rows.append(
+                [
+                    row.get("company_name") or "Unknown Company",
+                    row.get("fund_name") or "Unknown Fund",
+                    row.get("sector") or "Unknown",
+                    row.get("status") or "—",
+                    _fmt_track_currency(row.get("current_invested_capital"), currency_code=currency_code),
+                    _fmt_track_pct(row.get("estimated_irr_at_entry")),
+                    _fmt_track_pct(row.get("actual_gross_irr")),
+                    _fmt_track_pct(row.get("delta_irr")),
+                    _fmt_track_multiple(row.get("gross_moic")),
+                    _fmt_track_currency(row.get("total_value"), currency_code=currency_code),
+                ]
+            )
+        story.append(
+            _build_pdf_table(
+                worst_table_rows,
+                col_widths=[120, 92, 70, 72, 86, 58, 58, 58, 56, 78],
+                numeric_cols=[4, 5, 6, 7, 8, 9],
+                font_size=6.7,
+            )
+        )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_credit_data_cuts_summary_pdf(
+    all_cuts,
+    *,
+    currency_code=DEFAULT_CURRENCY_CODE,
+    report_title,
+    as_of_date=None,
+):
+    from reportlab.lib.pagesizes import legal, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(report_title, styles["Heading4"]),
+        Paragraph(_credit_pdf_meta_line(as_of_date, currency_code), styles["Normal"]),
+        Spacer(1, 8),
+    ]
+
+    dim_keys = list(CREDIT_DIMENSIONS.keys())
+    for idx, dim_key in enumerate(dim_keys):
+        payload = all_cuts.get(dim_key) or {}
+        groups = payload.get("groups") or []
+        totals = payload.get("totals") or {}
+        dim_label = CREDIT_DIMENSION_LABELS.get(dim_key, dim_key)
+
+        if idx > 0:
+            story.append(PageBreak())
+        story.extend([Paragraph(f"Performance by {dim_label}", styles["Heading5"]), Spacer(1, 4)])
+
+        table_rows = [[
+            dim_label,
+            "Loans",
+            "Invested",
+            "Realized",
+            "Unrealized",
+            "Total Value",
+            "Wtd MOIC",
+            "Wtd IRR",
+            "Wtd Coupon",
+            "Entry LTV",
+            "Entry Coverage",
+            "Entry Cushion",
+            "Hold Period",
+        ]]
+        for group in groups[:15]:
+            table_rows.append(
+                [
+                    group.get("label") or "Unknown",
+                    str(group.get("loan_count") or 0),
+                    _fmt_track_currency(group.get("invested"), currency_code=currency_code),
+                    _fmt_track_currency(group.get("realized_value"), currency_code=currency_code),
+                    _fmt_track_currency(group.get("unrealized_value"), currency_code=currency_code),
+                    _fmt_track_currency(group.get("total_value"), currency_code=currency_code),
+                    _fmt_track_multiple(group.get("weighted_moic")),
+                    _fmt_track_pct(group.get("weighted_irr")),
+                    _fmt_track_pct(group.get("weighted_yield")),
+                    _fmt_track_pct(group.get("weighted_ltv")),
+                    _fmt_track_multiple(group.get("weighted_entry_coverage_ratio")),
+                    _fmt_track_pct(group.get("weighted_entry_equity_cushion")),
+                    _fmt_track_years(group.get("weighted_hold_years")),
+                ]
+            )
+        table_rows.append(
+            [
+                "Total",
+                str(totals.get("loan_count") or 0),
+                _fmt_track_currency(totals.get("invested"), currency_code=currency_code),
+                _fmt_track_currency(totals.get("realized_value"), currency_code=currency_code),
+                _fmt_track_currency(totals.get("unrealized_value"), currency_code=currency_code),
+                _fmt_track_currency(totals.get("total_value"), currency_code=currency_code),
+                _fmt_track_multiple(totals.get("weighted_moic")),
+                _fmt_track_pct(totals.get("weighted_irr")),
+                _fmt_track_pct(totals.get("weighted_yield")),
+                _fmt_track_pct(totals.get("weighted_ltv")),
+                _fmt_track_multiple(totals.get("weighted_entry_coverage_ratio")),
+                _fmt_track_pct(totals.get("weighted_entry_equity_cushion")),
+                _fmt_track_years(totals.get("weighted_hold_years")),
+            ]
+        )
+        story.append(
+            _build_pdf_table(
+                table_rows,
+                col_widths=[124, 40, 66, 66, 66, 68, 54, 54, 54, 54, 58, 54, 50],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                font_size=6.2,
+                emphasized_rows={len(table_rows) - 1: "#d8e5f0"},
+            )
+        )
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(legal),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16,
+        title=report_title,
+    )
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _credit_default_benchmark_asset_class(team_id):
+    benchmark_asset_classes = _benchmark_asset_classes_for_team(team_id)
+    benchmark_session_key = "selected_benchmark_asset_class"
+    current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+    if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+        current_benchmark_asset_class = ""
+        session[benchmark_session_key] = ""
+    return current_benchmark_asset_class
+
+
+def _build_credit_pdf_export_context():
+    from peqa.services.credit_filtering import build_credit_analysis_context
+
+    membership = _require_team_scope()
+    active_firm = _resolve_active_firm_for_team()
+    if active_firm is None:
+        return None
+
+    ctx = build_credit_analysis_context(
+        team_id=membership.team_id,
+        firm_id=active_firm.id,
+        filters={},
+    )
+    return {
+        "membership": membership,
+        "active_firm": active_firm,
+        "ctx": ctx,
+        "benchmark_asset_class": _credit_default_benchmark_asset_class(membership.team_id),
+    }
+
+
+def _credit_pdf_payload_for_page(page, export_ctx):
+    ctx = export_ctx["ctx"]
+    loans = ctx["loans"]
+    metrics_by_id = ctx["metrics_by_id"]
+    snapshots_by_loan = ctx["snapshots_by_loan"]
+    fund_performance = ctx.get("fund_performance", {})
+    team_id = export_ctx["membership"].team_id
+    benchmark_asset_class = export_ctx["benchmark_asset_class"]
+
+    if page == "credit-track-record":
+        return compute_credit_track_record(loans, metrics_by_id, fund_performance=fund_performance)
+    if page == "credit-benchmarking":
+        return compute_credit_benchmarking_analysis(
+            loans,
+            fund_performance=fund_performance,
+            benchmark_thresholds=_load_team_benchmark_thresholds(team_id, benchmark_asset_class),
+            benchmark_asset_class=benchmark_asset_class,
+        )
+    if page == "credit-concentration":
+        return compute_credit_concentration(loans, metrics_by_id)
+    if page == "credit-fundamentals":
+        return compute_credit_fundamentals(loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan)
+    if page == "credit-pricing-trends":
+        return compute_credit_pricing_trends(
+            loans,
+            metrics_by_id,
+            primary_dim="sector",
+            time_group="quarter",
+        )
+    if page == "credit-underwrite-outcome":
+        return compute_credit_underwrite_outcome(loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan)
+    if page == "credit-data-cuts":
+        return {
+            "all_cuts": {
+                dim_key: compute_credit_data_cuts(loans, metrics_by_id, primary_dim=dim_key)
+                for dim_key in CREDIT_DIMENSIONS
+            }
+        }
+    raise KeyError(page)
+
+
+def _build_credit_analysis_pdf(page, payload, *, report_title, currency_code, as_of_date, benchmark_asset_class=""):
+    if page == "credit-track-record":
+        return _build_credit_track_record_pdf(
+            payload,
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    if page == "credit-benchmarking":
+        return _build_benchmarking_pdf(
+            payload,
+            report_title=report_title,
+            currency_code=currency_code,
+            benchmark_asset_class=benchmark_asset_class,
+        )
+    if page == "credit-concentration":
+        return _build_credit_concentration_pdf(
+            payload,
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    if page == "credit-fundamentals":
+        return _build_credit_fundamentals_pdf(
+            payload,
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    if page == "credit-pricing-trends":
+        return _build_credit_pricing_trends_pdf(
+            payload,
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    if page == "credit-underwrite-outcome":
+        return _build_credit_underwrite_outcome_pdf(
+            payload,
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    if page == "credit-data-cuts":
+        return _build_credit_data_cuts_summary_pdf(
+            payload.get("all_cuts") or {},
+            currency_code=currency_code,
+            report_title=report_title,
+            as_of_date=as_of_date,
+        )
+    raise KeyError(page)
 
 
 def _handle_upload(parse_func, redirect_route):
@@ -5734,6 +6831,166 @@ def download_track_record_pdf():
         as_attachment=True,
         download_name=download_name,
         mimetype="application/pdf",
+    )
+
+
+@app.route("/credit/analysis/<page>/pdf")
+@login_required
+def download_credit_analysis_pdf(page):
+    if page not in CREDIT_ANALYSIS_PAGES:
+        abort(404)
+
+    try:
+        export_ctx = _build_credit_pdf_export_context()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Credit PDF export failed")
+
+    if export_ctx is None:
+        flash("No active firm found for credit export.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    loans = export_ctx["ctx"]["loans"]
+    if not loans:
+        flash("No credit loans found for the active firm.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    active_firm = export_ctx["active_firm"]
+    fund_performance = export_ctx["ctx"].get("fund_performance", {})
+    as_of_date = _resolve_credit_analysis_as_of_date(loans, fund_performance)
+    reporting = _reporting_currency_context(active_firm)
+    report_title = _report_title(
+        active_firm.name or "Unknown Firm",
+        next(
+            (item["analysis_name"] for item in CREDIT_PDF_EXPORT_PAGES if item["page"] == page),
+            CREDIT_ANALYSIS_PAGES[page]["title"],
+        ),
+        as_of_date,
+    )
+    download_name = _safe_pdf_download_name(
+        request.args.get("download_name", ""),
+        f"{report_title}.pdf",
+    )
+
+    try:
+        payload = _credit_pdf_payload_for_page(page, export_ctx)
+        pdf_bytes = _build_credit_analysis_pdf(
+            page,
+            payload,
+            report_title=report_title,
+            currency_code=reporting["reporting_currency_code"],
+            as_of_date=as_of_date,
+            benchmark_asset_class=export_ctx["benchmark_asset_class"],
+        )
+    except ImportError:
+        flash("PDF export dependency missing. Install requirements and retry.", "danger")
+        return redirect(url_for("live_credit_pdf_pack"))
+
+    return send_file(
+        BytesIO(pdf_bytes),
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/pdf",
+    )
+
+
+@app.route("/reports/credit-pdf-pack/live")
+@login_required
+def live_credit_pdf_pack():
+    try:
+        export_ctx = _build_credit_pdf_export_context()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Credit PDF link pack failed")
+
+    if export_ctx is None:
+        flash("No active firm found for credit export.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    active_firm = export_ctx["active_firm"]
+    loans = export_ctx["ctx"]["loans"]
+    if not loans:
+        flash("No credit loans found for the active firm.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    as_of_date = _resolve_credit_analysis_as_of_date(
+        loans,
+        export_ctx["ctx"].get("fund_performance", {}),
+    )
+    firm_name = active_firm.name or "Unknown Firm"
+
+    links = []
+    for item in CREDIT_PDF_EXPORT_PAGES:
+        title = _report_title(firm_name, item["analysis_name"], as_of_date)
+        links.append(
+            {
+                "label": item["analysis_name"],
+                "title": title,
+                "url": url_for(
+                    "download_credit_analysis_pdf",
+                    page=item["page"],
+                    download_name=f"{title}.pdf",
+                ),
+            }
+        )
+
+    return render_template(
+        "reports_credit_pdf_pack_live.html",
+        links=links,
+        bundle_url=url_for("download_credit_pdf_pack"),
+        benchmark_asset_class=export_ctx["benchmark_asset_class"],
+        as_of_date=as_of_date,
+    )
+
+
+@app.route("/reports/credit-pdf-pack")
+@login_required
+def download_credit_pdf_pack():
+    try:
+        export_ctx = _build_credit_pdf_export_context()
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Credit PDF pack download failed")
+
+    if export_ctx is None:
+        flash("No active firm found for credit export.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    active_firm = export_ctx["active_firm"]
+    loans = export_ctx["ctx"]["loans"]
+    if not loans:
+        flash("No credit loans found for the active firm.", "warning")
+        return redirect(url_for("upload_credit_loans"))
+
+    fund_performance = export_ctx["ctx"].get("fund_performance", {})
+    as_of_date = _resolve_credit_analysis_as_of_date(loans, fund_performance)
+    reporting = _reporting_currency_context(active_firm)
+    currency_code = reporting["reporting_currency_code"]
+    firm_name = active_firm.name or "Unknown Firm"
+
+    try:
+        zip_buffer = BytesIO()
+        with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+            for item in CREDIT_PDF_EXPORT_PAGES:
+                title = _report_title(firm_name, item["analysis_name"], as_of_date)
+                payload = _credit_pdf_payload_for_page(item["page"], export_ctx)
+                pdf_bytes = _build_credit_analysis_pdf(
+                    item["page"],
+                    payload,
+                    report_title=title,
+                    currency_code=currency_code,
+                    as_of_date=as_of_date,
+                    benchmark_asset_class=export_ctx["benchmark_asset_class"],
+                )
+                archive.writestr(f"{_sanitize_filename_component(title)}.pdf", pdf_bytes)
+        zip_buffer.seek(0)
+    except ImportError:
+        flash("PDF export dependency missing. Install requirements and retry.", "danger")
+        return redirect(url_for("live_credit_pdf_pack"))
+
+    bundle_name = f"{_sanitize_filename_component(firm_name)} Credit Analysis PDF Pack {_as_of_ymd(as_of_date)}.zip"
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=bundle_name,
+        mimetype="application/zip",
     )
 
 
