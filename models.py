@@ -741,6 +741,9 @@ class CreditLoan(db.Model):
     ttm_revenue_entry = db.Column(db.Float, nullable=True)
     ttm_revenue_current = db.Column(db.Float, nullable=True)
 
+    # Term (numeric, in months — parsed from loan_term string or entered directly)
+    term_months = db.Column(db.Float, nullable=True)
+
     # Collateral & coverage
     entry_collateral = db.Column(db.Float, nullable=True)
     current_collateral = db.Column(db.Float, nullable=True)
@@ -1274,6 +1277,7 @@ def ensure_schema_updates():
         ("credit_loans", "fund_size", "FLOAT"),
         ("credit_loans", "ttm_revenue_entry", "FLOAT"),
         ("credit_loans", "ttm_revenue_current", "FLOAT"),
+        ("credit_loans", "term_months", "FLOAT"),
         ("credit_loans", "entry_collateral", "FLOAT"),
         ("credit_loans", "current_collateral", "FLOAT"),
         ("credit_loans", "entry_coverage_ratio", "FLOAT"),

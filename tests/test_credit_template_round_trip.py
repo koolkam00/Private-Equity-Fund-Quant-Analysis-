@@ -103,6 +103,8 @@ EXPECTED_NON_NULL_FIELDS = [
     "warrants_current",
     "warrant_strike_current",
     "warrant_term",
+    # Term
+    "term_months",
     # Currency
     "currency",
     # Cross-populated fields (filled from primary column aliases)

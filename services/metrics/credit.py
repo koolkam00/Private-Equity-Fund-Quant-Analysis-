@@ -1975,7 +1975,69 @@ def compute_credit_maturity_profile(loans):
         "maturing_12m": maturing_12m,
         "already_matured": already_matured,
         "no_maturity_date": no_maturity,
+        # --- Term analysis ---
+        "term_distribution": _compute_term_distribution(loans),
+        "wavg_term_months": _wavg_term_months(loans),
     }
+
+
+def _wavg_term_months(loans):
+    """Hold-weighted average term in months."""
+    num = 0.0
+    den = 0.0
+    count = 0
+    for loan in loans:
+        raw_tm = getattr(loan, "term_months", None)
+        try:
+            tm = float(raw_tm) if raw_tm is not None else None
+        except (TypeError, ValueError):
+            tm = None
+        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        if tm is not None and hold > 0:
+            num += tm * hold
+            den += hold
+            count += 1
+    return {
+        "value": safe_divide(num, den),
+        "coverage": count,
+        "total": len(loans),
+    }
+
+
+def _compute_term_distribution(loans):
+    """Bucket loans by term length: short (<24m), medium (24-60m), long (>60m)."""
+    buckets = {
+        "Short (<2yr)": {"count": 0, "hold": 0.0},
+        "Medium (2-5yr)": {"count": 0, "hold": 0.0},
+        "Long (>5yr)": {"count": 0, "hold": 0.0},
+        "Unknown": {"count": 0, "hold": 0.0},
+    }
+    total_hold = 0.0
+    for loan in loans:
+        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        total_hold += hold
+        raw_tm = getattr(loan, "term_months", None)
+        try:
+            tm = float(raw_tm) if raw_tm is not None else None
+        except (TypeError, ValueError):
+            tm = None
+        if tm is None:
+            buckets["Unknown"]["count"] += 1
+            buckets["Unknown"]["hold"] += hold
+        elif tm < 24:
+            buckets["Short (<2yr)"]["count"] += 1
+            buckets["Short (<2yr)"]["hold"] += hold
+        elif tm <= 60:
+            buckets["Medium (2-5yr)"]["count"] += 1
+            buckets["Medium (2-5yr)"]["hold"] += hold
+        else:
+            buckets["Long (>5yr)"]["count"] += 1
+            buckets["Long (>5yr)"]["hold"] += hold
+
+    for b in buckets.values():
+        b["pct"] = safe_divide(b["hold"], total_hold, 0.0)
+
+    return {k: v for k, v in buckets.items() if v["count"] > 0}
 
 
 # ---------------------------------------------------------------------------
@@ -2443,6 +2505,21 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
 import re as _re
 
 
+def _term_bucket_label(term_months):
+    """Classify term_months into a bucket label. None-safe."""
+    try:
+        tm = float(term_months) if term_months is not None else None
+    except (TypeError, ValueError):
+        return None
+    if tm is None:
+        return None
+    if tm < 24:
+        return "Short (<2yr)"
+    if tm <= 60:
+        return "Medium (2-5yr)"
+    return "Long (>5yr)"
+
+
 CREDIT_DIMENSIONS = {
     "fund_name": {"field": "fund_name", "fallback": "Unknown Fund"},
     "sector": {"field": "sector", "fallback": "Unknown"},
@@ -2456,6 +2533,7 @@ CREDIT_DIMENSIONS = {
     "vintage_year": {"field": None, "resolver": lambda l: str(l.vintage_year) if l.vintage_year else None, "fallback": "Unknown"},
     "sourcing_channel": {"field": "sourcing_channel", "fallback": "Unknown"},
     "fixed_or_floating": {"field": "fixed_or_floating", "fallback": "Unknown"},
+    "term_bucket": {"field": None, "resolver": lambda l: _term_bucket_label(getattr(l, "term_months", None)), "fallback": "Unknown"},
 }
 
 CREDIT_DIMENSION_LABELS = {
@@ -2471,6 +2549,7 @@ CREDIT_DIMENSION_LABELS = {
     "vintage_year": "Vintage Year",
     "sourcing_channel": "Sourcing Channel",
     "fixed_or_floating": "Rate Type",
+    "term_bucket": "Term Bucket",
 }
 
 CREDIT_ALLOWED_METRICS = [
@@ -2991,6 +3070,7 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
             "prepayment_protection": getattr(loan, "prepayment_protection", None),
             "amortization_type": getattr(loan, "amortization_type", None),
             "payment_frequency": getattr(loan, "payment_frequency", None),
+            "term_months": getattr(loan, "term_months", None),
             "original_par": (getattr(loan, "original_par", None) or 0.0) * fx if getattr(loan, "original_par", None) else None,
             "current_outstanding": (getattr(loan, "current_outstanding", None) or 0.0) * fx if getattr(loan, "current_outstanding", None) else None,
             "issue_size": (loan.issue_size or 0.0) * fx if loan.issue_size else None,
