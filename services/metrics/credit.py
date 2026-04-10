@@ -1163,6 +1163,10 @@ def _credit_metric_summary(metric_def, records):
     weighted_delta_num = 0.0
     weighted_delta_den = 0.0
     weighted_paired_count = 0
+    entry_has_non_zero = False
+    current_has_non_zero = False
+    delta_has_non_zero = False
+    delta_inputs_have_non_zero = False
 
     for record in records:
         entry_value = record["entry"]
@@ -1173,6 +1177,8 @@ def _credit_metric_summary(metric_def, records):
         if entry_value is not None:
             entry_sum += entry_value
             entry_count += 1
+            if abs(entry_value) > 1e-9:
+                entry_has_non_zero = True
             if weight > 0:
                 weighted_entry_num += entry_value * weight
                 weighted_entry_den += weight
@@ -1180,6 +1186,8 @@ def _credit_metric_summary(metric_def, records):
         if current_value is not None:
             current_sum += current_value
             current_count += 1
+            if abs(current_value) > 1e-9:
+                current_has_non_zero = True
             if weight > 0:
                 weighted_current_num += current_value * weight
                 weighted_current_den += weight
@@ -1187,21 +1195,45 @@ def _credit_metric_summary(metric_def, records):
         if delta_value is not None:
             delta_sum += delta_value
             delta_count += 1
+            if abs(delta_value) > 1e-9:
+                delta_has_non_zero = True
+            if (
+                (entry_value is not None and abs(entry_value) > 1e-9)
+                or (current_value is not None and abs(current_value) > 1e-9)
+            ):
+                delta_inputs_have_non_zero = True
             if weight > 0:
                 weighted_delta_num += delta_value * weight
                 weighted_delta_den += weight
                 weighted_paired_count += 1
 
+    weighted_average_entry = safe_divide(weighted_entry_num, weighted_entry_den)
+    weighted_average_exit_current = safe_divide(weighted_current_num, weighted_current_den)
+    weighted_average_delta = safe_divide(weighted_delta_num, weighted_delta_den)
+    average_entry = safe_divide(entry_sum, entry_count)
+    average_exit_current = safe_divide(current_sum, current_count)
+    average_delta = safe_divide(delta_sum, delta_count)
+
+    if entry_count > 0 and not entry_has_non_zero:
+        weighted_average_entry = None
+        average_entry = None
+    if current_count > 0 and not current_has_non_zero:
+        weighted_average_exit_current = None
+        average_exit_current = None
+    if delta_count > 0 and not delta_has_non_zero and not delta_inputs_have_non_zero:
+        weighted_average_delta = None
+        average_delta = None
+
     return {
         "key": metric_def["key"],
         "label": metric_def["label"],
         "kind": metric_def["kind"],
-        "weighted_average_entry": safe_divide(weighted_entry_num, weighted_entry_den),
-        "weighted_average_exit_current": safe_divide(weighted_current_num, weighted_current_den),
-        "weighted_average_delta": safe_divide(weighted_delta_num, weighted_delta_den),
-        "average_entry": safe_divide(entry_sum, entry_count),
-        "average_exit_current": safe_divide(current_sum, current_count),
-        "average_delta": safe_divide(delta_sum, delta_count),
+        "weighted_average_entry": weighted_average_entry,
+        "weighted_average_exit_current": weighted_average_exit_current,
+        "weighted_average_delta": weighted_average_delta,
+        "average_entry": average_entry,
+        "average_exit_current": average_exit_current,
+        "average_delta": average_delta,
         "entry_count": entry_count,
         "exit_current_count": current_count,
         "paired_count": delta_count,
@@ -1493,6 +1525,18 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         })
 
     deal_rows.sort(key=lambda row: (row["fund_name"] or "", row["company_name"] or ""))
+    deal_groups = []
+    for fund_name in sorted(fund_buckets):
+        group_rows = [row for row in deal_rows if row["fund_name"] == fund_name]
+        if not group_rows:
+            continue
+        deal_groups.append(
+            {
+                "fund_name": fund_name,
+                "loan_count": len(group_rows),
+                "rows": group_rows,
+            }
+        )
 
     coverage_revenue = compute_snapshot_coverage(
         loans, snapshots_by_loan, required_field="current_revenue"
@@ -1533,6 +1577,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         "fund_rows": fund_rows,
         "fund_metric_tables": fund_metric_tables,
         "deal_rows": deal_rows,
+        "deal_groups": deal_groups,
         "exit_current_label": "Exit / Current",
     }
 

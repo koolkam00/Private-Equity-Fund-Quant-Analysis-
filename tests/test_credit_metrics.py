@@ -1354,6 +1354,54 @@ class TestCreditFundamentals:
         assert alpha_row["ltv_exit_current"] == pytest.approx(0.58, abs=0.001)
         assert alpha_row["coverage_ratio_delta"] == pytest.approx(0.30, abs=0.001)
         assert beta_row["exit_current_label"] == "Exit"
+        assert [group["fund_name"] for group in result["deal_groups"]] == ["Fund A", "Fund B"]
+        assert [row["company_name"] for row in result["deal_groups"][0]["rows"]] == ["Alpha"]
+
+    def test_fundamentals_zero_only_summaries_render_as_na(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Zero Fund",
+                company_name="Zero Co 1",
+                current_invested_capital=25.0,
+                entry_revenue=0.0,
+                current_revenue=0.0,
+                entry_ltv=0.0,
+                current_ltv=0.0,
+                entry_coverage_ratio=0.0,
+                current_coverage_ratio=0.0,
+                entry_equity_cushion=0.0,
+                current_equity_cushion=0.0,
+            ),
+            _make_loan(
+                id=2,
+                fund_name="Zero Fund",
+                company_name="Zero Co 2",
+                current_invested_capital=75.0,
+                entry_revenue=0.0,
+                current_revenue=0.0,
+                entry_ltv=0.0,
+                current_ltv=0.0,
+                entry_coverage_ratio=0.0,
+                current_coverage_ratio=0.0,
+                entry_equity_cushion=0.0,
+                current_equity_cushion=0.0,
+            ),
+        ]
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan={})
+
+        revenue_summary = result["summary_by_key"]["revenue"]
+        assert revenue_summary["weighted_average_entry"] is None
+        assert revenue_summary["weighted_average_exit_current"] is None
+        assert revenue_summary["weighted_average_delta"] is None
+        assert revenue_summary["average_entry"] is None
+        assert revenue_summary["average_exit_current"] is None
+        assert revenue_summary["average_delta"] is None
+
+        fund_revenue_summary = result["fund_rows"][0]["metrics"]["revenue"]
+        assert fund_revenue_summary["weighted_average_entry"] is None
+        assert fund_revenue_summary["average_delta"] is None
 
     def test_fundamentals_decliners_sorted_by_absolute_drop(self):
         """ebitda_decliners only contains loans where EBITDA fell, sorted worst first.

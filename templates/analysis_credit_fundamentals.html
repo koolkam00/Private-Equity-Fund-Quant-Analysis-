@@ -9,15 +9,15 @@
 </div>
 {% endblock %}
 
-{% macro render_metric(value, kind) -%}
+{% macro render_metric(value, kind, na_label='—') -%}
     {%- if kind == "currency" -%}
-        {{ fmt_currency_symbol(value) }}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_currency_symbol(value) }}{%- endif -%}
     {%- elif kind == "percent" -%}
-        {{ fmt_pct_1dp(value) }}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pct_1dp(value) }}{%- endif -%}
     {%- elif kind == "multiple" -%}
-        {%- if value is none -%}—{%- else -%}{{ "%.2fx"|format(value) }}{%- endif -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ "%.2fx"|format(value) }}{%- endif -%}
     {%- else -%}
-        {{ fmt_num_1dp(value) }}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_num_1dp(value) }}{%- endif -%}
     {%- endif -%}
 {%- endmacro %}
 
@@ -126,12 +126,12 @@
             <tr>
                 <td style="font-weight: 500;">{{ metric.label }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ metric.paired_count }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_entry, metric.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_exit_current, metric.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_delta, metric.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_entry, metric.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_exit_current, metric.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_delta, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_entry, metric.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_exit_current, metric.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_delta, metric.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_entry, metric.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_exit_current, metric.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_delta, metric.kind, 'N/A') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -166,12 +166,12 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ row.paired_count }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_entry, table.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_exit_current, table.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_delta, table.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_entry, table.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_exit_current, table.kind) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_delta, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_entry, table.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_exit_current, table.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_delta, table.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_entry, table.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_exit_current, table.kind, 'N/A') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_delta, table.kind, 'N/A') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -193,7 +193,6 @@
             <thead>
                 <tr>
                     <th>Company</th>
-                    <th>Fund</th>
                     <th>Status</th>
                     <th class="num">Current Invested Capital</th>
                     <th class="num">Entry Revenue</th>
@@ -212,10 +211,16 @@
                 </tr>
             </thead>
             <tbody>
-                {% for row in analysis.deal_rows %}
+                {% for group in analysis.deal_groups %}
+                <tr class="tr-fund-header">
+                    <td colspan="16">
+                        {{ group.fund_name }}
+                        <span style="color: var(--ink-muted); font-size: 12px;">· {{ group.loan_count }} loans</span>
+                    </td>
+                </tr>
+                {% for row in group.rows %}
                 <tr class="tr-detail">
                     <td>{{ row.company_name or '—' }}</td>
-                    <td>{{ row.fund_name or '—' }}</td>
                     <td>{{ row.status or '—' }}</td>
                     <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
                     <td class="num">{{ render_metric(row.revenue_entry, 'currency') }}</td>
@@ -232,6 +237,10 @@
                     <td class="num">{{ render_metric(row.equity_cushion_exit_current, 'percent') }}</td>
                     <td class="num">{{ render_metric(row.equity_cushion_delta, 'percent') }}</td>
                 </tr>
+                {% endfor %}
+                {% if not loop.last %}
+                <tr class="tr-gap"><td colspan="16"></td></tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
