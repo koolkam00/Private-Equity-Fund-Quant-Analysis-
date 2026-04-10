@@ -884,6 +884,49 @@ def _ensure_index_columns(engine, index_name, table_name, column_names):
         conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({columns})"))
 
 
+def sanitize_credit_date_columns(engine=None, inspector=None):
+    """Null out malformed or out-of-range credit dates before reads hit Python.
+
+    Postgres can store dates far beyond year 9999, but Python date objects
+    cannot. Cleaning the values in SQL keeps psycopg from raising
+    ``date too large (after year 10K)`` when the analyzer loads loans.
+    """
+    engine = engine or db.engine
+    inspector = inspector or inspect(engine)
+    date_columns = (
+        (
+            "credit_loans",
+            "close_date",
+            "CASE "
+            "WHEN as_of_date IS NOT NULL "
+            "AND CAST(as_of_date AS TEXT) >= '1900-01-01' "
+            "AND CAST(as_of_date AS TEXT) <= '2200-12-31' "
+            "THEN as_of_date "
+            "ELSE '1900-01-01' "
+            "END",
+        ),
+        ("credit_loans", "exit_date", "NULL"),
+        ("credit_loans", "as_of_date", "NULL"),
+        ("credit_loans", "maturity_date", "NULL"),
+        ("credit_loan_snapshots", "snapshot_date", "NULL"),
+        ("credit_fund_performance", "report_date", "NULL"),
+    )
+
+    for table_name, column_name, replacement_sql in date_columns:
+        if table_name not in inspector.get_table_names():
+            continue
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"UPDATE {table_name} "
+                    f"SET {column_name} = {replacement_sql} "
+                    f"WHERE {column_name} IS NOT NULL "
+                    f"AND (CAST({column_name} AS TEXT) < '1900-01-01' "
+                    f"OR CAST({column_name} AS TEXT) > '2200-12-31')"
+                )
+            )
+
+
 def _archive_legacy_cashflows(engine, inspector):
     if "cashflows" not in inspector.get_table_names():
         return
@@ -1239,16 +1282,7 @@ def ensure_schema_updates():
     for table, col, sql_type in _credit_fp_cols:
         _ensure_column(engine, inspector, table, col, sql_type)
 
-    # Fix corrupted dates (year > 9999 crashes psycopg on read)
-    for date_col in ("close_date", "exit_date", "as_of_date", "maturity_date"):
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(
-                    f"UPDATE credit_loans SET {date_col} = NULL "
-                    f"WHERE {date_col} IS NOT NULL AND EXTRACT(YEAR FROM {date_col}) > 2200"
-                ))
-        except Exception:
-            pass  # SQLite doesn't support EXTRACT, skip silently
+    sanitize_credit_date_columns(engine=engine, inspector=inspector)
 
     # Credit indexes
     _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")

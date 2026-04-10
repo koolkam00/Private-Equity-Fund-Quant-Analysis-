@@ -449,7 +449,7 @@ def _json_schema_failure(exc, log_message, status_code=503):
     return (
         jsonify(
             {
-                "error": "database_error",
+                "error": "database_schema_not_ready",
                 "message": _schema_upgrade_message(),
                 "detail": f"{type(root).__name__}: {str(root)[:500]}",
             }
@@ -1367,6 +1367,9 @@ def _is_missing_table_error(exc):
             "fund_metadata",
             "fund_cashflows",
             "public_market_index_levels",
+            "credit_loans",
+            "credit_loan_snapshots",
+            "credit_fund_performance",
         )
     )
 
@@ -4513,6 +4516,11 @@ def credit_analysis_series_api(page):
 @app.route("/upload/credit-loans", methods=["GET", "POST"])
 @login_required
 def upload_credit_loans():
+    try:
+        ensure_schema_updates()
+    except Exception:
+        logger.exception("Credit upload schema preparation failed")
+
     if request.method == "GET":
         membership = _current_membership()
         team_id = membership.team_id if membership else None
@@ -4599,6 +4607,8 @@ def upload_credit_loans():
         flash(str(exc), "danger")
         return redirect(url_for("upload_credit_loans"))
     except SQLAlchemyError as exc:
+        if _is_missing_table_error(exc):
+            return _redirect_schema_failure(exc, "Credit loan upload failed", endpoint="upload_credit_loans")
         db.session.rollback()
         flash(f"Upload failed: {exc}", "danger")
         return redirect(url_for("upload_credit_loans"))

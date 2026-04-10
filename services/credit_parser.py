@@ -8,7 +8,7 @@ import math
 import re
 import uuid
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -317,6 +317,10 @@ INT_FIELDS = {
 }
 BOOL_FIELDS = {"pik_toggle", "covenant_compliant", "is_public"}
 
+MIN_VALID_DATE = date(1900, 1, 1)
+MAX_VALID_DATE = date(2200, 12, 31)
+EXCEL_EPOCH = datetime(1899, 12, 30)
+
 
 def _clean_str(val):
     if val is None or (isinstance(val, float) and math.isnan(val)):
@@ -364,19 +368,77 @@ def _clean_date(val):
     if val is None or (isinstance(val, float) and math.isnan(val)):
         return None
     if isinstance(val, date):
-        if val.year < 1900 or val.year > 2200:
-            return None
-        return val
+        return _normalize_date(val)
     if hasattr(val, "date"):
-        d = val.date()
-        if d.year < 1900 or d.year > 2200:
-            return None
-        return d
+        return _normalize_date(val.date())
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return _parse_numeric_date(float(val))
+    if isinstance(val, str):
+        return _parse_string_date(val)
     try:
-        d = pd.to_datetime(val).date()
-        if d.year < 1900 or d.year > 2200:
+        return _normalize_date(pd.to_datetime(val).date())
+    except Exception:
+        return None
+
+
+def _normalize_date(value):
+    if value is None:
+        return None
+    if value < MIN_VALID_DATE or value > MAX_VALID_DATE:
+        return None
+    return value
+
+
+def _parse_excel_serial_date(value):
+    if not math.isfinite(value):
+        return None
+    if value < 20000 or value > 150000:
+        return None
+    try:
+        return _normalize_date((EXCEL_EPOCH + timedelta(days=value)).date())
+    except OverflowError:
+        return None
+
+
+def _parse_numeric_date(value):
+    if not math.isfinite(value):
+        return None
+
+    # Support YYYYMMDD integers that sometimes appear in exported tapes.
+    if float(value).is_integer():
+        integer_value = int(value)
+        if 19000101 <= integer_value <= 22001231:
+            try:
+                return _normalize_date(datetime.strptime(str(integer_value), "%Y%m%d").date())
+            except ValueError:
+                pass
+
+    return _parse_excel_serial_date(value)
+
+
+def _parse_string_date(value):
+    text = value.strip()
+    if not text:
+        return None
+
+    if re.fullmatch(r"\d{8}", text):
+        try:
+            return _normalize_date(datetime.strptime(text, "%Y%m%d").date())
+        except ValueError:
             return None
-        return d
+
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        try:
+            return _parse_numeric_date(float(text))
+        except ValueError:
+            return None
+
+    # Short-circuit obviously invalid five-digit year strings like 48113-11-21.
+    if re.fullmatch(r"\d{5,}[-/]\d{1,2}[-/]\d{1,2}", text):
+        return None
+
+    try:
+        return _normalize_date(pd.to_datetime(text).date())
     except Exception:
         return None
 
