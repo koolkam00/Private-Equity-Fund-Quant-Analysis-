@@ -2040,14 +2040,7 @@ def compute_credit_underwrite_outcome(loans, metrics_by_id=None, *, snapshots_by
             }
         )
 
-    fund_rows.sort(
-        key=lambda row: (
-            row.get("weighted_delta_irr") is None,
-            row.get("weighted_delta_irr") if row.get("weighted_delta_irr") is not None else 999,
-            -(row.get("total_current_invested_capital") or 0.0),
-            row.get("fund_name") or "",
-        )
-    )
+    fund_rows.sort(key=lambda row: _credit_fund_label_sort_key(row.get("fund_name")))
 
     return {
         "summary": summary,

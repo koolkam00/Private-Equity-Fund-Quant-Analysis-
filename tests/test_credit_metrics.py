@@ -1782,6 +1782,38 @@ class TestCreditUnderwriteOutcome:
         assert row["actual_gross_irr_source"] == "Latest Snapshot"
         assert row["delta_irr"] == pytest.approx(-0.07, abs=0.001)
 
+    def test_underwrite_outcome_fund_rows_sort_by_roman_numeral_sequence(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Fund III Deal",
+                fund_name="Fund III",
+                current_invested_capital=30.0,
+                estimated_irr_at_entry=0.14,
+                gross_irr=0.10,
+            ),
+            _make_loan(
+                id=2,
+                company_name="Fund I Deal",
+                fund_name="Fund I",
+                current_invested_capital=20.0,
+                estimated_irr_at_entry=0.12,
+                gross_irr=0.09,
+            ),
+            _make_loan(
+                id=3,
+                company_name="Fund II Deal",
+                fund_name="Fund II",
+                current_invested_capital=25.0,
+                estimated_irr_at_entry=0.13,
+                gross_irr=0.11,
+            ),
+        ]
+
+        result = compute_credit_underwrite_outcome(loans, snapshots_by_loan={})
+
+        assert [row["fund_name"] for row in result["fund_rows"]] == ["Fund I", "Fund II", "Fund III"]
+
 
 class TestCreditPricingTrends:
     def test_weighted_coupon_and_floor_use_current_invested_capital(self):
