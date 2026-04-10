@@ -1403,6 +1403,96 @@ class TestCreditFundamentals:
         assert fund_revenue_summary["weighted_average_entry"] is None
         assert fund_revenue_summary["average_delta"] is None
 
+    def test_fundamentals_zero_values_are_excluded_and_delta_becomes_na(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Mixed Fund",
+                company_name="Healthy Co",
+                current_invested_capital=40.0,
+                entry_revenue=100.0,
+                current_revenue=120.0,
+                entry_ltv=0.50,
+                current_ltv=0.45,
+                entry_coverage_ratio=2.00,
+                current_coverage_ratio=2.20,
+                entry_equity_cushion=0.40,
+                current_equity_cushion=0.42,
+            ),
+            _make_loan(
+                id=2,
+                fund_name="Mixed Fund",
+                company_name="Missing Current Co",
+                current_invested_capital=60.0,
+                entry_revenue=150.0,
+                current_revenue=0.0,
+                entry_ltv=0.55,
+                current_ltv=0.0,
+                entry_coverage_ratio=1.75,
+                current_coverage_ratio=0.0,
+                entry_equity_cushion=0.35,
+                current_equity_cushion=0.0,
+            ),
+        ]
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan={})
+
+        revenue_summary = result["summary_by_key"]["revenue"]
+        assert revenue_summary["weighted_average_entry"] == pytest.approx(130.0, abs=0.001)
+        assert revenue_summary["weighted_average_exit_current"] == pytest.approx(120.0, abs=0.001)
+        assert revenue_summary["weighted_average_delta"] == pytest.approx(20.0, abs=0.001)
+        assert revenue_summary["average_entry"] == pytest.approx(125.0, abs=0.001)
+        assert revenue_summary["average_exit_current"] == pytest.approx(120.0, abs=0.001)
+        assert revenue_summary["average_delta"] == pytest.approx(20.0, abs=0.001)
+        assert revenue_summary["paired_count"] == 1
+
+        ltv_summary = result["summary_by_key"]["ltv"]
+        assert ltv_summary["weighted_average_entry"] == pytest.approx(0.53, abs=0.001)
+        assert ltv_summary["weighted_average_exit_current"] == pytest.approx(0.45, abs=0.001)
+        assert ltv_summary["weighted_average_delta"] == pytest.approx(-0.05, abs=0.001)
+        assert ltv_summary["paired_count"] == 1
+
+        missing_current_row = next(
+            row for row in result["deal_rows"] if row["company_name"] == "Missing Current Co"
+        )
+        assert missing_current_row["revenue_exit_current"] is None
+        assert missing_current_row["revenue_delta"] is None
+        assert missing_current_row["revenue_delta_pct"] is None
+        assert missing_current_row["ltv_exit_current"] is None
+        assert missing_current_row["ltv_delta"] is None
+        assert missing_current_row["coverage_ratio_exit_current"] is None
+        assert missing_current_row["coverage_ratio_delta"] is None
+        assert missing_current_row["equity_cushion_exit_current"] is None
+        assert missing_current_row["equity_cushion_delta"] is None
+
+    def test_fundamentals_zero_current_uses_latest_non_zero_snapshot_fallback(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Snapshot Fund",
+                company_name="Snapshot Co",
+                current_invested_capital=50.0,
+                entry_revenue=100.0,
+                current_revenue=0.0,
+                entry_ltv=0.60,
+                current_ltv=0.0,
+            ),
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_revenue=140.0, current_ltv=0.58),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_revenue=0.0, current_ltv=0.0),
+            ]
+        }
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan=snapshots_by_loan)
+        row = result["deal_rows"][0]
+
+        assert row["revenue_exit_current"] == pytest.approx(140.0, abs=0.001)
+        assert row["revenue_delta"] == pytest.approx(40.0, abs=0.001)
+        assert row["ltv_exit_current"] == pytest.approx(0.58, abs=0.001)
+        assert row["ltv_delta"] == pytest.approx(-0.02, abs=0.001)
+
     def test_fundamentals_decliners_sorted_by_absolute_drop(self):
         """ebitda_decliners only contains loans where EBITDA fell, sorted worst first.
 

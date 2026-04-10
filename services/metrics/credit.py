@@ -1117,12 +1117,30 @@ def _credit_current_invested_weight(loan, fx=1.0):
     return current_invested * fx
 
 
+def _credit_fundamental_metric_value(value):
+    """Treat zero-valued fundamentals as missing data for analysis purposes."""
+    numeric = _credit_numeric(value)
+    if numeric is None or abs(numeric) <= 1e-9:
+        return None
+    return numeric
+
+
 def _credit_metric_field_value(loan, field_names, *, fx=1.0, use_fx=False):
     """Return the first non-null numeric field from a candidate field list."""
     for field_name in field_names:
-        value = _credit_numeric(getattr(loan, field_name, None))
+        value = _credit_fundamental_metric_value(getattr(loan, field_name, None))
         if value is not None:
             return value * fx if use_fx else value
+    return None
+
+
+def _credit_latest_snapshot_metric_value(snapshots_by_loan, loan_id, field):
+    """Return the latest non-zero snapshot value for a fundamentals field."""
+    snaps = (snapshots_by_loan or {}).get(loan_id, [])
+    for snap in reversed(snaps):
+        value = _credit_fundamental_metric_value(getattr(snap, field, None))
+        if value is not None:
+            return value
     return None
 
 
@@ -1139,8 +1157,8 @@ def _credit_metric_current_value(loan, metric_def, snapshots_by_loan=None, *, fx
 
     snapshot_field = metric_def.get("snapshot_field")
     if snapshot_field:
-        snapshot_value = _credit_numeric(
-            _latest_snapshot_value(snapshots_by_loan, getattr(loan, "id", None), snapshot_field)
+        snapshot_value = _credit_latest_snapshot_metric_value(
+            snapshots_by_loan, getattr(loan, "id", None), snapshot_field
         )
         if snapshot_value is not None:
             return snapshot_value * fx if metric_def["use_fx"] else snapshot_value
@@ -1432,16 +1450,18 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     loans_with_loan_ebitda = 0
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        e_rev = getattr(loan, "entry_revenue", None)
-        c_rev = getattr(loan, "current_revenue", None)
-        e_ebitda = getattr(loan, "entry_ebitda", None)
-        c_ebitda = getattr(loan, "current_ebitda", None)
-        ttm_rev_entry = getattr(loan, "ttm_revenue_entry", None)
-        ttm_rev_current = getattr(loan, "ttm_revenue_current", None)
-
-        # Use TTM revenue fields as fallback for entry/current revenue
-        rev_entry = e_rev if e_rev is not None else ttm_rev_entry
-        rev_current = c_rev if c_rev is not None else ttm_rev_current
+        rev_entry = _credit_metric_field_value(
+            loan, ("entry_revenue", "ttm_revenue_entry"), fx=1.0, use_fx=False
+        )
+        rev_current = _credit_metric_field_value(
+            loan, ("current_revenue", "ttm_revenue_current"), fx=1.0, use_fx=False
+        )
+        e_ebitda = _credit_metric_field_value(
+            loan, ("entry_ebitda",), fx=1.0, use_fx=False
+        )
+        c_ebitda = _credit_metric_field_value(
+            loan, ("current_ebitda",), fx=1.0, use_fx=False
+        )
 
         has_any = any(v is not None for v in (rev_entry, rev_current, e_ebitda, c_ebitda))
         if not has_any:

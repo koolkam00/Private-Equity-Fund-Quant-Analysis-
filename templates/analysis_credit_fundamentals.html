@@ -225,17 +225,17 @@
                     <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
                     <td class="num">{{ render_metric(row.revenue_entry, 'currency') }}</td>
                     <td class="num">{{ render_metric(row.revenue_exit_current, 'currency') }}</td>
-                    <td class="num">{{ render_metric(row.revenue_delta, 'currency') }}</td>
-                    <td class="num">{{ fmt_pct_1dp(row.revenue_delta_pct) }}</td>
+                    <td class="num">{{ render_metric(row.revenue_delta, 'currency', 'N/A') }}</td>
+                    <td class="num">{{ render_metric(row.revenue_delta_pct, 'percent', 'N/A') }}</td>
                     <td class="num">{{ render_metric(row.ltv_entry, 'percent') }}</td>
                     <td class="num">{{ render_metric(row.ltv_exit_current, 'percent') }}</td>
-                    <td class="num">{{ render_metric(row.ltv_delta, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.ltv_delta, 'percent', 'N/A') }}</td>
                     <td class="num">{{ render_metric(row.coverage_ratio_entry, 'multiple') }}</td>
                     <td class="num">{{ render_metric(row.coverage_ratio_exit_current, 'multiple') }}</td>
-                    <td class="num">{{ render_metric(row.coverage_ratio_delta, 'multiple') }}</td>
+                    <td class="num">{{ render_metric(row.coverage_ratio_delta, 'multiple', 'N/A') }}</td>
                     <td class="num">{{ render_metric(row.equity_cushion_entry, 'percent') }}</td>
                     <td class="num">{{ render_metric(row.equity_cushion_exit_current, 'percent') }}</td>
-                    <td class="num">{{ render_metric(row.equity_cushion_delta, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.equity_cushion_delta, 'percent', 'N/A') }}</td>
                 </tr>
                 {% endfor %}
                 {% if not loop.last %}
@@ -248,7 +248,7 @@
 </div>
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
-    Weighted averages use <strong>Current Invested Capital</strong> only. {{ analysis.exit_current_label }} values come from the loan’s current fields, with latest snapshot fallback for revenue and LTV when the current loan field is blank. LTV and Equity Cushion deltas are shown as absolute percentage-point changes.
+    Weighted averages use <strong>Current Invested Capital</strong> only. Zero-valued fundamentals are treated as missing data and shown as <strong>N/A</strong>. {{ analysis.exit_current_label }} values come from the loan’s current fields, with latest non-zero snapshot fallback for revenue and LTV when the current loan field is blank. LTV and Equity Cushion deltas are shown as absolute percentage-point changes.
 </p>
 
 {% endif %}
