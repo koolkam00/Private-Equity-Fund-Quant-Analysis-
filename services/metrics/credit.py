@@ -2501,28 +2501,35 @@ def _credit_hold_years(loan, as_of_date=None):
 
 def _credit_track_value_components(loan, fx=1.0):
     """Loan-level value components used by track record and concentration."""
-    realized_value = (
-        getattr(loan, "realized_proceeds", None)
-        if getattr(loan, "realized_proceeds", None) is not None
-        else getattr(loan, "realized_value", None)
-    )
+    realized_raw = getattr(loan, "realized_proceeds", None)
+    if realized_raw is None:
+        realized_raw = getattr(loan, "realized_value", None)
+    realized_value = realized_raw
     realized_value = (realized_value or 0.0) * fx
 
-    ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
-    uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
+    unrealized_loan_raw = getattr(loan, "unrealized_loan_value", None)
+    legacy_unrealized_raw = getattr(loan, "unrealized_value", None)
+    warrant_raw = getattr(loan, "unrealized_warrant_equity_value", None)
+
+    ulv = (unrealized_loan_raw or 0.0) * fx
+    uwev = (warrant_raw or 0.0) * fx
     fair_value = getattr(loan, "fair_value", None)
     tv_col = getattr(loan, "total_value", None)
+    total_value = (tv_col * fx) if tv_col is not None else None
 
-    if ulv or uwev:
+    if unrealized_loan_raw is not None:
         unrealized_loan_value = ulv
     elif tv_col is not None:
-        unrealized_loan_value = max((tv_col * fx) - realized_value - uwev, 0.0)
+        unrealized_loan_value = max(total_value - realized_value - uwev, 0.0)
+    elif legacy_unrealized_raw is not None:
+        unrealized_loan_value = (legacy_unrealized_raw or 0.0) * fx
     elif fair_value is not None:
         unrealized_loan_value = fair_value * fx
     else:
         unrealized_loan_value = 0.0
 
-    total_value = realized_value + unrealized_loan_value + uwev
+    if total_value is None:
+        total_value = realized_value + unrealized_loan_value + uwev
     return {
         "realized_value": realized_value,
         "unrealized_value": unrealized_loan_value,
@@ -3267,19 +3274,14 @@ def _credit_dc_new_bucket():
 def _credit_dc_add(bucket, loan, fx=1.0):
     hold = _credit_position_amount(loan, fx)
     invested = _credit_position_amount(loan, fx)
-
-    rp = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
-    ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
-    uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
-    if ulv or uwev:
-        unrealized = ulv + uwev
-    elif getattr(loan, "fair_value", None) is not None:
-        unrealized = loan.fair_value * fx
-    else:
-        unrealized = 0.0
-
-    tv_col = getattr(loan, "total_value", None)
-    total_val = (tv_col * fx) if tv_col is not None else (rp + unrealized)
+    values = _credit_track_value_components(loan, fx)
+    realized = values["realized_value"]
+    # Data Cuts has one unrealized column, so roll warrant/equity value into it.
+    unrealized = (
+        (values["unrealized_value"] or 0.0)
+        + (values["unrealized_warrant_equity_value"] or 0.0)
+    )
+    total_val = values["total_value"]
 
     irr = getattr(loan, "gross_irr", None)
     moic_val = safe_divide(total_val, invested) if invested > 0 else getattr(loan, "moic", None)
@@ -3295,7 +3297,7 @@ def _credit_dc_add(bucket, loan, fx=1.0):
 
     bucket["loan_count"] += 1
     bucket["invested"] += invested
-    bucket["realized_value"] += rp
+    bucket["realized_value"] += realized
     bucket["unrealized_value"] += unrealized
     bucket["total_value"] += total_val
     bucket["_loan_ids"].append(loan.id)

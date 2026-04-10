@@ -1938,6 +1938,30 @@ class TestCreditTrackRecord:
         assert row["realized_gross_moic"] == pytest.approx(0.25)
         assert row["unrealized_gross_moic"] == pytest.approx(1.25)
 
+    def test_legacy_value_fields_flow_into_track_record(self):
+        loan = self._make_track_loan(
+            id=1,
+            fund_name="F1",
+            entry_loan_amount=20.0,
+            current_invested_capital=20.0,
+            realized_proceeds=None,
+            realized_value=8.0,
+            unrealized_loan_value=None,
+            unrealized_value=16.0,
+            unrealized_warrant_equity_value=2.0,
+            total_value=None,
+        )
+
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+
+        assert row["realized_value"] == pytest.approx(8.0)
+        assert row["unrealized_value"] == pytest.approx(16.0)
+        assert row["unrealized_warrant_equity_value"] == pytest.approx(2.0)
+        assert row["unrealized_total_value"] == pytest.approx(18.0)
+        assert row["total_value"] == pytest.approx(26.0)
+        assert row["gross_moic"] == pytest.approx(1.3)
+
     def test_net_tvpi_falls_back_to_net_moic_when_missing(self):
         loan = self._make_track_loan(id=1, fund_name="F1")
         fund_perf = SimpleNamespace(
@@ -2254,3 +2278,64 @@ class TestCreditDataCuts:
         b = next(g for g in result["groups"] if g["label"] == "B")
         assert a["pct_of_invested"] == pytest.approx(0.25, abs=0.01)
         assert b["pct_of_invested"] == pytest.approx(0.75, abs=0.01)
+
+    def test_legacy_value_fields_flow_into_data_cuts(self):
+        loan = _make_loan(
+            id=1,
+            sector="Software",
+            hold_size=0.0,
+            entry_loan_amount=20.0,
+            current_invested_capital=20.0,
+            realized_proceeds=None,
+            realized_value=8.0,
+            unrealized_loan_value=None,
+            unrealized_value=16.0,
+            unrealized_warrant_equity_value=2.0,
+            total_value=26.0,
+        )
+
+        result = compute_credit_data_cuts([loan], primary_dim="sector")
+        group = result["groups"][0]
+
+        assert group["realized_value"] == pytest.approx(8.0)
+        assert group["unrealized_value"] == pytest.approx(18.0)
+        assert group["total_value"] == pytest.approx(26.0)
+        assert group["weighted_moic"] == pytest.approx(1.3)
+
+    def test_data_cuts_totals_reconcile_to_track_record_totals(self):
+        loans = [
+            _make_loan(
+                id=1,
+                sector="Software",
+                hold_size=0.0,
+                entry_loan_amount=20.0,
+                current_invested_capital=20.0,
+                realized_proceeds=5.0,
+                realized_value=None,
+                unrealized_loan_value=18.0,
+                unrealized_value=None,
+                unrealized_warrant_equity_value=1.0,
+                total_value=24.0,
+            ),
+            _make_loan(
+                id=2,
+                sector="Healthcare",
+                hold_size=0.0,
+                entry_loan_amount=10.0,
+                current_invested_capital=10.0,
+                realized_proceeds=None,
+                realized_value=3.0,
+                unrealized_loan_value=None,
+                unrealized_value=12.0,
+                unrealized_warrant_equity_value=0.0,
+                total_value=None,
+            ),
+        ]
+
+        data_cuts = compute_credit_data_cuts(loans, primary_dim="sector")
+        track_record = compute_credit_track_record(loans)
+        track_totals = track_record["overall"]["totals"]
+
+        assert data_cuts["totals"]["realized_value"] == pytest.approx(track_totals["realized_value"])
+        assert data_cuts["totals"]["unrealized_value"] == pytest.approx(track_totals["unrealized_total_value"])
+        assert data_cuts["totals"]["total_value"] == pytest.approx(track_totals["total_value"])
