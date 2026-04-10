@@ -4567,8 +4567,8 @@ def download_credit_template():
 
     # Example row (matches new header order)
     ws.append([
-        # Core
-        "Acme Software Inc", "PCOF III", "Unrealized", "2023-06-15", None,
+        # Core (Status is auto-calculated from realized/unrealized values)
+        "Acme Software Inc", "PCOF III", None, "2023-06-15", None,
         # Company details
         1, "Enterprise SaaS platform for healthcare", "No",
         "Software", "North America", "Senior Secured", "Direct",
@@ -4689,7 +4689,10 @@ def download_credit_template():
         "  All other columns are optional. Include what your data has.",
         "",
         "  PRIMARY FIELDS (new LP format)",
-        "  Status: Realized, Unrealized, or Exited",
+        "  Status: AUTO-CALCULATED from realized/unrealized values:",
+        "    Fully Realized = realized > 0 and no unrealized (or Default/Restructured)",
+        "    Partially Realized = realized > 0 and unrealized > 0",
+        "    Unrealized = no realized proceeds",
         "  Entry Date: Funding/close date",
         "  Committed / Entry Loan Amount / Current Invested Capital: dollar amounts (millions)",
         "  Cash Margin / Coupon: decimal (e.g., 0.085 = 8.5%)",

@@ -632,6 +632,24 @@ def parse_credit_loan_tape(
         if loan.unrealized_loan_value is not None and loan.unrealized_value is None:
             loan.unrealized_value = loan.unrealized_loan_value
 
+        # Compute realization status from realized/unrealized values.
+        # Overrides whatever the user uploaded — the data tells the truth.
+        realized = (loan.realized_value or 0.0) + (loan.realized_proceeds or 0.0)
+        unrealized = (loan.unrealized_value or 0.0) + (loan.unrealized_loan_value or 0.0) + (loan.unrealized_warrant_equity_value or 0.0)
+        ds = (loan.default_status or "").lower()
+
+        if ds in ("default", "restructured"):
+            loan.status = "Fully Realized"
+        elif realized > 0 and unrealized <= 0 and loan.exit_date is not None:
+            loan.status = "Fully Realized"
+        elif realized > 0 and unrealized > 0:
+            loan.status = "Partially Realized"
+        elif realized > 0 and unrealized <= 0:
+            # Has realized proceeds but no exit date, still treat as fully realized
+            loan.status = "Fully Realized"
+        else:
+            loan.status = "Unrealized"
+
         # Validate LTV
         if loan.entry_ltv is not None and loan.entry_ltv > 1.0:
             _log_issue(row_num, "warning", f"Entry LTV {loan.entry_ltv} auto-normalized from percentage")
