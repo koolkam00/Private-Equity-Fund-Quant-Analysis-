@@ -249,9 +249,7 @@ def test_template_round_trip_creates_new_firm(credit_round_trip_client):
 
 
 # ---------------------------------------------------------------------------
-# Route smoke tests — exercise the credit-risk and credit-stress templates
-# end-to-end so Bug 5 (rate shock haircut) and Bug 6 (new ICR/DSCR/covenant
-# KPI cards) are visually-rendered without 500s.
+# Route smoke tests for the trimmed credit analysis surface.
 # ---------------------------------------------------------------------------
 
 
@@ -270,50 +268,8 @@ def _seed_template_loans(client, team_id, firm_name="Smoke Firm"):
         return firm.id
 
 
-def test_credit_risk_route_renders(credit_round_trip_client):
-    """Bug 6 visual smoke: credit-risk page renders 200, NO 500, with the new
-    KPI cards present in the HTML output."""
-    client, team_id = credit_round_trip_client
-    firm_id = _seed_template_loans(client, team_id)
-
-    with client.session_transaction() as sess:
-        sess["active_firm_id"] = firm_id
-
-    resp = client.get("/credit/analysis/credit-risk")
-    assert resp.status_code == 200, f"credit-risk failed: {resp.status_code}\n{resp.data[:500]}"
-    body = resp.get_data(as_text=True)
-    # The new ICR/DSCR/covenant cards from Bug 6
-    assert "Wtd Avg ICR" in body, "Bug 6: ICR KPI card missing from credit-risk page"
-    assert "Wtd Avg DSCR" in body, "Bug 6: DSCR KPI card missing from credit-risk page"
-
-
-def test_credit_stress_route_rate_shock_changes_nav(credit_round_trip_client):
-    """Bug 5 visual smoke: hitting credit-stress with rate_shock=200 must move
-    stressed_nav vs rate_shock=0 for portfolios with floating loans.
-
-    The template example loan is 'Floating' fixed_or_floating, so the haircut
-    must apply.
-    """
-    client, team_id = credit_round_trip_client
-    firm_id = _seed_template_loans(client, team_id)
-
-    with client.session_transaction() as sess:
-        sess["active_firm_id"] = firm_id
-
-    base = client.get("/credit/analysis/credit-stress?rate_shock=0")
-    assert base.status_code == 200, f"credit-stress (rate_shock=0) failed: {base.status_code}"
-
-    shocked = client.get("/credit/analysis/credit-stress?rate_shock=200")
-    assert shocked.status_code == 200, f"credit-stress (rate_shock=200) failed: {shocked.status_code}"
-
-    # Both pages must render without 500. The actual numeric assertion lives in
-    # tests/test_credit_metrics.py::test_stress_rate_shock_floating which
-    # exercises the math directly. This smoke test only proves the route + the
-    # template render with the new haircut path.
-
-
 def test_all_credit_routes_render_no_500(credit_round_trip_client):
-    """Visual walk: every credit analysis page renders without crashing."""
+    """Visual walk: only the supported credit analysis pages render."""
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id)
 
@@ -321,19 +277,10 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         sess["active_firm_id"] = firm_id
 
     pages = [
-        "credit-dashboard",
         "credit-track-record",
-        "credit-yield",
-        "credit-risk",
-        "credit-maturity",
         "credit-concentration",
-        "credit-stress",
-        "credit-vintage",
-        "credit-migration",
         "credit-fundamentals",
-        "credit-watchlist",
         "credit-data-cuts",
-        "credit-loan-structure",
     ]
     failures = []
     for page in pages:
@@ -341,6 +288,30 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         if resp.status_code != 200:
             failures.append(f"{page}: {resp.status_code}")
     assert not failures, f"Credit analysis pages crashed: {failures}"
+
+
+def test_removed_credit_routes_return_404(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Removed Credit Routes Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    removed_pages = [
+        "credit-dashboard",
+        "credit-yield",
+        "credit-risk",
+        "credit-watchlist",
+        "credit-migration",
+        "credit-stress",
+        "credit-vintage",
+        "credit-loan-structure",
+        "credit-maturity",
+    ]
+
+    for page in removed_pages:
+        resp = client.get(f"/credit/analysis/{page}")
+        assert resp.status_code == 404, page
 
 
 def test_credit_track_record_route_renders_net_tvpi_not_net_moic(credit_round_trip_client):
@@ -364,6 +335,23 @@ def test_credit_track_record_route_renders_net_tvpi_not_net_moic(credit_round_tr
     assert "Net DPI:" in body
     assert "Net MOIC:" not in body
     assert "All Funds Summary" in body
+
+
+def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Fundamentals Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-fundamentals")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Portfolio Summary" in body
+    assert "Wtd Avg Exit / Current" in body
+    assert "Revenue by Fund" in body
+    assert "Deal Detail" in body
+    assert "Current Invested Capital" in body
 
 
 def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):

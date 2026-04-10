@@ -1,13 +1,32 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp, credit_firm_banner with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_num_1dp, fmt_pct_1dp, credit_firm_banner with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+{% block page_actions %}
+<div class="track-record-actions">
+    <span class="record-count">{{ analysis.loan_count or loans|length }} loans · {{ analysis.fund_count or 0 }} funds</span>
+</div>
+{% endblock %}
+
+{% macro render_metric(value, kind) -%}
+    {%- if kind == "currency" -%}
+        {{ fmt_currency_symbol(value) }}
+    {%- elif kind == "percent" -%}
+        {{ fmt_pct_1dp(value) }}
+    {%- elif kind == "multiple" -%}
+        {%- if value is none -%}—{%- else -%}{{ "%.2fx"|format(value) }}{%- endif -%}
+    {%- else -%}
+        {{ fmt_num_1dp(value) }}
+    {%- endif -%}
+{%- endmacro %}
 
 {% block content %}
 {{ credit_firm_banner() }}
 
-{# --- Filters --- #}
+{% set status_filter_key = 'status' if filter_options.get('status') else 'default_status' %}
+{% set status_filter_options = filter_options.get(status_filter_key, []) %}
+
 <div class="panel panel-tight filter-panel">
     <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
         <div class="filter-grid">
@@ -20,9 +39,9 @@
             </label>
             <label class="filter-field">
                 <span>Status</span>
-                <select name="default_status">
+                <select name="{{ status_filter_key }}">
                     <option value="">All Statuses</option>
-                    {% for s in filter_options.get('default_status', []) %}<option value="{{ s }}" {% if s in (active_filters.get('default_status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get(status_filter_key) or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
                 </select>
             </label>
             <label class="filter-field">
@@ -38,33 +57,6 @@
                 <select name="internal_credit_rating">
                     <option value="">All Ratings</option>
                     {% for r in filter_options.get('internal_credit_rating', []) %}<option value="{{ r }}" {% if r in (active_filters.get('internal_credit_rating') or []) %}selected{% endif %}>{{ r }}</option>{% endfor %}
-                </select>
-            </label>
-            {% endif %}
-            {% if filter_options.get('location') %}
-            <label class="filter-field">
-                <span>Location</span>
-                <select name="location">
-                    <option value="">All Locations</option>
-                    {% for l in filter_options.get('location', []) %}<option value="{{ l }}" {% if l in (active_filters.get('location') or []) %}selected{% endif %}>{{ l }}</option>{% endfor %}
-                </select>
-            </label>
-            {% endif %}
-            {% if filter_options.get('sourcing_channel') %}
-            <label class="filter-field">
-                <span>Sourcing</span>
-                <select name="sourcing_channel">
-                    <option value="">All Channels</option>
-                    {% for s in filter_options.get('sourcing_channel', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sourcing_channel') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
-                </select>
-            </label>
-            {% endif %}
-            {% if filter_options.get('is_public') %}
-            <label class="filter-field">
-                <span>Public / Private</span>
-                <select name="is_public">
-                    <option value="">All</option>
-                    {% for p in filter_options.get('is_public', []) %}<option value="{{ p }}" {% if p in (active_filters.get('is_public') or []) %}selected{% endif %}>{% if p == 'True' or p == '1' or p == 'Yes' %}Public{% else %}Private{% endif %}</option>{% endfor %}
                 </select>
             </label>
             {% endif %}
@@ -85,175 +77,170 @@
 </div>
 {% else %}
 
-{# --- Coverage banner --- #}
-<div class="panel" style="margin-bottom: 24px; padding: 16px 24px; display: flex; align-items: center; gap: 16px;">
-    <i class="bi bi-clock-history" style="font-size: 20px; color: var(--accent);"></i>
-    <div style="flex: 1;">
-        <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
-            Fundamentals coverage:
-            EBITDA {% if analysis.coverage.per_field_coverage.current_ebitda is not none %}{{ "%.0f"|format(analysis.coverage.per_field_coverage.current_ebitda * 100) }}{% else %}0{% endif %}%
-            · Revenue {% if analysis.coverage.per_field_coverage.current_revenue is not none %}{{ "%.0f"|format(analysis.coverage.per_field_coverage.current_revenue * 100) }}{% else %}0{% endif %}%
-        </div>
-        <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">
-            {% if analysis.coverage.latest_snapshot_date %}
-            Latest snapshot: {{ analysis.coverage.latest_snapshot_date.strftime('%b %d, %Y') }}.
-            {% endif %}
-            {{ analysis.loans_with_ebitda_trend }} loans have ≥2 EBITDA observations and contribute to the weighted growth rate.
-        </div>
-    </div>
-</div>
-
-{# --- Top-line KPI cards --- #}
 <div class="kpi-grid" style="margin-bottom: 24px;">
     <div class="kpi-card">
-        <div class="kpi-label">Wtd avg EBITDA growth</div>
-        <div class="kpi-value" style="color: {% if analysis.wavg_ebitda_growth and analysis.wavg_ebitda_growth >= 0 %}var(--accent){% elif analysis.wavg_ebitda_growth %}var(--danger){% else %}var(--ink-faint){% endif %};">
-            {% if analysis.wavg_ebitda_growth is not none %}{{ fmt_pct_1dp(analysis.wavg_ebitda_growth) }}{% else %}—{% endif %}
-        </div>
+        <div class="kpi-label">Current Invested Capital</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_current_invested_capital) }}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Wtd avg revenue growth</div>
-        <div class="kpi-value" style="color: {% if analysis.wavg_revenue_growth and analysis.wavg_revenue_growth >= 0 %}var(--accent){% elif analysis.wavg_revenue_growth %}var(--danger){% else %}var(--ink-faint){% endif %};">
-            {% if analysis.wavg_revenue_growth is not none %}{{ fmt_pct_1dp(analysis.wavg_revenue_growth) }}{% else %}—{% endif %}
-        </div>
+        <div class="kpi-label">Funds in Scope</div>
+        <div class="kpi-value">{{ analysis.fund_count }}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Loans with EBITDA trend</div>
-        <div class="kpi-value">{{ analysis.loans_with_ebitda_trend }}</div>
+        <div class="kpi-label">Weighted Deals</div>
+        <div class="kpi-value">{{ analysis.weighted_loan_count }}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Declining EBITDA</div>
-        <div class="kpi-value" style="color: var(--danger);">{{ analysis.ebitda_decliners|length }}</div>
+        <div class="kpi-label">Revenue Pairs</div>
+        <div class="kpi-value">{{ analysis.summary_by_key.revenue.paired_count if analysis.summary_by_key.get('revenue') else 0 }}</div>
     </div>
 </div>
 
-{# --- Per-loan trend table --- #}
 <div class="panel" style="margin-bottom: 24px;">
-    <h3>Per-loan fundamentals</h3>
-    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
-        Earliest -> latest snapshot reading for each loan with at least one fundamentals observation. Decliners sorted to the top.
-    </p>
-    {% if not analysis.rows %}
-    <div style="border: 1px dashed var(--line); text-align: center; padding: 32px 16px; color: var(--ink-muted);">
-        No loans have snapshot fundamentals yet. Upload snapshots with current_revenue or current_ebitda to populate this view.
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Portfolio Summary</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Entry versus {{ analysis.exit_current_label }} on both weighted-average and simple-average bases.
+            </p>
+        </div>
+        <div style="font-size: 12px; color: var(--ink-muted); text-align: right;">
+            Weighted averages use <strong>Current Invested Capital</strong> only.
+        </div>
     </div>
-    {% else %}
     <table class="data-table">
         <thead>
             <tr>
-                <th>Company</th>
-                <th>Fund</th>
-                <th>Sector</th>
-                <th style="text-align: right;">Revenue (earliest)</th>
-                <th style="text-align: right;">Revenue (latest)</th>
-                <th style="text-align: right;">Δ Rev</th>
-                <th style="text-align: right;">EBITDA (earliest)</th>
-                <th style="text-align: right;">EBITDA (latest)</th>
-                <th style="text-align: right;">Δ EBITDA</th>
+                <th>Metric</th>
+                <th style="text-align: right;">Paired Deals</th>
+                <th style="text-align: right;">Wtd Avg Entry</th>
+                <th style="text-align: right;">Wtd Avg {{ analysis.exit_current_label }}</th>
+                <th style="text-align: right;">Wtd Avg Δ</th>
+                <th style="text-align: right;">Avg Entry</th>
+                <th style="text-align: right;">Avg {{ analysis.exit_current_label }}</th>
+                <th style="text-align: right;">Avg Δ</th>
             </tr>
         </thead>
         <tbody>
-            {% for r in analysis.rows %}
+            {% for metric in analysis.summary_metrics %}
             <tr>
-                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_earliest is not none %}{{ fmt_currency_symbol(r.revenue_earliest) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_latest is not none %}{{ fmt_currency_symbol(r.revenue_latest) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.revenue_direction == 'up' %}var(--accent){% elif r.revenue_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
-                    {% if r.revenue_growth_pct is not none %}{{ fmt_pct_1dp(r.revenue_growth_pct) }}{% else %}—{% endif %}
-                </td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_earliest is not none %}{{ fmt_currency_symbol(r.ebitda_earliest) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_latest is not none %}{{ fmt_currency_symbol(r.ebitda_latest) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.ebitda_direction == 'up' %}var(--accent){% elif r.ebitda_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
-                    {% if r.ebitda_growth_pct is not none %}{{ fmt_pct_1dp(r.ebitda_growth_pct) }}{% else %}—{% endif %}
-                </td>
+                <td style="font-weight: 500;">{{ metric.label }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ metric.paired_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_entry, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_exit_current, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.weighted_average_delta, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_entry, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_exit_current, metric.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(metric.average_delta, metric.kind) }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    {% endif %}
 </div>
 
-{# --- Deteriorating borrowers --- #}
-{% if analysis.ebitda_decliners %}
+{% for table in analysis.fund_metric_tables %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3 style="margin-bottom: 4px;">{{ table.label }} by Fund</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 0 0 16px 0;">
+        Fund-level entry versus {{ analysis.exit_current_label }} view for {{ table.label|lower }}.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Paired Deals</th>
+                <th style="text-align: right;">Wtd Avg Entry</th>
+                <th style="text-align: right;">Wtd Avg {{ analysis.exit_current_label }}</th>
+                <th style="text-align: right;">Wtd Avg Δ</th>
+                <th style="text-align: right;">Avg Entry</th>
+                <th style="text-align: right;">Avg {{ analysis.exit_current_label }}</th>
+                <th style="text-align: right;">Avg Δ</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in table.rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.fund_name }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.paired_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_entry, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_exit_current, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_delta, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_entry, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_exit_current, table.kind) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_delta, table.kind) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+
 <div class="panel">
-    <h3>EBITDA decliners</h3>
-    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
-        Loans whose EBITDA fell across the snapshot window. Worst absolute decline first.
-    </p>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Company</th>
-                <th>Fund</th>
-                <th>Sector</th>
-                <th style="text-align: right;">EBITDA (earliest)</th>
-                <th style="text-align: right;">EBITDA (latest)</th>
-                <th style="text-align: right;">Δ Absolute</th>
-                <th style="text-align: right;">Δ %</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for d in analysis.ebitda_decliners %}
-            <tr>
-                <td style="font-weight: 500;">{{ d.company or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ d.fund or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ d.sector or '—' }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(d.earliest) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(d.latest) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(d.delta) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 500;">{{ fmt_pct_1dp(d.growth_pct) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Deal Detail</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Loan-by-loan entry versus {{ analysis.exit_current_label }} view across revenue, LTV, coverage ratio, and equity cushion.
+            </p>
+        </div>
+    </div>
+    <div class="track-record-scroll">
+        <table class="track-record-template">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Fund</th>
+                    <th>Status</th>
+                    <th class="num">Current Invested Capital</th>
+                    <th class="num">Entry Revenue</th>
+                    <th class="num">{{ analysis.exit_current_label }} Revenue</th>
+                    <th class="num">Δ Revenue</th>
+                    <th class="num">Δ Revenue %</th>
+                    <th class="num">Entry LTV</th>
+                    <th class="num">{{ analysis.exit_current_label }} LTV</th>
+                    <th class="num">Δ LTV</th>
+                    <th class="num">Entry Coverage</th>
+                    <th class="num">{{ analysis.exit_current_label }} Coverage</th>
+                    <th class="num">Δ Coverage</th>
+                    <th class="num">Entry Cushion</th>
+                    <th class="num">{{ analysis.exit_current_label }} Cushion</th>
+                    <th class="num">Δ Cushion</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in analysis.deal_rows %}
+                <tr class="tr-detail">
+                    <td>{{ row.company_name or '—' }}</td>
+                    <td>{{ row.fund_name or '—' }}</td>
+                    <td>{{ row.status or '—' }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
+                    <td class="num">{{ render_metric(row.revenue_entry, 'currency') }}</td>
+                    <td class="num">{{ render_metric(row.revenue_exit_current, 'currency') }}</td>
+                    <td class="num">{{ render_metric(row.revenue_delta, 'currency') }}</td>
+                    <td class="num">{{ fmt_pct_1dp(row.revenue_delta_pct) }}</td>
+                    <td class="num">{{ render_metric(row.ltv_entry, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.ltv_exit_current, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.ltv_delta, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.coverage_ratio_entry, 'multiple') }}</td>
+                    <td class="num">{{ render_metric(row.coverage_ratio_exit_current, 'multiple') }}</td>
+                    <td class="num">{{ render_metric(row.coverage_ratio_delta, 'multiple') }}</td>
+                    <td class="num">{{ render_metric(row.equity_cushion_entry, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.equity_cushion_exit_current, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.equity_cushion_delta, 'percent') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
-{% endif %}
 
-{# --- Loan-level fundamentals (from upload data, no snapshots needed) --- #}
-{% if analysis.loan_level_rows %}
-<div class="panel" style="margin-top: 24px;">
-    <h3>Uploaded fundamentals (entry vs current)</h3>
-    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
-        Entry and current revenue/EBITDA from the loan upload. {{ analysis.loans_with_loan_revenue }} loans have revenue data, {{ analysis.loans_with_loan_ebitda }} have EBITDA. Decliners sorted to top.
-    </p>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Company</th>
-                <th>Fund</th>
-                <th>Sector</th>
-                <th style="text-align: right;">Revenue (entry)</th>
-                <th style="text-align: right;">Revenue (current)</th>
-                <th style="text-align: right;">Δ Rev</th>
-                <th style="text-align: right;">EBITDA (entry)</th>
-                <th style="text-align: right;">EBITDA (current)</th>
-                <th style="text-align: right;">Δ EBITDA</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in analysis.loan_level_rows %}
-            <tr>
-                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
-                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_entry is not none %}{{ fmt_currency_symbol(r.revenue_entry) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_current is not none %}{{ fmt_currency_symbol(r.revenue_current) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.revenue_direction == 'up' %}var(--accent){% elif r.revenue_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
-                    {% if r.revenue_growth_pct is not none %}{{ fmt_pct_1dp(r.revenue_growth_pct) }}{% else %}—{% endif %}
-                </td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_entry is not none %}{{ fmt_currency_symbol(r.ebitda_entry) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_current is not none %}{{ fmt_currency_symbol(r.ebitda_current) }}{% else %}—{% endif %}</td>
-                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.ebitda_direction == 'up' %}var(--accent){% elif r.ebitda_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
-                    {% if r.ebitda_growth_pct is not none %}{{ fmt_pct_1dp(r.ebitda_growth_pct) }}{% else %}—{% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endif %}
+<p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
+    Weighted averages use <strong>Current Invested Capital</strong> only. {{ analysis.exit_current_label }} values come from the loan’s current fields, with latest snapshot fallback for revenue and LTV when the current loan field is blank. LTV and Equity Cushion deltas are shown as absolute percentage-point changes.
+</p>
 
 {% endif %}
 {% endblock %}

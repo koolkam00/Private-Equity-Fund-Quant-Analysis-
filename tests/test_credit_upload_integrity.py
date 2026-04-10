@@ -283,7 +283,7 @@ def test_credit_upload_route_posts_template_successfully(client):
     )
 
     assert response.status_code == 200
-    assert b"Credit Portfolio Dashboard" in response.data
+    assert b"Credit Track Record" in response.data
     with app.app_context():
         assert CreditLoan.query.filter_by(fund_name="PCOF III").count() >= 1
 

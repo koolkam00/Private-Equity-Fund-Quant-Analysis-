@@ -128,6 +128,10 @@ def _make_loan(**kwargs):
         "warrant_term": None,
         "ttm_revenue_entry": None,
         "ttm_revenue_current": None,
+        "entry_coverage_ratio": None,
+        "current_coverage_ratio": None,
+        "entry_equity_cushion": None,
+        "current_equity_cushion": None,
     }
     defaults.update(kwargs)
     loan = MagicMock()
@@ -223,6 +227,10 @@ def _make_lp_loan(**kwargs):
         "warrant_term": "10 years",
         "ttm_revenue_entry": 50.0,
         "ttm_revenue_current": 55.0,
+        "entry_coverage_ratio": 1.6,
+        "current_coverage_ratio": 1.8,
+        "entry_equity_cushion": 0.45,
+        "current_equity_cushion": 0.40,
     }
     defaults.update(kwargs)
     loan = MagicMock()
@@ -1228,18 +1236,30 @@ class TestCreditFundamentals:
         assert result["coverage"]["per_field_coverage"]["current_ebitda"] == 0.0
 
     def test_fundamentals_weighted_growth_aggregation(self):
-        """Hold-weighted growth uses entry_loan_amount as the weight.
+        """Weighted growth uses current invested capital only.
 
-        Two loans with different growth rates and different sizes should produce
-        a weighted average that's neither the unweighted mean nor a simple sum.
+        The weighting basis should ignore hold_size noise and use
+        current_invested_capital for the weighted growth outputs.
 
-        Loan A: entry $100M, EBITDA 10 -> 12 (+20%)
-        Loan B: entry $400M, EBITDA 20 -> 19 (-5%)
+        Loan A: current invested $100M, EBITDA 10 -> 12 (+20%)
+        Loan B: current invested $400M, EBITDA 20 -> 19 (-5%)
         Weighted: (0.20 * 100 + -0.05 * 400) / (100 + 400) = (20 - 20) / 500 = 0.0
         """
         loans = [
-            _make_loan(id=1, company_name="A", entry_loan_amount=100.0, hold_size=100.0),
-            _make_loan(id=2, company_name="B", entry_loan_amount=400.0, hold_size=400.0),
+            _make_loan(
+                id=1,
+                company_name="A",
+                hold_size=400.0,
+                entry_loan_amount=400.0,
+                current_invested_capital=100.0,
+            ),
+            _make_loan(
+                id=2,
+                company_name="B",
+                hold_size=100.0,
+                entry_loan_amount=100.0,
+                current_invested_capital=400.0,
+            ),
         ]
         snapshots_by_loan = {
             1: [
@@ -1266,6 +1286,73 @@ class TestCreditFundamentals:
         assert len(result["rows"]) == 2
         assert result["rows"][0]["company"] == "B"  # decliner first
         assert result["rows"][1]["company"] == "A"
+
+    def test_fundamentals_entry_vs_exit_current_summary_and_snapshot_fallback(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Alpha",
+                fund_name="Fund A",
+                status="Unrealized",
+                current_invested_capital=20.0,
+                entry_revenue=100.0,
+                current_revenue=110.0,
+                entry_ltv=0.50,
+                current_ltv=None,
+                entry_coverage_ratio=1.50,
+                current_coverage_ratio=1.80,
+                entry_equity_cushion=0.45,
+                current_equity_cushion=0.40,
+            ),
+            _make_loan(
+                id=2,
+                company_name="Beta",
+                fund_name="Fund B",
+                status="Realized",
+                exit_date=date(2024, 12, 31),
+                current_invested_capital=80.0,
+                entry_revenue=200.0,
+                current_revenue=180.0,
+                entry_ltv=0.60,
+                current_ltv=0.55,
+                entry_coverage_ratio=2.00,
+                current_coverage_ratio=1.60,
+                entry_equity_cushion=0.40,
+                current_equity_cushion=0.45,
+            ),
+        ]
+        snapshots_by_loan = {
+            1: [
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 1, 1), current_ltv=0.52),
+                _make_snapshot(loan_id=1, snapshot_date=date(2024, 7, 1), current_ltv=0.58),
+            ]
+        }
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert result["loan_count"] == 2
+        assert result["fund_count"] == 2
+        assert result["weighted_loan_count"] == 2
+        assert result["total_current_invested_capital"] == pytest.approx(100.0, abs=0.001)
+
+        revenue_summary = result["summary_by_key"]["revenue"]
+        assert revenue_summary["weighted_average_entry"] == pytest.approx(180.0, abs=0.001)
+        assert revenue_summary["weighted_average_exit_current"] == pytest.approx(166.0, abs=0.001)
+        assert revenue_summary["weighted_average_delta"] == pytest.approx(-14.0, abs=0.001)
+        assert revenue_summary["average_delta"] == pytest.approx(-5.0, abs=0.001)
+
+        ltv_summary = result["summary_by_key"]["ltv"]
+        assert ltv_summary["weighted_average_exit_current"] == pytest.approx(0.556, abs=0.001)
+
+        fund_a = next(row for row in result["fund_rows"] if row["fund_name"] == "Fund A")
+        assert fund_a["metrics"]["revenue"]["weighted_average_entry"] == pytest.approx(100.0, abs=0.001)
+        assert fund_a["metrics"]["ltv"]["weighted_average_exit_current"] == pytest.approx(0.58, abs=0.001)
+
+        alpha_row = next(row for row in result["deal_rows"] if row["company_name"] == "Alpha")
+        beta_row = next(row for row in result["deal_rows"] if row["company_name"] == "Beta")
+        assert alpha_row["ltv_exit_current"] == pytest.approx(0.58, abs=0.001)
+        assert alpha_row["coverage_ratio_delta"] == pytest.approx(0.30, abs=0.001)
+        assert beta_row["exit_current_label"] == "Exit"
 
     def test_fundamentals_decliners_sorted_by_absolute_drop(self):
         """ebitda_decliners only contains loans where EBITDA fell, sorted worst first.

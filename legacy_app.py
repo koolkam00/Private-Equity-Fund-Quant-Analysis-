@@ -277,74 +277,29 @@ ANALYSIS_SIDEBAR_ITEMS = [
 ]
 
 CREDIT_ANALYSIS_PAGES = {
-    "credit-dashboard": {
-        "title": "Credit Portfolio Dashboard",
-        "description": "Portfolio KPIs, loan table, traffic-light health signals, and top concerns.",
-    },
     "credit-track-record": {
         "title": "Credit Track Record",
         "description": "Deal-level track record grouped by fund with gross loan metrics and net fund performance.",
     },
-    "credit-yield": {
-        "title": "Yield Analysis & Attribution",
-        "description": "Decompose returns into coupon, fee, PIK, and price components with waterfall chart.",
-    },
-    "credit-risk": {
-        "title": "Credit Risk & Watch List",
-        "description": "LTV distribution, coverage ratios, default tracking, credit rating migration.",
-    },
-    "credit-maturity": {
-        "title": "Maturity & Duration Profile",
-        "description": "Maturity wall chart, weighted average life, reinvestment risk analysis.",
-    },
     "credit-concentration": {
         "title": "Credit Concentration",
-        "description": "Sector, geography, sponsor, and security type breakdowns with HHI.",
-    },
-    "credit-stress": {
-        "title": "Credit Stress Testing Lab",
-        "description": "Scenario analysis with default, recovery, and rate shock parameters.",
-    },
-    "credit-vintage": {
-        "title": "Credit Fund Vintage Comparison",
-        "description": "Side-by-side comparison of credit fund performance across vintages.",
-    },
-    "credit-migration": {
-        "title": "Credit Rating Migration",
-        "description": "Internal credit rating drift across the snapshot window with at-risk loan list.",
+        "description": "Sector, geography, sponsor, and security type breakdowns sized by total value with HHI.",
     },
     "credit-fundamentals": {
-        "title": "Borrower Fundamentals",
-        "description": "Revenue and EBITDA growth across the snapshot window with deteriorating-borrower watch list.",
-    },
-    "credit-watchlist": {
-        "title": "Credit Watchlist",
-        "description": "Loans scored against an audited rubric of trend signals and hard triggers, bucketed by urgency.",
+        "title": "Credit Fundamentals",
+        "description": "Analyze entry vs exit/current revenue, LTV, coverage ratio, and equity cushion on deal and fund level using current invested capital weightings.",
     },
     "credit-data-cuts": {
         "title": "Credit Data Cuts",
         "description": "Slice credit portfolio performance by any dimension with cross-tab analysis.",
     },
-    "credit-loan-structure": {
-        "title": "Loan Structure & Terms",
-        "description": "Rate structure, fees, protections, amortization, par/outstanding, warrants, and equity details.",
-    },
 }
 
 CREDIT_SIDEBAR_ITEMS = [
-    {"page_key": "credit-dashboard", "label": "Credit Dashboard", "icon": "bi bi-bank2"},
     {"page_key": "credit-track-record", "label": "Track Record", "icon": "bi bi-table"},
-    {"page_key": "credit-yield", "label": "Yield Attribution", "icon": "bi bi-cash-stack"},
-    {"page_key": "credit-risk", "label": "Risk & Watch List", "icon": "bi bi-shield-exclamation"},
-    {"page_key": "credit-watchlist", "label": "Watchlist", "icon": "bi bi-eye"},
-    {"page_key": "credit-fundamentals", "label": "Borrower Fundamentals", "icon": "bi bi-graph-up-arrow"},
-    {"page_key": "credit-migration", "label": "Rating Migration", "icon": "bi bi-arrow-down-up"},
-    {"page_key": "credit-maturity", "label": "Maturity Profile", "icon": "bi bi-calendar-range"},
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
-    {"page_key": "credit-stress", "label": "Stress Lab", "icon": "bi bi-lightning"},
-    {"page_key": "credit-vintage", "label": "Vintage Comparison", "icon": "bi bi-arrow-left-right"},
+    {"page_key": "credit-fundamentals", "label": "Fundamentals", "icon": "bi bi-bar-chart-line"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
-    {"page_key": "credit-loan-structure", "label": "Loan Structure", "icon": "bi bi-file-earmark-text"},
 ]
 
 TEAM_ROLE_OWNER = "owner"
@@ -4347,53 +4302,14 @@ def credit_analysis_page(page):
         fund_performance = ctx.get("fund_performance", {})
 
         payload = {}
-        if page == "credit-dashboard":
-            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
-        elif page == "credit-track-record":
+        if page == "credit-track-record":
             payload = compute_credit_track_record(
                 loans, metrics_by_id, fund_performance=fund_performance
             )
-        elif page == "credit-yield":
-            payload = compute_credit_yield_attribution(loans, metrics_by_id)
-        elif page == "credit-risk":
-            payload = compute_credit_risk_metrics(loans, metrics_by_id)
-            payload["snapshots_by_loan"] = snapshots_by_loan
-        elif page == "credit-maturity":
-            payload = compute_credit_maturity_profile(loans)
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)
-        elif page == "credit-stress":
-            try:
-                default_shock = max(0.0, min(1.0, float(request.args.get("default_shock", 0.05))))
-            except (TypeError, ValueError):
-                default_shock = 0.05
-            try:
-                recovery_rate = max(0.0, min(1.0, float(request.args.get("recovery_rate", 0.40))))
-            except (TypeError, ValueError):
-                recovery_rate = 0.40
-            try:
-                rate_shock = max(0, min(1000, int(request.args.get("rate_shock", 0))))
-            except (TypeError, ValueError):
-                rate_shock = 0
-            scenario = {
-                "default_rate_shock": default_shock,
-                "recovery_rate_shock": recovery_rate,
-                "rate_shock_bps": rate_shock,
-            }
-            payload = compute_credit_stress_scenarios(loans, scenario)
-        elif page == "credit-vintage":
-            payload = compute_credit_vintage_comparison(loans)
-        elif page == "credit-migration":
-            # TODO(credit-refactor): dedupe HTML and JSON dispatch chains
-            payload = compute_credit_migration_matrix(
-                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
-            )
         elif page == "credit-fundamentals":
             payload = compute_credit_fundamentals(
-                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
-            )
-        elif page == "credit-watchlist":
-            payload = compute_credit_watchlist(
                 loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
             )
         elif page == "credit-data-cuts":
@@ -4404,23 +4320,12 @@ def credit_analysis_page(page):
                 primary_dim=primary_dim,
                 secondary_dim=secondary_dim or None,
             )
-        elif page == "credit-loan-structure":
-            payload = compute_credit_loan_structure(loans, metrics_by_id)
 
         template_map = {
-            "credit-dashboard": "analysis_credit_dashboard.html",
             "credit-track-record": "analysis_credit_track_record.html",
-            "credit-yield": "analysis_credit_yield.html",
-            "credit-risk": "analysis_credit_risk.html",
-            "credit-maturity": "analysis_credit_maturity.html",
             "credit-concentration": "analysis_credit_concentration.html",
-            "credit-stress": "analysis_credit_stress.html",
-            "credit-vintage": "analysis_credit_vintage.html",
-            "credit-migration": "analysis_credit_migration.html",
             "credit-fundamentals": "analysis_credit_fundamentals.html",
-            "credit-watchlist": "analysis_credit_watchlist.html",
             "credit-data-cuts": "analysis_credit_data_cuts.html",
-            "credit-loan-structure": "analysis_credit_loan_structure.html",
         }
 
         return render_template(
@@ -4465,39 +4370,16 @@ def credit_analysis_series_api(page):
         fund_performance = ctx.get("fund_performance", {})
 
         payload = {}
-        if page == "credit-dashboard":
-            payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
-        elif page == "credit-track-record":
+        if page == "credit-track-record":
             payload = compute_credit_track_record(
                 loans, metrics_by_id, fund_performance=fund_performance
             )
-        elif page == "credit-yield":
-            payload = compute_credit_yield_attribution(loans, metrics_by_id)
-        elif page == "credit-maturity":
-            payload = compute_credit_maturity_profile(loans)
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)
-        elif page == "credit-stress":
-            try:
-                ds = max(0.0, min(1.0, float(request.args.get("default_shock", 0.05))))
-            except (TypeError, ValueError):
-                ds = 0.05
-            try:
-                rr = max(0.0, min(1.0, float(request.args.get("recovery_rate", 0.40))))
-            except (TypeError, ValueError):
-                rr = 0.40
-            try:
-                rs = max(0, min(1000, int(request.args.get("rate_shock", 0))))
-            except (TypeError, ValueError):
-                rs = 0
-            scenario = {
-                "default_rate_shock": ds,
-                "recovery_rate_shock": rr,
-                "rate_shock_bps": rs,
-            }
-            payload = compute_credit_stress_scenarios(loans, scenario)
-        elif page == "credit-vintage":
-            payload = compute_credit_vintage_comparison(loans)
+        elif page == "credit-fundamentals":
+            payload = compute_credit_fundamentals(
+                loans, metrics_by_id, snapshots_by_loan=ctx["snapshots_by_loan"]
+            )
         elif page == "credit-data-cuts":
             primary_dim = request.args.get("dim", "sector")
             secondary_dim = request.args.get("dim2", "")
@@ -4506,8 +4388,6 @@ def credit_analysis_series_api(page):
                 primary_dim=primary_dim,
                 secondary_dim=secondary_dim or None,
             )
-        elif page == "credit-loan-structure":
-            payload = compute_credit_loan_structure(loans, metrics_by_id)
 
         return jsonify({"page": page, "title": CREDIT_ANALYSIS_PAGES[page]["title"], "payload": payload})
     except SQLAlchemyError as exc:
@@ -4603,7 +4483,7 @@ def upload_credit_loans():
         if result.get("warnings", 0) > 0:
             msg += f" {result['warnings']} warning(s)."
         flash(msg, "success")
-        return redirect(url_for("credit_analysis_page", page="credit-dashboard"))
+        return redirect(url_for("credit_analysis_page", page="credit-track-record"))
     except ValueError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("upload_credit_loans"))

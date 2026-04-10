@@ -1046,8 +1046,164 @@ def compute_credit_migration_matrix(loans, metrics_by_id=None, *, snapshots_by_l
 # ---------------------------------------------------------------------------
 
 
+FUNDAMENTAL_METRIC_DEFS = (
+    {
+        "key": "revenue",
+        "label": "Revenue",
+        "kind": "currency",
+        "entry_fields": ("entry_revenue", "ttm_revenue_entry"),
+        "current_fields": ("current_revenue", "ttm_revenue_current"),
+        "snapshot_field": "current_revenue",
+        "use_fx": True,
+    },
+    {
+        "key": "ltv",
+        "label": "LTV",
+        "kind": "percent",
+        "entry_fields": ("entry_ltv",),
+        "current_fields": ("current_ltv",),
+        "snapshot_field": "current_ltv",
+        "use_fx": False,
+    },
+    {
+        "key": "coverage_ratio",
+        "label": "Coverage Ratio",
+        "kind": "multiple",
+        "entry_fields": ("entry_coverage_ratio",),
+        "current_fields": ("current_coverage_ratio",),
+        "snapshot_field": None,
+        "use_fx": False,
+    },
+    {
+        "key": "equity_cushion",
+        "label": "Equity Cushion",
+        "kind": "percent",
+        "entry_fields": ("entry_equity_cushion",),
+        "current_fields": ("current_equity_cushion",),
+        "snapshot_field": None,
+        "use_fx": False,
+    },
+)
+
+
+def _credit_numeric(value):
+    """Coerce a value to float when it is truly numeric, else return None."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        coerced = float(value)
+        return None if coerced != coerced else coerced
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if coerced != coerced else coerced
+
+
+def _credit_current_invested_weight(loan, fx=1.0):
+    """Weight fundamentals strictly by current invested capital."""
+    current_invested = _credit_numeric(getattr(loan, "current_invested_capital", None))
+    if current_invested is None or current_invested <= 0:
+        return 0.0
+    return current_invested * fx
+
+
+def _credit_metric_field_value(loan, field_names, *, fx=1.0, use_fx=False):
+    """Return the first non-null numeric field from a candidate field list."""
+    for field_name in field_names:
+        value = _credit_numeric(getattr(loan, field_name, None))
+        if value is not None:
+            return value * fx if use_fx else value
+    return None
+
+
+def _credit_metric_current_value(loan, metric_def, snapshots_by_loan=None, *, fx=1.0):
+    """Resolve the exit/current metric from the loan row, then snapshots if available."""
+    current_value = _credit_metric_field_value(
+        loan,
+        metric_def["current_fields"],
+        fx=fx,
+        use_fx=metric_def["use_fx"],
+    )
+    if current_value is not None:
+        return current_value
+
+    snapshot_field = metric_def.get("snapshot_field")
+    if snapshot_field:
+        snapshot_value = _credit_numeric(
+            _latest_snapshot_value(snapshots_by_loan, getattr(loan, "id", None), snapshot_field)
+        )
+        if snapshot_value is not None:
+            return snapshot_value * fx if metric_def["use_fx"] else snapshot_value
+    return None
+
+
+def _credit_metric_summary(metric_def, records):
+    """Aggregate entry/current/delta on weighted and simple-average bases."""
+    entry_sum = 0.0
+    entry_count = 0
+    current_sum = 0.0
+    current_count = 0
+    delta_sum = 0.0
+    delta_count = 0
+
+    weighted_entry_num = 0.0
+    weighted_entry_den = 0.0
+    weighted_current_num = 0.0
+    weighted_current_den = 0.0
+    weighted_delta_num = 0.0
+    weighted_delta_den = 0.0
+    weighted_paired_count = 0
+
+    for record in records:
+        entry_value = record["entry"]
+        current_value = record["current"]
+        delta_value = record["delta"]
+        weight = record["weight"]
+
+        if entry_value is not None:
+            entry_sum += entry_value
+            entry_count += 1
+            if weight > 0:
+                weighted_entry_num += entry_value * weight
+                weighted_entry_den += weight
+
+        if current_value is not None:
+            current_sum += current_value
+            current_count += 1
+            if weight > 0:
+                weighted_current_num += current_value * weight
+                weighted_current_den += weight
+
+        if delta_value is not None:
+            delta_sum += delta_value
+            delta_count += 1
+            if weight > 0:
+                weighted_delta_num += delta_value * weight
+                weighted_delta_den += weight
+                weighted_paired_count += 1
+
+    return {
+        "key": metric_def["key"],
+        "label": metric_def["label"],
+        "kind": metric_def["kind"],
+        "weighted_average_entry": safe_divide(weighted_entry_num, weighted_entry_den),
+        "weighted_average_exit_current": safe_divide(weighted_current_num, weighted_current_den),
+        "weighted_average_delta": safe_divide(weighted_delta_num, weighted_delta_den),
+        "average_entry": safe_divide(entry_sum, entry_count),
+        "average_exit_current": safe_divide(current_sum, current_count),
+        "average_delta": safe_divide(delta_sum, delta_count),
+        "entry_count": entry_count,
+        "exit_current_count": current_count,
+        "paired_count": delta_count,
+        "weighted_paired_count": weighted_paired_count,
+    }
+
+
 def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=None):
-    """Borrower fundamentals: revenue and EBITDA growth across the snapshot window.
+    """Borrower fundamentals plus entry vs exit/current analysis.
 
     Reads ``current_revenue`` and ``current_ebitda`` from the snapshot history
     via ``_snapshot_trend``, then aggregates a hold-weighted growth rate so the
@@ -1060,7 +1216,9 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     biggest drops are first, and capped to keep the table scannable.
 
     Returns the standard ``coverage`` block plus the field-level aggregates,
-    grower / decliner lists, and per-loan trend rows for the main table.
+    grower / decliner lists, and entry vs exit/current summaries at the
+    portfolio, fund, and deal level. Weighted fundamentals always use
+    ``current_invested_capital`` only.
     """
     snapshots_by_loan = snapshots_by_loan or {}
 
@@ -1075,10 +1233,18 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     rows = []
     revenue_decliners = []
     ebitda_decliners = []
+    overall_metric_records = {metric["key"]: [] for metric in FUNDAMENTAL_METRIC_DEFS}
+    fund_buckets = {}
+    deal_rows = []
+    total_current_invested_capital = 0.0
+    weighted_loan_count = 0
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        weight = _credit_position_amount(loan, fx)
+        weight = _credit_current_invested_weight(loan, fx)
+        if weight > 0:
+            total_current_invested_capital += weight
+            weighted_loan_count += 1
 
         rev_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_revenue")
         ebitda_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_ebitda")
@@ -1140,6 +1306,73 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
                 "ebitda_growth_pct": ebitda_growth,
                 "ebitda_direction": ebitda_trend["direction"] if ebitda_trend else None,
             })
+
+        fund_name = getattr(loan, "fund_name", None) or "Unassigned"
+        if fund_name not in fund_buckets:
+            fund_buckets[fund_name] = {
+                "fund_name": fund_name,
+                "loan_count": 0,
+                "total_current_invested_capital": 0.0,
+                "metric_records": {metric["key"]: [] for metric in FUNDAMENTAL_METRIC_DEFS},
+            }
+        fund_bucket = fund_buckets[fund_name]
+        fund_bucket["loan_count"] += 1
+        fund_bucket["total_current_invested_capital"] += weight
+
+        deal_row = {
+            "loan_id": loan.id,
+            "company_name": getattr(loan, "company_name", None),
+            "fund_name": fund_name,
+            "status": getattr(loan, "status", None) or getattr(loan, "default_status", None),
+            "exit_current_label": (
+                "Exit"
+                if getattr(loan, "exit_date", None) is not None
+                or (getattr(loan, "status", "") or "").strip().lower() == "realized"
+                else "Current"
+            ),
+            "current_invested_capital": weight if weight > 0 else None,
+        }
+
+        for metric_def in FUNDAMENTAL_METRIC_DEFS:
+            entry_value = _credit_metric_field_value(
+                loan,
+                metric_def["entry_fields"],
+                fx=fx,
+                use_fx=metric_def["use_fx"],
+            )
+            current_value = _credit_metric_current_value(
+                loan,
+                metric_def,
+                snapshots_by_loan=snapshots_by_loan,
+                fx=fx,
+            )
+            delta_value = (
+                current_value - entry_value
+                if entry_value is not None and current_value is not None
+                else None
+            )
+
+            record = {
+                "entry": entry_value,
+                "current": current_value,
+                "delta": delta_value,
+                "weight": weight,
+            }
+            overall_metric_records[metric_def["key"]].append(record)
+            fund_bucket["metric_records"][metric_def["key"]].append(record)
+
+            deal_row[f"{metric_def['key']}_entry"] = entry_value
+            deal_row[f"{metric_def['key']}_exit_current"] = current_value
+            deal_row[f"{metric_def['key']}_delta"] = delta_value
+
+        revenue_entry = deal_row["revenue_entry"]
+        revenue_exit_current = deal_row["revenue_exit_current"]
+        deal_row["revenue_delta_pct"] = (
+            safe_divide(revenue_exit_current - revenue_entry, revenue_entry)
+            if revenue_entry not in (None, 0) and revenue_exit_current is not None
+            else None
+        )
+        deal_rows.append(deal_row)
 
     # Sort decliners by absolute delta (worst first)
     revenue_decliners.sort(key=lambda r: r["delta"])
@@ -1212,6 +1445,48 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         r["company"] or "",
     ))
 
+    summary_metrics = [
+        _credit_metric_summary(metric_def, overall_metric_records[metric_def["key"]])
+        for metric_def in FUNDAMENTAL_METRIC_DEFS
+    ]
+    summary_by_key = {summary["key"]: summary for summary in summary_metrics}
+
+    fund_rows = []
+    for fund_name in sorted(fund_buckets):
+        bucket = fund_buckets[fund_name]
+        metric_summaries = {
+            metric_def["key"]: _credit_metric_summary(
+                metric_def, bucket["metric_records"][metric_def["key"]]
+            )
+            for metric_def in FUNDAMENTAL_METRIC_DEFS
+        }
+        fund_rows.append({
+            "fund_name": bucket["fund_name"],
+            "loan_count": bucket["loan_count"],
+            "total_current_invested_capital": bucket["total_current_invested_capital"],
+            "metrics": metric_summaries,
+        })
+
+    fund_metric_tables = []
+    for metric_def in FUNDAMENTAL_METRIC_DEFS:
+        table_rows = []
+        for fund_row in fund_rows:
+            summary = fund_row["metrics"][metric_def["key"]]
+            table_rows.append({
+                "fund_name": fund_row["fund_name"],
+                "loan_count": fund_row["loan_count"],
+                "total_current_invested_capital": fund_row["total_current_invested_capital"],
+                **summary,
+            })
+        fund_metric_tables.append({
+            "key": metric_def["key"],
+            "label": metric_def["label"],
+            "kind": metric_def["kind"],
+            "rows": table_rows,
+        })
+
+    deal_rows.sort(key=lambda row: (row["fund_name"] or "", row["company_name"] or ""))
+
     coverage_revenue = compute_snapshot_coverage(
         loans, snapshots_by_loan, required_field="current_revenue"
     )
@@ -1242,6 +1517,16 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         "loan_level_rows": loan_level_rows,
         "loans_with_loan_revenue": loans_with_loan_revenue,
         "loans_with_loan_ebitda": loans_with_loan_ebitda,
+        "loan_count": len(loans),
+        "fund_count": len(fund_rows),
+        "weighted_loan_count": weighted_loan_count,
+        "total_current_invested_capital": total_current_invested_capital,
+        "summary_metrics": summary_metrics,
+        "summary_by_key": summary_by_key,
+        "fund_rows": fund_rows,
+        "fund_metric_tables": fund_metric_tables,
+        "deal_rows": deal_rows,
+        "exit_current_label": "Exit / Current",
     }
 
 
