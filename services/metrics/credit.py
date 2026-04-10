@@ -1037,6 +1037,67 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         r["company"] or "",
     ))
 
+    # --- Loan-level fundamentals (no snapshots needed) ---
+    # The loan model has entry_revenue, entry_ebitda, current_revenue,
+    # current_ebitda fields that are uploaded directly. These surface even
+    # when no snapshot history exists.
+    loan_level_rows = []
+    loans_with_loan_revenue = 0
+    loans_with_loan_ebitda = 0
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        e_rev = getattr(loan, "entry_revenue", None)
+        c_rev = getattr(loan, "current_revenue", None)
+        e_ebitda = getattr(loan, "entry_ebitda", None)
+        c_ebitda = getattr(loan, "current_ebitda", None)
+        ttm_rev_entry = getattr(loan, "ttm_revenue_entry", None)
+        ttm_rev_current = getattr(loan, "ttm_revenue_current", None)
+
+        # Use TTM revenue fields as fallback for entry/current revenue
+        rev_entry = e_rev if e_rev is not None else ttm_rev_entry
+        rev_current = c_rev if c_rev is not None else ttm_rev_current
+
+        has_any = any(v is not None for v in (rev_entry, rev_current, e_ebitda, c_ebitda))
+        if not has_any:
+            continue
+
+        if rev_entry is not None or rev_current is not None:
+            loans_with_loan_revenue += 1
+        if e_ebitda is not None or c_ebitda is not None:
+            loans_with_loan_ebitda += 1
+
+        rev_growth = None
+        rev_dir = None
+        if rev_entry is not None and rev_entry > 0 and rev_current is not None:
+            rev_growth = (rev_current - rev_entry) / rev_entry
+            rev_dir = "up" if rev_growth > 0.001 else ("down" if rev_growth < -0.001 else "flat")
+
+        ebitda_growth_ll = None
+        ebitda_dir = None
+        if e_ebitda is not None and e_ebitda > 0 and c_ebitda is not None:
+            ebitda_growth_ll = (c_ebitda - e_ebitda) / e_ebitda
+            ebitda_dir = "up" if ebitda_growth_ll > 0.001 else ("down" if ebitda_growth_ll < -0.001 else "flat")
+
+        loan_level_rows.append({
+            "loan_id": loan.id,
+            "company": loan.company_name,
+            "fund": loan.fund_name,
+            "sector": getattr(loan, "sector", None),
+            "revenue_entry": (rev_entry * fx) if rev_entry is not None else None,
+            "revenue_current": (rev_current * fx) if rev_current is not None else None,
+            "revenue_growth_pct": rev_growth,
+            "revenue_direction": rev_dir,
+            "ebitda_entry": (e_ebitda * fx) if e_ebitda is not None else None,
+            "ebitda_current": (c_ebitda * fx) if c_ebitda is not None else None,
+            "ebitda_growth_pct": ebitda_growth_ll,
+            "ebitda_direction": ebitda_dir,
+        })
+
+    loan_level_rows.sort(key=lambda r: (
+        0 if (r["ebitda_direction"] == "down" or r["revenue_direction"] == "down") else 1,
+        r["company"] or "",
+    ))
+
     coverage_revenue = compute_snapshot_coverage(
         loans, snapshots_by_loan, required_field="current_revenue"
     )
@@ -1063,6 +1124,10 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         "revenue_decliners": revenue_decliners,
         "ebitda_decliners": ebitda_decliners,
         "coverage": coverage,
+        # Loan-level fundamentals (from upload, no snapshots needed)
+        "loan_level_rows": loan_level_rows,
+        "loans_with_loan_revenue": loans_with_loan_revenue,
+        "loans_with_loan_ebitda": loans_with_loan_ebitda,
     }
 
 
@@ -1382,6 +1447,32 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
             by_fund[fund]["pik_margin"] = by_fund[fund].get("pik_margin", 0) + (pm or 0) * entry_amt
             by_fund[fund]["warrant_upside"] = by_fund[fund].get("warrant_upside", 0) + uwev
 
+    # --- Rate mix & spread ---
+    fixed_count = 0
+    fixed_hold = 0.0
+    pik_count = 0
+    pik_hold = 0.0
+    spread_num = 0.0
+    spread_den = 0.0
+    yield_total_hold = 0.0
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        hold = (loan.hold_size or 0.0) * fx
+        yield_total_hold += hold
+        rate_type = (getattr(loan, "fixed_or_floating", None) or "").lower()
+        if rate_type == "fixed":
+            fixed_count += 1
+            fixed_hold += hold
+        if loan.pik_toggle:
+            pik_count += 1
+            pik_hold += hold
+        if loan.spread_bps is not None and hold > 0:
+            spread_num += loan.spread_bps * hold
+            spread_den += hold
+
+    wavg_spread_bps = safe_divide(spread_num, spread_den)
+
     # --- Floor coverage ---
     # For floating-rate loans, the floor is the minimum reference rate. If the
     # reference rate (e.g. SOFR) drops below the floor, the loan still pays the
@@ -1407,7 +1498,6 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         if floor is not None and floor > 0:
             floating_loans_with_floor_count += 1
             floating_hold_with_floor += hold
-            # Weight floors by hold (USD). Loans with zero hold contribute zero.
             if hold > 0:
                 floor_rate_weighted_sum += floor * hold
                 floor_weight_total += hold
@@ -1431,6 +1521,15 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         "warrant_upside": total_warrant_upside if total_warrant_upside > 0 else None,
         "price_return_new": total_price_return_new if has_new_yield else None,
         "has_new_yield": has_new_yield,
+        # --- Rate mix & spread ---
+        "wavg_spread_bps": wavg_spread_bps,
+        "fixed_count": fixed_count,
+        "fixed_hold": fixed_hold,
+        "pik_count": pik_count,
+        "pik_hold": pik_hold,
+        "floating_pct": safe_divide(floating_hold_total, yield_total_hold),
+        "fixed_pct": safe_divide(fixed_hold, yield_total_hold),
+        "pik_pct": safe_divide(pik_hold, yield_total_hold),
         # --- Floor coverage block ---
         "floating_loans_count": floating_loans_count,
         "floating_loans_with_floor_count": floating_loans_with_floor_count,
@@ -1516,6 +1615,21 @@ def compute_credit_stress_scenarios(loans, scenario):
 
     nav_impact_pct = safe_divide(stressed_nav - base_nav, base_nav) if base_nav > 0 else 0.0
 
+    # Rate exposure breakdown for the stress page
+    floating_count = 0
+    floating_hold = 0.0
+    fixed_count = 0
+    fixed_hold = 0.0
+    for loan in loans:
+        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        rate_type = (getattr(loan, "fixed_or_floating", None) or "").lower()
+        if rate_type == "floating":
+            floating_count += 1
+            floating_hold += hold
+        elif rate_type == "fixed":
+            fixed_count += 1
+            fixed_hold += hold
+
     return {
         "base_nav": base_nav,
         "stressed_nav": stressed_nav,
@@ -1525,6 +1639,13 @@ def compute_credit_stress_scenarios(loans, scenario):
         "defaulted_amount": defaulted_amount,
         "impacted_loans": impacted_loans,
         "scenario": scenario,
+        # Rate exposure
+        "floating_count": floating_count,
+        "floating_hold": floating_hold,
+        "fixed_count": fixed_count,
+        "fixed_hold": fixed_hold,
+        "floating_pct": safe_divide(floating_hold, total_hold),
+        "total_hold": total_hold,
     }
 
 
@@ -2607,4 +2728,239 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
         "data_quality_warning": data_quality_warning,
         "deal_count": totals["loan_count"],
         "loan_count": totals["loan_count"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Loan Structure & Terms analysis
+# ---------------------------------------------------------------------------
+
+
+def compute_credit_loan_structure(loans, metrics_by_id=None):
+    """Aggregate and per-loan view of loan structural terms.
+
+    Surfaces the ~25 fields that the parser ingests for loan economics,
+    rate structure, fees, protections, amortization, par/outstanding,
+    warrants, and equity, most of which were previously orphaned.
+    """
+    if metrics_by_id is None:
+        metrics_by_id = {l.id: compute_credit_loan_metrics(l) for l in loans}
+
+    # --- Rate mix ---
+    floating_count = 0
+    fixed_count = 0
+    other_rate_count = 0
+    floating_hold = 0.0
+    fixed_hold = 0.0
+    total_hold = 0.0
+
+    # --- Weighted aggregates ---
+    spread_num = 0.0
+    spread_den = 0.0
+    coupon_num = 0.0
+    coupon_den = 0.0
+    ytm_num = 0.0
+    ytm_den = 0.0
+    floor_num = 0.0
+    floor_den = 0.0
+    call_prot_num = 0.0
+    call_prot_den = 0.0
+
+    # --- Fee totals ---
+    total_fee_oid = 0.0
+    total_fee_upfront = 0.0
+    total_fee_exit = 0.0
+    total_closing_fee = 0.0
+    loans_with_fees = 0
+
+    # --- PIK ---
+    pik_count = 0
+    pik_hold = 0.0
+
+    # --- Amortization breakdown ---
+    amort_dist = defaultdict(lambda: {"count": 0, "hold": 0.0})
+    payment_freq_dist = defaultdict(lambda: {"count": 0, "hold": 0.0})
+
+    # --- Par/Outstanding totals ---
+    total_original_par = 0.0
+    total_current_outstanding = 0.0
+    total_issue_size = 0.0
+    total_accrued_interest = 0.0
+
+    # --- Warrant/Equity totals ---
+    total_equity_investment = 0.0
+    total_warrant_value = 0.0
+    loans_with_warrants = 0
+    loans_with_equity = 0
+
+    # --- Per-loan detail rows ---
+    rows = []
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        hold = (loan.hold_size or 0.0) * fx
+        total_hold += hold
+        m = metrics_by_id.get(loan.id, {})
+
+        # Rate mix
+        rate_type = (getattr(loan, "fixed_or_floating", None) or "").strip()
+        if rate_type.lower() == "floating":
+            floating_count += 1
+            floating_hold += hold
+        elif rate_type.lower() == "fixed":
+            fixed_count += 1
+            fixed_hold += hold
+        elif rate_type:
+            other_rate_count += 1
+
+        # Weighted aggregates
+        spread = loan.spread_bps
+        if spread is not None and hold > 0:
+            spread_num += spread * hold
+            spread_den += hold
+
+        coupon = loan.coupon_rate
+        if coupon is not None and hold > 0:
+            coupon_num += coupon * hold
+            coupon_den += hold
+
+        ytm = loan.yield_to_maturity
+        if ytm is not None and hold > 0:
+            ytm_num += ytm * hold
+            ytm_den += hold
+
+        floor = getattr(loan, "floor_rate", None)
+        if floor is not None and floor > 0 and hold > 0:
+            floor_num += floor * hold
+            floor_den += hold
+
+        call_prot = loan.call_protection_months
+        if call_prot is not None and hold > 0:
+            call_prot_num += call_prot * hold
+            call_prot_den += hold
+
+        # Fees
+        oid = loan.fee_oid
+        upfront = getattr(loan, "fee_upfront", None)
+        exit_fee = getattr(loan, "fee_exit", None)
+        closing = getattr(loan, "closing_fee", None)
+        if any(v is not None for v in (oid, upfront, exit_fee, closing)):
+            loans_with_fees += 1
+            total_fee_oid += (oid or 0.0) * hold if hold > 0 else 0.0
+            total_fee_upfront += (upfront or 0.0) * fx
+            total_fee_exit += (exit_fee or 0.0) * fx
+            total_closing_fee += (closing or 0.0) * fx
+
+        # PIK
+        if loan.pik_toggle:
+            pik_count += 1
+            pik_hold += hold
+
+        # Amortization
+        amort = getattr(loan, "amortization_type", None) or "Unknown"
+        amort_dist[amort]["count"] += 1
+        amort_dist[amort]["hold"] += hold
+
+        # Payment frequency
+        pf = getattr(loan, "payment_frequency", None) or "Unknown"
+        payment_freq_dist[pf]["count"] += 1
+        payment_freq_dist[pf]["hold"] += hold
+
+        # Par/outstanding
+        total_original_par += (getattr(loan, "original_par", None) or 0.0) * fx
+        total_current_outstanding += (getattr(loan, "current_outstanding", None) or 0.0) * fx
+        total_issue_size += (loan.issue_size or 0.0) * fx
+        total_accrued_interest += (getattr(loan, "accrued_interest", None) or 0.0) * fx
+
+        # Warrants/equity
+        eq = getattr(loan, "equity_investment", None)
+        if eq is not None and eq > 0:
+            total_equity_investment += eq * fx
+            loans_with_equity += 1
+        uwev = getattr(loan, "unrealized_warrant_equity_value", None)
+        warrants_cur = getattr(loan, "warrants_current", None)
+        if (uwev is not None and uwev > 0) or (warrants_cur is not None and warrants_cur > 0):
+            total_warrant_value += (uwev or 0.0) * fx
+            loans_with_warrants += 1
+
+        # Per-loan row
+        rows.append({
+            "loan_id": loan.id,
+            "company": loan.company_name,
+            "fund": loan.fund_name,
+            "sector": getattr(loan, "sector", None),
+            "hold_size": hold,
+            "rate_type": rate_type or None,
+            "reference_rate": getattr(loan, "reference_rate", None),
+            "spread_bps": spread,
+            "coupon_rate": coupon,
+            "cash_margin": getattr(loan, "cash_margin", None),
+            "floor_rate": floor,
+            "pik_toggle": loan.pik_toggle,
+            "pik_rate": getattr(loan, "pik_rate", None),
+            "fee_oid": oid,
+            "fee_upfront": upfront,
+            "fee_exit": exit_fee,
+            "closing_fee": closing,
+            "call_protection_months": call_prot,
+            "make_whole_premium": getattr(loan, "make_whole_premium", None),
+            "prepayment_protection": getattr(loan, "prepayment_protection", None),
+            "amortization_type": getattr(loan, "amortization_type", None),
+            "payment_frequency": getattr(loan, "payment_frequency", None),
+            "original_par": (getattr(loan, "original_par", None) or 0.0) * fx if getattr(loan, "original_par", None) else None,
+            "current_outstanding": (getattr(loan, "current_outstanding", None) or 0.0) * fx if getattr(loan, "current_outstanding", None) else None,
+            "issue_size": (loan.issue_size or 0.0) * fx if loan.issue_size else None,
+            "accrued_interest": (getattr(loan, "accrued_interest", None) or 0.0) * fx if getattr(loan, "accrued_interest", None) else None,
+            "yield_to_maturity": ytm,
+            "estimated_irr_at_entry": getattr(loan, "estimated_irr_at_entry", None),
+            "equity_investment": (eq or 0.0) * fx if eq else None,
+            "warrants_at_entry": getattr(loan, "warrants_at_entry", None),
+            "warrant_strike_entry": getattr(loan, "warrant_strike_entry", None),
+            "warrants_current": warrants_cur,
+            "warrant_strike_current": getattr(loan, "warrant_strike_current", None),
+            "warrant_term": getattr(loan, "warrant_term", None),
+            "warrant_value": (uwev or 0.0) * fx if uwev else None,
+            "business_description": getattr(loan, "business_description", None),
+            "is_public": getattr(loan, "is_public", None),
+            "recovery_rate": getattr(loan, "recovery_rate", None),
+        })
+
+    return {
+        # Rate mix
+        "floating_count": floating_count,
+        "fixed_count": fixed_count,
+        "other_rate_count": other_rate_count,
+        "floating_pct": safe_divide(floating_hold, total_hold),
+        "fixed_pct": safe_divide(fixed_hold, total_hold),
+        "total_hold": total_hold,
+        # Weighted averages
+        "wavg_spread_bps": safe_divide(spread_num, spread_den),
+        "wavg_coupon": safe_divide(coupon_num, coupon_den),
+        "wavg_ytm": safe_divide(ytm_num, ytm_den),
+        "wavg_floor_rate": safe_divide(floor_num, floor_den),
+        "wavg_call_protection_months": safe_divide(call_prot_num, call_prot_den),
+        # Fees
+        "loans_with_fees": loans_with_fees,
+        "wavg_oid": safe_divide(total_fee_oid, spread_den) if spread_den > 0 else None,
+        "total_fee_upfront": total_fee_upfront if total_fee_upfront > 0 else None,
+        "total_fee_exit": total_fee_exit if total_fee_exit > 0 else None,
+        "total_closing_fee": total_closing_fee if total_closing_fee > 0 else None,
+        # PIK
+        "pik_count": pik_count,
+        "pik_pct": safe_divide(pik_hold, total_hold),
+        # Amortization
+        "amortization_distribution": {k: dict(v) for k, v in amort_dist.items()},
+        "payment_frequency_distribution": {k: dict(v) for k, v in payment_freq_dist.items()},
+        # Par/outstanding
+        "total_original_par": total_original_par if total_original_par > 0 else None,
+        "total_current_outstanding": total_current_outstanding if total_current_outstanding > 0 else None,
+        "total_issue_size": total_issue_size if total_issue_size > 0 else None,
+        "total_accrued_interest": total_accrued_interest if total_accrued_interest > 0 else None,
+        # Warrants/equity
+        "total_equity_investment": total_equity_investment if total_equity_investment > 0 else None,
+        "total_warrant_value": total_warrant_value if total_warrant_value > 0 else None,
+        "loans_with_warrants": loans_with_warrants,
+        "loans_with_equity": loans_with_equity,
+        # Per-loan detail
+        "rows": rows,
     }

@@ -91,8 +91,8 @@
     <div style="flex: 1;">
         <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
             Fundamentals coverage:
-            EBITDA {{ "%.0f"|format(analysis.coverage.per_field_coverage.current_ebitda * 100) }}%
-            · Revenue {{ "%.0f"|format(analysis.coverage.per_field_coverage.current_revenue * 100) }}%
+            EBITDA {% if analysis.coverage.per_field_coverage.current_ebitda is not none %}{{ "%.0f"|format(analysis.coverage.per_field_coverage.current_ebitda * 100) }}{% else %}0{% endif %}%
+            · Revenue {% if analysis.coverage.per_field_coverage.current_revenue is not none %}{{ "%.0f"|format(analysis.coverage.per_field_coverage.current_revenue * 100) }}{% else %}0{% endif %}%
         </div>
         <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">
             {% if analysis.coverage.latest_snapshot_date %}
@@ -204,6 +204,50 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(d.latest) }}</td>
                 <td style="text-align: right; font-family: var(--font-mono); color: var(--danger);">{{ fmt_currency_symbol(d.delta) }}</td>
                 <td style="text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 500;">{{ fmt_pct_1dp(d.growth_pct) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{# --- Loan-level fundamentals (from upload data, no snapshots needed) --- #}
+{% if analysis.loan_level_rows %}
+<div class="panel" style="margin-top: 24px;">
+    <h3>Uploaded fundamentals (entry vs current)</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Entry and current revenue/EBITDA from the loan upload. {{ analysis.loans_with_loan_revenue }} loans have revenue data, {{ analysis.loans_with_loan_ebitda }} have EBITDA. Decliners sorted to top.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Sector</th>
+                <th style="text-align: right;">Revenue (entry)</th>
+                <th style="text-align: right;">Revenue (current)</th>
+                <th style="text-align: right;">Δ Rev</th>
+                <th style="text-align: right;">EBITDA (entry)</th>
+                <th style="text-align: right;">EBITDA (current)</th>
+                <th style="text-align: right;">Δ EBITDA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in analysis.loan_level_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.sector or '—' }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_entry is not none %}{{ fmt_currency_symbol(r.revenue_entry) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.revenue_current is not none %}{{ fmt_currency_symbol(r.revenue_current) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.revenue_direction == 'up' %}var(--accent){% elif r.revenue_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
+                    {% if r.revenue_growth_pct is not none %}{{ fmt_pct_1dp(r.revenue_growth_pct) }}{% else %}—{% endif %}
+                </td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_entry is not none %}{{ fmt_currency_symbol(r.ebitda_entry) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.ebitda_current is not none %}{{ fmt_currency_symbol(r.ebitda_current) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: {% if r.ebitda_direction == 'up' %}var(--accent){% elif r.ebitda_direction == 'down' %}var(--danger){% else %}var(--ink-muted){% endif %};">
+                    {% if r.ebitda_growth_pct is not none %}{{ fmt_pct_1dp(r.ebitda_growth_pct) }}{% else %}—{% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>

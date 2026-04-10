@@ -214,7 +214,7 @@
                         <tbody>
                             {% for b in r.breakdown %}
                             <tr>
-                                <td style="padding: 6px 8px; color: var(--ink); font-weight: 500;">{{ b.factor.replace('_', ' ') }}</td>
+                                <td style="padding: 6px 8px; color: var(--ink); font-weight: 500;">{{ (b.factor or 'unknown').replace('_', ' ') }}</td>
                                 <td style="padding: 6px 8px; color: var(--ink-muted);">{{ b.reason }}</td>
                                 <td style="padding: 6px 8px; text-align: right; font-family: var(--font-mono); color: var(--danger); font-weight: 600;">+{{ b.points }}</td>
                             </tr>

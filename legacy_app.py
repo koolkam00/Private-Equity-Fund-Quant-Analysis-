@@ -111,6 +111,7 @@ from services.metrics.credit import (
     compute_credit_data_cuts,
     compute_credit_fundamentals,
     compute_credit_loan_metrics,
+    compute_credit_loan_structure,
     compute_credit_maturity_profile,
     compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
@@ -323,6 +324,10 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Data Cuts",
         "description": "Slice credit portfolio performance by any dimension with cross-tab analysis.",
     },
+    "credit-loan-structure": {
+        "title": "Loan Structure & Terms",
+        "description": "Rate structure, fees, protections, amortization, par/outstanding, warrants, and equity details.",
+    },
 }
 
 CREDIT_SIDEBAR_ITEMS = [
@@ -338,6 +343,7 @@ CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-stress", "label": "Stress Lab", "icon": "bi bi-lightning"},
     {"page_key": "credit-vintage", "label": "Vintage Comparison", "icon": "bi bi-arrow-left-right"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
+    {"page_key": "credit-loan-structure", "label": "Loan Structure", "icon": "bi bi-file-earmark-text"},
 ]
 
 TEAM_ROLE_OWNER = "owner"
@@ -4291,6 +4297,8 @@ def credit_analysis_page(page):
                 primary_dim=primary_dim,
                 secondary_dim=secondary_dim or None,
             )
+        elif page == "credit-loan-structure":
+            payload = compute_credit_loan_structure(loans, metrics_by_id)
 
         template_map = {
             "credit-dashboard": "analysis_credit_dashboard.html",
@@ -4305,6 +4313,7 @@ def credit_analysis_page(page):
             "credit-fundamentals": "analysis_credit_fundamentals.html",
             "credit-watchlist": "analysis_credit_watchlist.html",
             "credit-data-cuts": "analysis_credit_data_cuts.html",
+            "credit-loan-structure": "analysis_credit_loan_structure.html",
         }
 
         return render_template(
@@ -4390,6 +4399,8 @@ def credit_analysis_series_api(page):
                 primary_dim=primary_dim,
                 secondary_dim=secondary_dim or None,
             )
+        elif page == "credit-loan-structure":
+            payload = compute_credit_loan_structure(loans, metrics_by_id)
 
         return jsonify({"page": page, "title": CREDIT_ANALYSIS_PAGES[page]["title"], "payload": payload})
     except SQLAlchemyError as exc:

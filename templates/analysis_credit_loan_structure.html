@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_pct_1dp, fmt_multiple, credit_firm_banner with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+
+{# --- Filters --- #}
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund_name">
+                    <option value="">All Funds</option>
+                    {% for f in filter_options.get('fund_name', []) %}<option value="{{ f }}" {% if f in (active_filters.get('fund_name') or []) %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="default_status">
+                    <option value="">All Statuses</option>
+                    {% for s in filter_options.get('default_status', []) %}<option value="{{ s }}" {% if s in (active_filters.get('default_status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sector') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% if filter_options.get('internal_credit_rating') %}
+            <label class="filter-field">
+                <span>Rating</span>
+                <select name="internal_credit_rating">
+                    <option value="">All Ratings</option>
+                    {% for r in filter_options.get('internal_credit_rating', []) %}<option value="{{ r }}" {% if r in (active_filters.get('internal_credit_rating') or []) %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('location') %}
+            <label class="filter-field">
+                <span>Location</span>
+                <select name="location">
+                    <option value="">All Locations</option>
+                    {% for l in filter_options.get('location', []) %}<option value="{{ l }}" {% if l in (active_filters.get('location') or []) %}selected{% endif %}>{{ l }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('sourcing_channel') %}
+            <label class="filter-field">
+                <span>Sourcing</span>
+                <select name="sourcing_channel">
+                    <option value="">All Channels</option>
+                    {% for s in filter_options.get('sourcing_channel', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sourcing_channel') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('is_public') %}
+            <label class="filter-field">
+                <span>Public / Private</span>
+                <select name="is_public">
+                    <option value="">All</option>
+                    {% for p in filter_options.get('is_public', []) %}<option value="{{ p }}" {% if p in (active_filters.get('is_public') or []) %}selected{% endif %}>{% if p == 'True' or p == '1' or p == 'Yes' %}Public{% else %}Private{% endif %}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
+            {% if active_filters %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('credit_analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+{# ====== SECTION 1: Rate Structure ====== #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Rate Structure</h3>
+    <div class="kpi-grid" style="margin-top: 16px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Floating rate</div>
+            <div class="kpi-value">{{ analysis.floating_count }}</div>
+            <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">
+                {% if analysis.floating_pct is not none %}{{ fmt_pct_1dp(analysis.floating_pct) }} by hold{% else %}—{% endif %}
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Fixed rate</div>
+            <div class="kpi-value">{{ analysis.fixed_count }}</div>
+            <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">
+                {% if analysis.fixed_pct is not none %}{{ fmt_pct_1dp(analysis.fixed_pct) }} by hold{% else %}—{% endif %}
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg spread</div>
+            <div class="kpi-value">{% if analysis.wavg_spread_bps is not none %}{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg coupon</div>
+            <div class="kpi-value">{% if analysis.wavg_coupon is not none %}{{ fmt_pct_1dp(analysis.wavg_coupon) }}{% else %}—{% endif %}</div>
+        </div>
+        {% if analysis.wavg_ytm is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg YTM</div>
+            <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_ytm) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.wavg_floor_rate is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg floor rate</div>
+            <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_floor_rate) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.pik_count > 0 %}
+        <div class="kpi-card">
+            <div class="kpi-label">PIK loans</div>
+            <div class="kpi-value">{{ analysis.pik_count }}</div>
+            <div style="font-size: 11px; color: var(--ink-muted); margin-top: 4px;">
+                {% if analysis.pik_pct is not none %}{{ fmt_pct_1dp(analysis.pik_pct) }} by hold{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{# ====== SECTION 2: Fees & Protections ====== #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Fees & Protections</h3>
+    <div class="kpi-grid" style="margin-top: 16px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Loans with fee data</div>
+            <div class="kpi-value">{{ analysis.loans_with_fees }}</div>
+        </div>
+        {% if analysis.wavg_oid is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg OID</div>
+            <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_oid) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.wavg_call_protection_months is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Avg call protection</div>
+            <div class="kpi-value">{{ "%.0f"|format(analysis.wavg_call_protection_months) }}<span style="font-size: 14px; font-weight: 400;">mo</span></div>
+        </div>
+        {% endif %}
+        {% if analysis.total_fee_upfront is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total upfront fees</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_fee_upfront) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.total_closing_fee is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total closing fees</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_closing_fee) }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{# ====== SECTION 3: Amortization & Payment ====== #}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="panel">
+        <h3>Amortization type</h3>
+        <table class="data-table" style="margin-top: 12px;">
+            <thead><tr><th>Type</th><th style="text-align: right;">Loans</th><th style="text-align: right;">Hold</th></tr></thead>
+            <tbody>
+                {% for amort, vals in analysis.amortization_distribution.items() %}
+                <tr>
+                    <td>{{ amort }}</td>
+                    <td style="text-align: right; font-family: var(--font-mono);">{{ vals.count }}</td>
+                    <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(vals.hold) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="panel">
+        <h3>Payment frequency</h3>
+        <table class="data-table" style="margin-top: 12px;">
+            <thead><tr><th>Frequency</th><th style="text-align: right;">Loans</th><th style="text-align: right;">Hold</th></tr></thead>
+            <tbody>
+                {% for freq, vals in analysis.payment_frequency_distribution.items() %}
+                <tr>
+                    <td>{{ freq }}</td>
+                    <td style="text-align: right; font-family: var(--font-mono);">{{ vals.count }}</td>
+                    <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(vals.hold) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# ====== SECTION 4: Par, Outstanding & Accrued ====== #}
+{% if analysis.total_original_par is not none or analysis.total_current_outstanding is not none or analysis.total_issue_size is not none %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Par & Outstanding</h3>
+    <div class="kpi-grid" style="margin-top: 16px;">
+        {% if analysis.total_issue_size is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total issue size</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_issue_size) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.total_original_par is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total original par</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_original_par) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.total_current_outstanding is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total current outstanding</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_current_outstanding) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.total_accrued_interest is not none %}
+        <div class="kpi-card">
+            <div class="kpi-label">Total accrued interest</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_accrued_interest) }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# ====== SECTION 5: Equity & Warrants ====== #}
+{% if analysis.loans_with_equity > 0 or analysis.loans_with_warrants > 0 %}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Equity & Warrants</h3>
+    <div class="kpi-grid" style="margin-top: 16px;">
+        {% if analysis.loans_with_equity > 0 %}
+        <div class="kpi-card">
+            <div class="kpi-label">Loans with equity</div>
+            <div class="kpi-value">{{ analysis.loans_with_equity }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Total equity invested</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_equity_investment) }}</div>
+        </div>
+        {% endif %}
+        {% if analysis.loans_with_warrants > 0 %}
+        <div class="kpi-card">
+            <div class="kpi-label">Loans with warrants</div>
+            <div class="kpi-value">{{ analysis.loans_with_warrants }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Total warrant value</div>
+            <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_warrant_value) }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# ====== SECTION 6: Per-loan detail table ====== #}
+<div class="panel">
+    <h3>Loan-level structure detail</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Click any row to see full structural terms. Rate type, spread, fees, protections, and equity/warrant data for each position.
+    </p>
+    <table class="data-table" id="structure-table">
+        <thead>
+            <tr>
+                <th style="width: 36px;"></th>
+                <th>Company</th>
+                <th>Fund</th>
+                <th>Rate type</th>
+                <th style="text-align: right;">Spread (bps)</th>
+                <th style="text-align: right;">Coupon</th>
+                <th style="text-align: right;">Hold size</th>
+                <th>Amortization</th>
+                <th>PIK</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in analysis.rows %}
+            <tr class="structure-row" data-idx="{{ loop.index0 }}" style="cursor: pointer;">
+                <td style="text-align: center; color: var(--ink-muted);">
+                    <i class="bi bi-chevron-right structure-chevron" data-idx="{{ loop.index0 }}"></i>
+                </td>
+                <td style="font-weight: 500;">{{ r.company or '—' }}</td>
+                <td style="color: var(--ink-muted);">{{ r.fund or '—' }}</td>
+                <td>{% if r.rate_type %}<span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+                    background: {% if r.rate_type|lower == 'floating' %}rgba(10, 107, 88, 0.12); color: var(--accent);{% elif r.rate_type|lower == 'fixed' %}rgba(37, 99, 235, 0.12); color: var(--info);{% else %}rgba(107, 107, 99, 0.12); color: var(--ink);{% endif %}">{{ r.rate_type }}</span>{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.spread_bps is not none %}{{ "%.0f"|format(r.spread_bps) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if r.coupon_rate is not none %}{{ fmt_pct_1dp(r.coupon_rate) }}{% else %}—{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(r.hold_size) }}</td>
+                <td style="color: var(--ink-muted);">{{ r.amortization_type or '—' }}</td>
+                <td>{% if r.pik_toggle %}<span style="color: var(--accent-2); font-weight: 500;">Yes</span>{% else %}—{% endif %}</td>
+            </tr>
+            {# Expandable detail row #}
+            <tr class="structure-detail" data-detail-for="{{ loop.index0 }}" style="display: none; background: var(--surface-alt);">
+                <td></td>
+                <td colspan="8" style="padding: 16px 24px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px;">
+                        {# Column 1: Rate details #}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Rate details</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Reference rate:</span> {{ r.reference_rate or '—' }}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Cash margin:</span> {% if r.cash_margin is not none %}{{ fmt_pct_1dp(r.cash_margin) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Floor rate:</span> {% if r.floor_rate is not none %}{{ fmt_pct_1dp(r.floor_rate) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">PIK rate:</span> {% if r.pik_rate is not none %}{{ fmt_pct_1dp(r.pik_rate) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">YTM:</span> {% if r.yield_to_maturity is not none %}{{ fmt_pct_1dp(r.yield_to_maturity) }}{% else %}—{% endif %}</div>
+                            <div><span style="color: var(--ink-muted);">Est. IRR at entry:</span> {% if r.estimated_irr_at_entry is not none %}{{ fmt_pct_1dp(r.estimated_irr_at_entry) }}{% else %}—{% endif %}</div>
+                        </div>
+                        {# Column 2: Fees #}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Fees</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">OID:</span> {% if r.fee_oid is not none %}{{ fmt_pct_1dp(r.fee_oid) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Upfront:</span> {% if r.fee_upfront is not none %}{{ fmt_currency_symbol(r.fee_upfront) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Exit:</span> {% if r.fee_exit is not none %}{{ fmt_currency_symbol(r.fee_exit) }}{% else %}—{% endif %}</div>
+                            <div><span style="color: var(--ink-muted);">Closing:</span> {% if r.closing_fee is not none %}{{ fmt_currency_symbol(r.closing_fee) }}{% else %}—{% endif %}</div>
+                        </div>
+                        {# Column 3: Protections #}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Protections</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Call protection:</span> {% if r.call_protection_months is not none %}{{ r.call_protection_months }} months{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Make-whole:</span> {% if r.make_whole_premium is not none %}{{ fmt_pct_1dp(r.make_whole_premium) }}{% else %}—{% endif %}</div>
+                            <div><span style="color: var(--ink-muted);">Prepayment:</span> {{ r.prepayment_protection or '—' }}</div>
+                        </div>
+                        {# Column 4: Structure #}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Structure</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Payment freq:</span> {{ r.payment_frequency or '—' }}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Issue size:</span> {% if r.issue_size is not none %}{{ fmt_currency_symbol(r.issue_size) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Original par:</span> {% if r.original_par is not none %}{{ fmt_currency_symbol(r.original_par) }}{% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Outstanding:</span> {% if r.current_outstanding is not none %}{{ fmt_currency_symbol(r.current_outstanding) }}{% else %}—{% endif %}</div>
+                            <div><span style="color: var(--ink-muted);">Accrued int:</span> {% if r.accrued_interest is not none %}{{ fmt_currency_symbol(r.accrued_interest) }}{% else %}—{% endif %}</div>
+                        </div>
+                        {# Column 5: Equity & Warrants (conditional) #}
+                        {% if r.equity_investment is not none or r.warrants_at_entry is not none or r.warrant_value is not none %}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Equity & warrants</div>
+                            {% if r.equity_investment is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Equity invested:</span> {{ fmt_currency_symbol(r.equity_investment) }}</div>{% endif %}
+                            {% if r.warrants_at_entry is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Warrants (entry):</span> {{ r.warrants_at_entry }} @ {% if r.warrant_strike_entry is not none %}{{ fmt_currency_symbol(r.warrant_strike_entry) }}{% else %}—{% endif %}</div>{% endif %}
+                            {% if r.warrants_current is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Warrants (current):</span> {{ r.warrants_current }} @ {% if r.warrant_strike_current is not none %}{{ fmt_currency_symbol(r.warrant_strike_current) }}{% else %}—{% endif %}</div>{% endif %}
+                            {% if r.warrant_term is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Warrant term:</span> {{ r.warrant_term }}</div>{% endif %}
+                            {% if r.warrant_value is not none %}<div><span style="color: var(--ink-muted);">Warrant value:</span> {{ fmt_currency_symbol(r.warrant_value) }}</div>{% endif %}
+                        </div>
+                        {% endif %}
+                        {# Column 6: Company info #}
+                        {% if r.business_description or r.is_public is not none or r.recovery_rate is not none %}
+                        <div>
+                            <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Company</div>
+                            {% if r.is_public is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Public:</span> {% if r.is_public %}Yes{% else %}No{% endif %}</div>{% endif %}
+                            {% if r.recovery_rate is not none %}<div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Recovery rate:</span> {{ fmt_pct_1dp(r.recovery_rate) }}</div>{% endif %}
+                            {% if r.business_description %}<div style="margin-top: 8px; font-size: 12px; color: var(--ink-muted); line-height: 1.5;">{{ r.business_description }}</div>{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+(function() {
+    var table = document.getElementById('structure-table');
+    if (!table) return;
+    table.addEventListener('click', function(e) {
+        var row = e.target.closest('tr.structure-row');
+        if (!row) return;
+        var idx = row.getAttribute('data-idx');
+        var detail = table.querySelector('tr.structure-detail[data-detail-for="' + idx + '"]');
+        var chevron = row.querySelector('.structure-chevron');
+        if (!detail) return;
+        var isOpen = detail.style.display !== 'none';
+        detail.style.display = isOpen ? 'none' : 'table-row';
+        if (chevron) {
+            chevron.classList.toggle('bi-chevron-right', isOpen);
+            chevron.classList.toggle('bi-chevron-down', !isOpen);
+        }
+    });
+})();
+</script>
+
+{% endif %}
+{% endblock %}

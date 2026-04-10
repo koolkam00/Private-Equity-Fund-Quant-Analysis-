@@ -81,6 +81,35 @@
         data-stressed="{{ analysis.stressed_nav or 0 }}"></canvas>
 </div>
 
+{# --- Rate Exposure --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Rate exposure</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Floating-rate loans are directly impacted by rate shocks. Fixed-rate loans are insulated (the mark already prices in rate moves).
+    </p>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Floating rate</div>
+            <div class="kpi-value">{{ analysis.floating_count }}</div>
+            <div class="kpi-sublabel">{{ fmt_currency_symbol(analysis.floating_hold) }} ({% if analysis.floating_pct is not none %}{{ fmt_pct_1dp(analysis.floating_pct) }}{% else %}—{% endif %})</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Fixed rate</div>
+            <div class="kpi-value">{{ analysis.fixed_count }}</div>
+            <div class="kpi-sublabel">{{ fmt_currency_symbol(analysis.fixed_hold) }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Rate shock applied</div>
+            <div class="kpi-value">{% if analysis.scenario.rate_shock_bps %}+{{ analysis.scenario.rate_shock_bps }}<span style="font-size: 14px; font-weight: 400;">bps</span>{% else %}None{% endif %}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Haircut per +100bps</div>
+            <div class="kpi-value">1.5<span style="font-size: 14px; font-weight: 400;">%</span></div>
+            <div class="kpi-sublabel">of floating NAV</div>
+        </div>
+    </div>
+</div>
+
 {# --- Impacted Loans --- #}
 {% if analysis.impacted_loans %}
 <div class="panel">

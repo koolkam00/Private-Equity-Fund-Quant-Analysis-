@@ -122,6 +122,44 @@
 </div>
 {% endif %}
 
+{# --- Secondary KPIs: Spread, LTV, Loan Count, Funds --- #}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Loans</div>
+        <div class="kpi-value">{{ analysis.loan_count }}</div>
+        <div class="kpi-sublabel">{{ analysis.fund_count }} fund{{ 's' if analysis.fund_count != 1 }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Avg LTV</div>
+        <div class="kpi-value">{% if analysis.wavg_ltv is not none %}{{ fmt_pct_1dp(analysis.wavg_ltv) }}{% else %}—{% endif %}</div>
+    </div>
+    {% if analysis.wavg_spread_bps is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Spread</div>
+        <div class="kpi-value">{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span></div>
+    </div>
+    {% endif %}
+    {% if analysis.wavg_cash_margin is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Avg Cash Margin</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_cash_margin) }}</div>
+    </div>
+    {% endif %}
+    {% if analysis.deployment_ratio is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Deployment</div>
+        <div class="kpi-value">{{ fmt_pct_1dp(analysis.deployment_ratio) }}</div>
+        <div class="kpi-sublabel">{{ fmt_currency_symbol(analysis.total_current_invested) }} of {{ fmt_currency_symbol(analysis.total_committed) }}</div>
+    </div>
+    {% endif %}
+    {% if analysis.total_equity_investment is not none and analysis.total_equity_investment > 0 %}
+    <div class="kpi-card">
+        <div class="kpi-label">Equity Co-invest</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_equity_investment) }}</div>
+    </div>
+    {% endif %}
+</div>
+
 {# --- Traffic Lights + Top Concerns --- #}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
     {# Traffic Lights #}

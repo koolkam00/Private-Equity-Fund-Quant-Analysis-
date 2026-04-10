@@ -90,7 +90,7 @@
     <i class="bi bi-clock-history" style="font-size: 20px; color: var(--accent);"></i>
     <div style="flex: 1;">
         <div style="font-size: 13px; color: var(--ink); font-weight: 500;">
-            Rating coverage: {{ "%.0f"|format(analysis.coverage.coverage_pct * 100) }}%
+            Rating coverage: {% if analysis.coverage.coverage_pct is not none %}{{ "%.0f"|format(analysis.coverage.coverage_pct * 100) }}{% else %}0{% endif %}%
             ({{ analysis.coverage.loans_covered }} of {{ analysis.coverage.loans_total }} loans have rating data)
         </div>
         <div style="font-size: 12px; color: var(--ink-muted); margin-top: 2px;">

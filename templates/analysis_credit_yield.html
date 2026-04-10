@@ -142,6 +142,37 @@
         data-warrant="{{ analysis.warrant_upside or 0 }}"></canvas>
 </div>
 
+{# --- Rate mix & spread --- #}
+<div class="panel" style="margin-bottom: 24px;">
+    <h3>Rate structure & spread</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
+        Portfolio rate type mix, weighted average spread, and PIK exposure.
+    </p>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Floating rate</div>
+            <div class="kpi-value">{{ analysis.floating_loans_count }}</div>
+            <div class="kpi-sublabel">{% if analysis.floating_pct is not none %}{{ fmt_pct_1dp(analysis.floating_pct) }} by hold{% endif %}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Fixed rate</div>
+            <div class="kpi-value">{{ analysis.fixed_count }}</div>
+            <div class="kpi-sublabel">{% if analysis.fixed_pct is not none %}{{ fmt_pct_1dp(analysis.fixed_pct) }} by hold{% endif %}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Wtd avg spread</div>
+            <div class="kpi-value">{% if analysis.wavg_spread_bps is not none %}{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span>{% else %}—{% endif %}</div>
+        </div>
+        {% if analysis.pik_count > 0 %}
+        <div class="kpi-card">
+            <div class="kpi-label">PIK loans</div>
+            <div class="kpi-value">{{ analysis.pik_count }}</div>
+            <div class="kpi-sublabel">{% if analysis.pik_pct is not none %}{{ fmt_pct_1dp(analysis.pik_pct) }} by hold{% endif %}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
 {# --- Floor coverage --- #}
 {% if analysis.floating_loans_count > 0 %}
 <div class="panel" style="margin-bottom: 24px;">
