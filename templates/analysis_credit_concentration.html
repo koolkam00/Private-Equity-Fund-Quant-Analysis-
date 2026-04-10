@@ -90,18 +90,6 @@
         <div class="kpi-label">Total Portfolio Value</div>
         <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_value) }}</div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">HHI (Sector)</div>
-        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_sector) if analysis.hhi_sector else '—' }}</div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-label">HHI (Geography)</div>
-        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_geography) if analysis.hhi_geography else '—' }}</div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-label">HHI (Sponsor)</div>
-        <div class="kpi-value" style="font-family: var(--font-mono);">{{ "%.3f"|format(analysis.hhi_sponsor) if analysis.hhi_sponsor else '—' }}</div>
-    </div>
 </div>
 
 {# --- Top 10 Single-Name Exposures --- #}
