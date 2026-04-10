@@ -1092,6 +1092,10 @@ FUNDAMENTAL_METRIC_DEFS = (
     },
 )
 
+FUNDAMENTAL_METRIC_DEFS_BY_KEY = {
+    metric_def["key"]: metric_def for metric_def in FUNDAMENTAL_METRIC_DEFS
+}
+
 
 def _credit_numeric(value):
     """Coerce a value to float when it is truly numeric, else return None."""
@@ -1599,6 +1603,367 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         "deal_rows": deal_rows,
         "deal_groups": deal_groups,
         "exit_current_label": "Exit / Current",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Credit underwrite vs outcome
+# ---------------------------------------------------------------------------
+
+
+def _empty_credit_underwrite_outcome_payload():
+    return {
+        "summary": {
+            "loan_count": 0,
+            "fund_count": 0,
+            "weighted_loan_count": 0,
+            "total_current_invested_capital": 0.0,
+            "weighted_estimated_irr": None,
+            "weighted_actual_gross_irr": None,
+            "weighted_delta_irr": None,
+            "average_delta_irr": None,
+            "hit_rate": None,
+            "miss_count": 0,
+            "missing_estimate_count": 0,
+            "missing_actual_count": 0,
+            "compared_pct": None,
+            "worst_delta_irr": None,
+            "best_delta_irr": None,
+        },
+        "fund_rows": [],
+        "worst_rows": [],
+        "rows": [],
+        "coverage_note": "No loans in the current filter have both Estimated IRR at Entry and actual Gross IRR.",
+    }
+
+
+def _credit_actual_gross_irr(loan, snapshots_by_loan=None):
+    """Prefer the loan tape gross IRR; fall back to the latest snapshot value."""
+    tape_value = _credit_numeric(getattr(loan, "gross_irr", None))
+    if tape_value is not None:
+        return tape_value, "Loan Tape"
+
+    snapshot_value = _credit_numeric(
+        _latest_snapshot_value(snapshots_by_loan, getattr(loan, "id", None), "gross_irr")
+    )
+    if snapshot_value is not None:
+        return snapshot_value, "Latest Snapshot"
+
+    return None, None
+
+
+def _credit_underwrite_summary(rows):
+    total_current_invested_capital = sum(
+        row.get("current_invested_capital") or 0.0 for row in rows
+    )
+    weighted_rows = [
+        row for row in rows if (row.get("current_invested_capital") or 0.0) > 0
+    ]
+
+    weighted_estimated_irr = safe_divide(
+        sum(
+            (row.get("estimated_irr_at_entry") or 0.0)
+            * (row.get("current_invested_capital") or 0.0)
+            for row in weighted_rows
+        ),
+        total_current_invested_capital,
+    )
+    weighted_actual_gross_irr = safe_divide(
+        sum(
+            (row.get("actual_gross_irr") or 0.0)
+            * (row.get("current_invested_capital") or 0.0)
+            for row in weighted_rows
+        ),
+        total_current_invested_capital,
+    )
+    weighted_delta_irr = safe_divide(
+        sum(
+            (row.get("delta_irr") or 0.0)
+            * (row.get("current_invested_capital") or 0.0)
+            for row in weighted_rows
+        ),
+        total_current_invested_capital,
+    )
+
+    delta_rows = [row.get("delta_irr") for row in rows if row.get("delta_irr") is not None]
+    return {
+        "loan_count": len(rows),
+        "fund_count": len({row.get("fund_name") for row in rows}),
+        "weighted_loan_count": len(weighted_rows),
+        "total_current_invested_capital": total_current_invested_capital,
+        "weighted_estimated_irr": weighted_estimated_irr,
+        "weighted_actual_gross_irr": weighted_actual_gross_irr,
+        "weighted_delta_irr": weighted_delta_irr,
+        "average_delta_irr": safe_divide(sum(delta_rows), len(delta_rows)) if delta_rows else None,
+        "hit_rate": safe_divide(
+            sum(1 for row in rows if (row.get("delta_irr") or 0.0) >= 0),
+            len(rows),
+        ) if rows else None,
+        "miss_count": sum(1 for row in rows if (row.get("delta_irr") or 0.0) < 0),
+        "worst_delta_irr": min(delta_rows) if delta_rows else None,
+        "best_delta_irr": max(delta_rows) if delta_rows else None,
+    }
+
+
+def compute_credit_underwrite_outcome(loans, metrics_by_id=None, *, snapshots_by_loan=None):
+    """Compare estimated IRR at entry against actual gross IRR for credit loans."""
+    snapshots_by_loan = snapshots_by_loan or {}
+    metrics_by_id = metrics_by_id or {}
+
+    if not loans:
+        return _empty_credit_underwrite_outcome_payload()
+
+    rows = []
+    missing_estimate_count = 0
+    missing_actual_count = 0
+
+    revenue_metric = FUNDAMENTAL_METRIC_DEFS_BY_KEY["revenue"]
+    ltv_metric = FUNDAMENTAL_METRIC_DEFS_BY_KEY["ltv"]
+    coverage_metric = FUNDAMENTAL_METRIC_DEFS_BY_KEY["coverage_ratio"]
+    cushion_metric = FUNDAMENTAL_METRIC_DEFS_BY_KEY["equity_cushion"]
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        estimated_irr = _credit_numeric(getattr(loan, "estimated_irr_at_entry", None))
+        actual_gross_irr, actual_gross_irr_source = _credit_actual_gross_irr(
+            loan, snapshots_by_loan=snapshots_by_loan
+        )
+
+        if estimated_irr is None:
+            missing_estimate_count += 1
+        if actual_gross_irr is None:
+            missing_actual_count += 1
+        if estimated_irr is None or actual_gross_irr is None:
+            continue
+
+        current_invested_capital = _credit_current_invested_weight(loan, fx)
+        if current_invested_capital <= 0:
+            current_invested_capital = None
+        values = _credit_track_value_components(loan, fx)
+        realized_value = values["realized_value"]
+        unrealized_loan_value = values["unrealized_value"]
+        unrealized_warrant_equity_value = values["unrealized_warrant_equity_value"]
+        total_value = values["total_value"]
+        unrealized_total_value = unrealized_loan_value + unrealized_warrant_equity_value
+        invested_basis = _credit_position_amount(loan, fx)
+        gross_moic = (
+            safe_divide(total_value, invested_basis)
+            if invested_basis > 0
+            else _credit_numeric(getattr(loan, "moic", None))
+        )
+
+        entry_revenue = _credit_metric_field_value(
+            loan, revenue_metric["entry_fields"], fx=fx, use_fx=True
+        )
+        current_revenue = _credit_metric_current_value(
+            loan, revenue_metric, snapshots_by_loan=snapshots_by_loan, fx=fx
+        )
+        entry_ltv = _credit_metric_field_value(
+            loan, ltv_metric["entry_fields"], fx=fx, use_fx=False
+        )
+        current_ltv = _credit_metric_current_value(
+            loan, ltv_metric, snapshots_by_loan=snapshots_by_loan, fx=fx
+        )
+        entry_coverage_ratio = _credit_metric_field_value(
+            loan, coverage_metric["entry_fields"], fx=fx, use_fx=False
+        )
+        current_coverage_ratio = _credit_metric_current_value(
+            loan, coverage_metric, snapshots_by_loan=snapshots_by_loan, fx=fx
+        )
+        entry_equity_cushion = _credit_metric_field_value(
+            loan, cushion_metric["entry_fields"], fx=fx, use_fx=False
+        )
+        current_equity_cushion = _credit_metric_current_value(
+            loan, cushion_metric, snapshots_by_loan=snapshots_by_loan, fx=fx
+        )
+        entry_ebitda = _credit_metric_field_value(
+            loan, ("entry_ebitda",), fx=fx, use_fx=True
+        )
+        current_ebitda = _credit_metric_field_value(
+            loan, ("current_ebitda",), fx=fx, use_fx=True
+        )
+        if current_ebitda is None:
+            snapshot_ebitda = _credit_latest_snapshot_metric_value(
+                snapshots_by_loan, getattr(loan, "id", None), "current_ebitda"
+            )
+            if snapshot_ebitda is not None:
+                current_ebitda = snapshot_ebitda * fx
+
+        row = {
+            "loan_id": loan.id,
+            "company_name": getattr(loan, "company_name", None) or "Unknown Company",
+            "fund_name": getattr(loan, "fund_name", None) or "Unknown Fund",
+            "sector": getattr(loan, "sector", None),
+            "geography": getattr(loan, "geography", None),
+            "location": getattr(loan, "location", None),
+            "sponsor": getattr(loan, "sponsor", None),
+            "status": _credit_loan_status(loan),
+            "raw_status": getattr(loan, "status", None),
+            "default_status": getattr(loan, "default_status", None),
+            "vintage_year": getattr(loan, "vintage_year", None),
+            "close_date": getattr(loan, "close_date", None),
+            "exit_date": getattr(loan, "exit_date", None),
+            "as_of_date": getattr(loan, "as_of_date", None),
+            "hold_period": _credit_hold_years(loan),
+            "current_invested_capital": current_invested_capital,
+            "entry_loan_amount": (
+                (_credit_numeric(getattr(loan, "entry_loan_amount", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "entry_loan_amount", None)) is not None
+                else None
+            ),
+            "committed_amount": (
+                (_credit_numeric(getattr(loan, "committed_amount", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "committed_amount", None)) is not None
+                else None
+            ),
+            "issue_size": (
+                (_credit_numeric(getattr(loan, "issue_size", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "issue_size", None)) is not None
+                else None
+            ),
+            "estimated_irr_at_entry": estimated_irr,
+            "actual_gross_irr": actual_gross_irr,
+            "actual_gross_irr_source": actual_gross_irr_source,
+            "delta_irr": actual_gross_irr - estimated_irr,
+            "irr_achievement": (
+                safe_divide(actual_gross_irr, estimated_irr)
+                if estimated_irr is not None and abs(estimated_irr) > 1e-9
+                else None
+            ),
+            "gross_moic": gross_moic,
+            "realized_value": realized_value,
+            "unrealized_value": unrealized_loan_value,
+            "unrealized_warrant_equity_value": unrealized_warrant_equity_value,
+            "unrealized_total_value": unrealized_total_value,
+            "total_value": total_value,
+            "fair_value": (
+                (_credit_numeric(getattr(loan, "fair_value", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "fair_value", None)) is not None
+                else None
+            ),
+            "traffic_light": _loan_traffic_light(loan),
+            "instrument": getattr(loan, "instrument", None),
+            "tranche": getattr(loan, "tranche", None),
+            "security_type": getattr(loan, "security_type", None),
+            "fixed_or_floating": getattr(loan, "fixed_or_floating", None),
+            "reference_rate": getattr(loan, "reference_rate", None),
+            "coupon_rate": _credit_numeric(getattr(loan, "coupon_rate", None)),
+            "cash_margin": _credit_numeric(getattr(loan, "cash_margin", None)),
+            "spread_bps": _credit_numeric(getattr(loan, "spread_bps", None)),
+            "floor_rate": _credit_numeric(getattr(loan, "floor_rate", None)),
+            "pik_toggle": getattr(loan, "pik_toggle", None),
+            "pik_rate": _credit_numeric(getattr(loan, "pik_rate", None)),
+            "yield_to_maturity": _credit_numeric(getattr(loan, "yield_to_maturity", None)),
+            "fee_oid": _credit_numeric(getattr(loan, "fee_oid", None)),
+            "fee_upfront": (
+                (_credit_numeric(getattr(loan, "fee_upfront", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "fee_upfront", None)) is not None
+                else None
+            ),
+            "fee_exit": (
+                (_credit_numeric(getattr(loan, "fee_exit", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "fee_exit", None)) is not None
+                else None
+            ),
+            "closing_fee": (
+                (_credit_numeric(getattr(loan, "closing_fee", None)) or 0.0) * fx
+                if _credit_numeric(getattr(loan, "closing_fee", None)) is not None
+                else None
+            ),
+            "call_protection_months": _credit_numeric(
+                getattr(loan, "call_protection_months", None)
+            ),
+            "make_whole_premium": _credit_numeric(
+                getattr(loan, "make_whole_premium", None)
+            ),
+            "prepayment_protection": getattr(loan, "prepayment_protection", None),
+            "loan_term": getattr(loan, "loan_term", None),
+            "term_years": _credit_numeric(getattr(loan, "term_years", None)),
+            "entry_revenue": entry_revenue,
+            "current_revenue": current_revenue,
+            "entry_ebitda": entry_ebitda,
+            "current_ebitda": current_ebitda,
+            "entry_ltv": entry_ltv,
+            "current_ltv": current_ltv,
+            "entry_coverage_ratio": entry_coverage_ratio,
+            "current_coverage_ratio": current_coverage_ratio,
+            "interest_coverage_ratio": _credit_numeric(
+                getattr(loan, "interest_coverage_ratio", None)
+            ),
+            "dscr": _credit_numeric(getattr(loan, "dscr", None)),
+            "entry_equity_cushion": entry_equity_cushion,
+            "current_equity_cushion": current_equity_cushion,
+            "internal_credit_rating": getattr(loan, "internal_credit_rating", None),
+            "covenant_type": getattr(loan, "covenant_type", None),
+            "covenant_compliant": getattr(loan, "covenant_compliant", None),
+            "sourcing_channel": getattr(loan, "sourcing_channel", None),
+            "is_public": getattr(loan, "is_public", None),
+            "business_description": getattr(loan, "business_description", None),
+        }
+        rows.append(row)
+
+    if not rows:
+        payload = _empty_credit_underwrite_outcome_payload()
+        payload["summary"]["missing_estimate_count"] = missing_estimate_count
+        payload["summary"]["missing_actual_count"] = missing_actual_count
+        payload["summary"]["compared_pct"] = safe_divide(0, len(loans))
+        payload["coverage_note"] = (
+            f"No loans in the current filter have both Estimated IRR at Entry and "
+            f"actual Gross IRR. Missing estimate on {missing_estimate_count} loan(s); "
+            f"missing actual Gross IRR on {missing_actual_count} loan(s)."
+        )
+        return payload
+
+    rows.sort(
+        key=lambda row: (
+            row.get("delta_irr") is None,
+            row.get("delta_irr") if row.get("delta_irr") is not None else 999,
+            -(row.get("current_invested_capital") or 0.0),
+            row.get("company_name") or "",
+        )
+    )
+
+    summary = _credit_underwrite_summary(rows)
+    summary["missing_estimate_count"] = missing_estimate_count
+    summary["missing_actual_count"] = missing_actual_count
+    summary["compared_pct"] = safe_divide(len(rows), len(loans))
+
+    grouped_rows = defaultdict(list)
+    for row in rows:
+        grouped_rows[row["fund_name"]].append(row)
+
+    fund_rows = []
+    for fund_name, fund_group_rows in grouped_rows.items():
+        fund_summary = _credit_underwrite_summary(fund_group_rows)
+        fund_rows.append(
+            {
+                "fund_name": fund_name,
+                **fund_summary,
+                "worst_company_name": (
+                    fund_group_rows[0]["company_name"] if fund_group_rows else None
+                ),
+            }
+        )
+
+    fund_rows.sort(
+        key=lambda row: (
+            row.get("weighted_delta_irr") is None,
+            row.get("weighted_delta_irr") if row.get("weighted_delta_irr") is not None else 999,
+            -(row.get("total_current_invested_capital") or 0.0),
+            row.get("fund_name") or "",
+        )
+    )
+
+    return {
+        "summary": summary,
+        "fund_rows": fund_rows,
+        "worst_rows": rows[:10],
+        "rows": rows,
+        "coverage_note": (
+            f"Compared {len(rows)} loan(s) with both Estimated IRR at Entry and actual Gross IRR. "
+            f"Missing estimate on {missing_estimate_count} loan(s); missing actual Gross IRR on "
+            f"{missing_actual_count} loan(s). Weighted figures use Current Invested Capital only."
+        ),
     }
 
 

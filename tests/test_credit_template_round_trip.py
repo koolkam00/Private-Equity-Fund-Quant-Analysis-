@@ -71,6 +71,7 @@ EXPECTED_NON_NULL_FIELDS = [
     "covenant_compliant",
     # Returns & valuation
     "gross_irr",
+    "estimated_irr_at_entry",
     "moic",
     "unrealized_value",
     "unrealized_warrant_equity_value",
@@ -302,6 +303,7 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         "credit-benchmarking",
         "credit-concentration",
         "credit-fundamentals",
+        "credit-underwrite-outcome",
         "credit-data-cuts",
     ]
     failures = []
@@ -374,6 +376,23 @@ def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_tr
     assert "Revenue by Fund" in body
     assert "Deal Detail" in body
     assert "Current Invested Capital" in body
+
+
+def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Underwrite Outcome Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-underwrite-outcome")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Worst IRR Misses" in body
+    assert "Est. IRR at Entry" in body
+    assert "Actual Gross IRR" in body
+    assert "All Compared Loans" in body
+    assert "Underwrite vs Outcome" in body
 
 
 def test_credit_benchmarking_route_renders_pe_style_table(credit_round_trip_client):

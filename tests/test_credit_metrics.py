@@ -14,6 +14,7 @@ from services.metrics.credit import (
     compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
+    compute_credit_underwrite_outcome,
     compute_credit_track_record,
     compute_credit_watchlist,
     compute_credit_yield_attribution,
@@ -1527,6 +1528,130 @@ class TestCreditFundamentals:
         assert result["ebitda_decliners"][0]["growth_pct"] == pytest.approx(-0.40, abs=0.001)
         assert result["ebitda_decliners"][1]["company"] == "SmallDrop"
         assert result["ebitda_decliners"][1]["delta"] == pytest.approx(-1.0, abs=0.001)
+
+
+class TestCreditUnderwriteOutcome:
+    def test_underwrite_outcome_weights_by_current_invested_capital_and_sorts_worst_first(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Miss Co",
+                fund_name="Fund A",
+                sector="Software",
+                sponsor="Apollo",
+                business_description="Mission-critical software vendor",
+                sourcing_channel="Direct",
+                current_invested_capital=80.0,
+                estimated_irr_at_entry=0.20,
+                gross_irr=0.05,
+                realized_proceeds=10.0,
+                unrealized_loan_value=65.0,
+                unrealized_warrant_equity_value=0.0,
+                total_value=75.0,
+                coupon_rate=0.09,
+                cash_margin=0.085,
+                current_revenue=120.0,
+                current_ebitda=30.0,
+                entry_ltv=0.55,
+                current_ltv=0.60,
+                entry_coverage_ratio=1.80,
+                current_coverage_ratio=1.60,
+                entry_equity_cushion=0.45,
+                current_equity_cushion=0.40,
+            ),
+            _make_loan(
+                id=2,
+                company_name="Beat Co",
+                fund_name="Fund B",
+                sector="Healthcare",
+                sponsor="TPG",
+                business_description="Healthcare platform",
+                sourcing_channel="Sponsor",
+                current_invested_capital=20.0,
+                estimated_irr_at_entry=0.15,
+                gross_irr=0.25,
+                realized_proceeds=5.0,
+                unrealized_loan_value=20.0,
+                unrealized_warrant_equity_value=0.0,
+                total_value=25.0,
+                coupon_rate=0.08,
+                cash_margin=0.075,
+                current_revenue=140.0,
+                current_ebitda=28.0,
+                entry_ltv=0.50,
+                current_ltv=0.45,
+                entry_coverage_ratio=1.90,
+                current_coverage_ratio=2.10,
+                entry_equity_cushion=0.42,
+                current_equity_cushion=0.48,
+            ),
+        ]
+
+        result = compute_credit_underwrite_outcome(loans, snapshots_by_loan={})
+
+        summary = result["summary"]
+        assert summary["loan_count"] == 2
+        assert summary["fund_count"] == 2
+        assert summary["weighted_loan_count"] == 2
+        assert summary["total_current_invested_capital"] == pytest.approx(100.0, abs=0.001)
+        assert summary["weighted_estimated_irr"] == pytest.approx(0.19, abs=0.001)
+        assert summary["weighted_actual_gross_irr"] == pytest.approx(0.09, abs=0.001)
+        assert summary["weighted_delta_irr"] == pytest.approx(-0.10, abs=0.001)
+        assert summary["hit_rate"] == pytest.approx(0.5, abs=0.001)
+        assert summary["miss_count"] == 1
+        assert summary["worst_delta_irr"] == pytest.approx(-0.15, abs=0.001)
+        assert summary["best_delta_irr"] == pytest.approx(0.10, abs=0.001)
+
+        worst_row = result["worst_rows"][0]
+        assert worst_row["company_name"] == "Miss Co"
+        assert worst_row["delta_irr"] == pytest.approx(-0.15, abs=0.001)
+        assert worst_row["gross_moic"] == pytest.approx(75.0 / 80.0, abs=0.001)
+        assert worst_row["sector"] == "Software"
+        assert worst_row["sponsor"] == "Apollo"
+        assert worst_row["business_description"] == "Mission-critical software vendor"
+        assert worst_row["sourcing_channel"] == "Direct"
+
+    def test_underwrite_outcome_uses_snapshot_gross_irr_fallback_and_tracks_missing_counts(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Snapshot Actual Co",
+                fund_name="Fund A",
+                current_invested_capital=50.0,
+                estimated_irr_at_entry=0.18,
+                gross_irr=None,
+            ),
+            _make_loan(
+                id=2,
+                company_name="Missing Estimate Co",
+                fund_name="Fund A",
+                current_invested_capital=30.0,
+                estimated_irr_at_entry=None,
+                gross_irr=0.12,
+            ),
+            _make_loan(
+                id=3,
+                company_name="Missing Actual Co",
+                fund_name="Fund B",
+                current_invested_capital=20.0,
+                estimated_irr_at_entry=0.14,
+                gross_irr=None,
+            ),
+        ]
+        snapshots_by_loan = {
+            1: [_make_snapshot(loan_id=1, snapshot_date=date(2024, 6, 1), gross_irr=0.11)],
+        }
+
+        result = compute_credit_underwrite_outcome(loans, snapshots_by_loan=snapshots_by_loan)
+
+        assert result["summary"]["loan_count"] == 1
+        assert result["summary"]["missing_estimate_count"] == 1
+        assert result["summary"]["missing_actual_count"] == 1
+        row = result["rows"][0]
+        assert row["company_name"] == "Snapshot Actual Co"
+        assert row["actual_gross_irr"] == pytest.approx(0.11, abs=0.001)
+        assert row["actual_gross_irr_source"] == "Latest Snapshot"
+        assert row["delta_irr"] == pytest.approx(-0.07, abs=0.001)
 
 
 class TestCreditWatchlist:

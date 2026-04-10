@@ -218,6 +218,7 @@ CREDIT_COLUMN_MAP = {
     "warrant equity value": "unrealized_warrant_equity_value",
     "total value": "total_value",
     "estimated gross irr at entry": "estimated_irr_at_entry",
+    "estimated irr at entry": "estimated_irr_at_entry",
     "estimated irr": "estimated_irr_at_entry",
     "gross moic": "moic",
     # Loan economics (new)

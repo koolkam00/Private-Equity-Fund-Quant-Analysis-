@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_date_mdy, fmt_multiple, fmt_pct_1dp, fmt_years_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% macro render_metric(value, kind, na_label='—') -%}
+    {%- if kind == "currency" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_currency_symbol(value) }}{%- endif -%}
+    {%- elif kind == "percent" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pct_1dp(value) }}{%- endif -%}
+    {%- elif kind == "multiple" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_multiple(value) }}{%- endif -%}
+    {%- elif kind == "years" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_years_1dp(value) }}{%- endif -%}
+    {%- else -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ value }}{%- endif -%}
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro bool_label(value, na_label='—') -%}
+    {%- if value is none -%}
+        {{ na_label }}
+    {%- elif value -%}
+        Yes
+    {%- else -%}
+        No
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro traffic_tone(signal) -%}
+    {%- if signal == 'green' -%}rgba(10, 107, 88, 0.12); color: var(--accent);
+    {%- elif signal == 'yellow' -%}rgba(201, 152, 46, 0.14); color: #9a6c00;
+    {%- elif signal == 'red' -%}rgba(184, 60, 74, 0.12); color: var(--danger);
+    {%- else -%}rgba(107, 107, 99, 0.12); color: var(--ink-muted);
+    {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+
+{% set status_filter_key = 'status' if filter_options.get('status') else 'default_status' %}
+{% set status_filter_options = filter_options.get(status_filter_key, []) %}
+
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund_name">
+                    <option value="">All Funds</option>
+                    {% for f in filter_options.get('fund_name', []) %}<option value="{{ f }}" {% if f in (active_filters.get('fund_name') or []) %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="{{ status_filter_key }}">
+                    <option value="">All Statuses</option>
+                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get(status_filter_key) or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sector') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% if filter_options.get('internal_credit_rating') %}
+            <label class="filter-field">
+                <span>Rating</span>
+                <select name="internal_credit_rating">
+                    <option value="">All Ratings</option>
+                    {% for r in filter_options.get('internal_credit_rating', []) %}<option value="{{ r }}" {% if r in (active_filters.get('internal_credit_rating') or []) %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('sponsor') %}
+            <label class="filter-field">
+                <span>Sponsor</span>
+                <select name="sponsor">
+                    <option value="">All Sponsors</option>
+                    {% for s in filter_options.get('sponsor', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sponsor') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            {% if filter_options.get('sourcing_channel') %}
+            <label class="filter-field">
+                <span>Sourcing</span>
+                <select name="sourcing_channel">
+                    <option value="">All Channels</option>
+                    {% for s in filter_options.get('sourcing_channel', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sourcing_channel') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
+            {% if active_filters %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('credit_analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+<div class="panel" style="margin-bottom: 24px;">
+    <p style="margin: 0; color: var(--ink-muted); font-size: 13px;">{{ analysis.coverage_note }}</p>
+</div>
+
+{% if analysis.summary.loan_count == 0 %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 40px 24px;">
+    <h3 style="margin-bottom: 8px;">No Comparable Loans</h3>
+    <p style="margin: 0; color: var(--ink-muted);">
+        Add both <strong>Estimated IRR at Entry</strong> and <strong>Gross IRR</strong> to the uploaded credit loans to populate this analysis.
+    </p>
+</div>
+{% else %}
+
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Compared Loans</div>
+        <div class="kpi-value">{{ analysis.summary.loan_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Funds in Scope</div>
+        <div class="kpi-value">{{ analysis.summary.fund_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Current Invested Capital</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.summary.total_current_invested_capital) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">IRR Hit Rate</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.hit_rate, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Est. IRR at Entry</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_estimated_irr, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Actual Gross IRR</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_actual_gross_irr, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Delta IRR</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_delta_irr, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Worst Delta IRR</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.worst_delta_irr, 'percent') }}</div>
+    </div>
+</div>
+
+<div class="panel" style="margin-bottom: 24px;">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Fund Summary</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Weighted by <strong>Current Invested Capital</strong> only and sorted by the worst weighted delta IRR.
+            </p>
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Wtd Est. IRR</th>
+                <th style="text-align: right;">Wtd Actual Gross IRR</th>
+                <th style="text-align: right;">Wtd Delta IRR</th>
+                <th style="text-align: right;">Hit Rate</th>
+                <th>Worst Deal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.fund_name }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_estimated_irr, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_actual_gross_irr, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_delta_irr, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.hit_rate, 'percent') }}</td>
+                <td>{{ row.worst_company_name or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel" style="margin-bottom: 24px;">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Worst IRR Misses</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Ranked by <strong>Actual Gross IRR minus Estimated IRR at Entry</strong>. Expand a row to inspect the full metric and qualitative context.
+            </p>
+        </div>
+    </div>
+    <div style="display: grid; gap: 12px;">
+        {% for row in analysis.worst_rows %}
+        <details {% if loop.index <= 3 %}open{% endif %} style="border: 1px solid var(--line); border-radius: 18px; background: var(--surface-alt); overflow: hidden;">
+            <summary style="display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; padding: 16px 18px; list-style: none;">
+                <div>
+                    <div style="font-size: 12px; color: var(--ink-muted); font-family: var(--font-mono); margin-bottom: 4px;">#{{ loop.index }} worst miss</div>
+                    <div style="font-weight: 600;">{{ row.company_name }}{% if row.sector %} <span style="color: var(--ink-muted); font-weight: 400;">· {{ row.sector }}</span>{% endif %}</div>
+                    <div style="font-size: 12px; color: var(--ink-muted); margin-top: 4px;">
+                        {{ row.fund_name }} · {{ row.status }}{% if row.default_status and row.default_status != row.raw_status %} · {{ row.default_status }}{% endif %}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 4px;">Delta IRR</div>
+                    <div style="font-family: var(--font-mono); font-size: 20px; font-weight: 600;">{{ render_metric(row.delta_irr, 'percent') }}</div>
+                    <div style="font-size: 12px; color: var(--ink-muted); margin-top: 4px;">
+                        Est {{ render_metric(row.estimated_irr_at_entry, 'percent') }} → Actual {{ render_metric(row.actual_gross_irr, 'percent') }}
+                    </div>
+                </div>
+            </summary>
+            <div style="padding: 0 18px 18px 18px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; font-size: 13px;">
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Performance</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Est. IRR at entry:</span> {{ render_metric(row.estimated_irr_at_entry, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Actual gross IRR:</span> {{ render_metric(row.actual_gross_irr, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">IRR source:</span> {{ row.actual_gross_irr_source or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Delta IRR:</span> {{ render_metric(row.delta_irr, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">IRR achievement:</span> {{ render_metric(row.irr_achievement, 'percent') }}</div>
+                        <div><span style="color: var(--ink-muted);">Gross MOIC:</span> {{ render_metric(row.gross_moic, 'multiple') }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Value & capital</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current invested capital:</span> {{ render_metric(row.current_invested_capital, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry loan amount:</span> {{ render_metric(row.entry_loan_amount, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Committed amount:</span> {{ render_metric(row.committed_amount, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Realized value:</span> {{ render_metric(row.realized_value, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Unrealized value:</span> {{ render_metric(row.unrealized_total_value, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Warrant / equity value:</span> {{ render_metric(row.unrealized_warrant_equity_value, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Total value:</span> {{ render_metric(row.total_value, 'currency') }}</div>
+                        <div><span style="color: var(--ink-muted);">Fair value:</span> {{ render_metric(row.fair_value, 'currency') }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Loan context</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Fund:</span> {{ row.fund_name }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Traffic light:</span> <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; {{ traffic_tone(row.traffic_light) }}">{{ row.traffic_light or 'gray' }}</span></div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Status:</span> {{ row.status or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Default status:</span> {{ row.default_status or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Vintage:</span> {{ row.vintage_year or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry date:</span> {{ fmt_date_mdy(row.close_date) }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Exit date:</span> {{ fmt_date_mdy(row.exit_date) }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">As of date:</span> {{ fmt_date_mdy(row.as_of_date) }}</div>
+                        <div><span style="color: var(--ink-muted);">Hold period:</span> {{ render_metric(row.hold_period, 'years') }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Economics & structure</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Instrument:</span> {{ row.instrument or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Tranche:</span> {{ row.tranche or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Security type:</span> {{ row.security_type or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Rate type:</span> {{ row.fixed_or_floating or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Reference rate:</span> {{ row.reference_rate or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Coupon:</span> {{ render_metric(row.coupon_rate, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Cash margin:</span> {{ render_metric(row.cash_margin, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Spread:</span> {% if row.spread_bps is none %}—{% else %}{{ "%.0f bps"|format(row.spread_bps) }}{% endif %}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Floor rate:</span> {{ render_metric(row.floor_rate, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">PIK toggle:</span> {{ bool_label(row.pik_toggle) }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">PIK rate:</span> {{ render_metric(row.pik_rate, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">YTM:</span> {{ render_metric(row.yield_to_maturity, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">OID:</span> {{ render_metric(row.fee_oid, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Upfront fee:</span> {{ render_metric(row.fee_upfront, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Exit fee:</span> {{ render_metric(row.fee_exit, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Closing fee:</span> {{ render_metric(row.closing_fee, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Call protection:</span> {% if row.call_protection_months is none %}—{% else %}{{ "%.0f months"|format(row.call_protection_months) }}{% endif %}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Make-whole:</span> {{ render_metric(row.make_whole_premium, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Prepayment protection:</span> {{ row.prepayment_protection or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Loan term:</span> {{ row.loan_term or '—' }}</div>
+                        <div><span style="color: var(--ink-muted);">Term (years):</span> {% if row.term_years is none %}—{% else %}{{ "%.1f"|format(row.term_years) }}{% endif %}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Fundamentals</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry revenue:</span> {{ render_metric(row.entry_revenue, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current revenue:</span> {{ render_metric(row.current_revenue, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry EBITDA:</span> {{ render_metric(row.entry_ebitda, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current EBITDA:</span> {{ render_metric(row.current_ebitda, 'currency') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry LTV:</span> {{ render_metric(row.entry_ltv, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current LTV:</span> {{ render_metric(row.current_ltv, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry coverage:</span> {{ render_metric(row.entry_coverage_ratio, 'multiple') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current coverage:</span> {{ render_metric(row.current_coverage_ratio, 'multiple') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Interest coverage:</span> {{ render_metric(row.interest_coverage_ratio, 'multiple') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">DSCR:</span> {{ render_metric(row.dscr, 'multiple') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry cushion:</span> {{ render_metric(row.entry_equity_cushion, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Current cushion:</span> {{ render_metric(row.current_equity_cushion, 'percent') }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Internal rating:</span> {{ row.internal_credit_rating or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Covenant type:</span> {{ row.covenant_type or '—' }}</div>
+                        <div><span style="color: var(--ink-muted);">Covenant compliant:</span> {{ bool_label(row.covenant_compliant) }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Qualitative context</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Sector:</span> {{ row.sector or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Geography:</span> {{ row.geography or row.location or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Sponsor:</span> {{ row.sponsor or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Sourcing channel:</span> {{ row.sourcing_channel or '—' }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Public:</span> {{ bool_label(row.is_public) }}</div>
+                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Location:</span> {{ row.location or '—' }}</div>
+                        <div style="margin-top: 8px; color: var(--ink-muted); line-height: 1.5;">
+                            {{ row.business_description or 'No business description provided.' }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="panel">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">All Compared Loans</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Sorted by the worst IRR miss first.
+            </p>
+        </div>
+    </div>
+    <div class="track-record-scroll">
+        <table class="data-table compact" style="min-width: 1250px;">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Fund</th>
+                    <th>Sector</th>
+                    <th>Status</th>
+                    <th class="num">Current Invested Capital</th>
+                    <th class="num">Est. IRR at Entry</th>
+                    <th class="num">Actual Gross IRR</th>
+                    <th class="num">Delta IRR</th>
+                    <th class="num">IRR Achievement</th>
+                    <th class="num">Gross MOIC</th>
+                    <th class="num">Total Value</th>
+                    <th class="num">Hold Period</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in analysis.rows %}
+                <tr>
+                    <td>{{ row.company_name }}</td>
+                    <td>{{ row.fund_name }}</td>
+                    <td>{{ row.sector or '—' }}</td>
+                    <td>{{ row.status }}</td>
+                    <td class="num">{{ render_metric(row.current_invested_capital, 'currency') }}</td>
+                    <td class="num">{{ render_metric(row.estimated_irr_at_entry, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.actual_gross_irr, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.delta_irr, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.irr_achievement, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.gross_moic, 'multiple') }}</td>
+                    <td class="num">{{ render_metric(row.total_value, 'currency') }}</td>
+                    <td class="num">{{ render_metric(row.hold_period, 'years') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endif %}
+{% endif %}
+{% endblock %}

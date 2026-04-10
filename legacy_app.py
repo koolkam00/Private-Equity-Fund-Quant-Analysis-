@@ -120,6 +120,7 @@ from services.metrics.credit import (
     compute_credit_risk_metrics,
     compute_credit_stress_scenarios,
     compute_credit_track_record,
+    compute_credit_underwrite_outcome,
     compute_credit_vintage_comparison,
     compute_credit_watchlist,
     compute_credit_yield_attribution,
@@ -288,11 +289,15 @@ CREDIT_ANALYSIS_PAGES = {
     },
     "credit-concentration": {
         "title": "Credit Concentration",
-        "description": "Sector, geography, sponsor, and security type breakdowns sized by total value with HHI.",
+        "description": "Sector, geography, sponsor, and security type breakdowns sized by total value.",
     },
     "credit-fundamentals": {
         "title": "Credit Fundamentals",
         "description": "Analyze entry vs exit/current revenue, LTV, coverage ratio, and equity cushion on deal and fund level using current invested capital weightings.",
+    },
+    "credit-underwrite-outcome": {
+        "title": "Credit Underwrite vs Outcome",
+        "description": "Compare Estimated IRR at Entry against actual Gross IRR, rank the biggest underwriting misses, and inspect full loan context.",
     },
     "credit-data-cuts": {
         "title": "Credit Data Cuts",
@@ -305,6 +310,7 @@ CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-benchmarking", "label": "Benchmarking", "icon": "bi bi-bar-chart-steps"},
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
     {"page_key": "credit-fundamentals", "label": "Fundamentals", "icon": "bi bi-bar-chart-line"},
+    {"page_key": "credit-underwrite-outcome", "label": "Underwrite vs Outcome", "icon": "bi bi-bullseye"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
 ]
 
@@ -4341,6 +4347,10 @@ def credit_analysis_page(page):
             payload = compute_credit_fundamentals(
                 loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
             )
+        elif page == "credit-underwrite-outcome":
+            payload = compute_credit_underwrite_outcome(
+                loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
+            )
         elif page == "credit-data-cuts":
             primary_dim = request.args.get("dim", "sector")
             secondary_dim = request.args.get("dim2", "")
@@ -4355,6 +4365,7 @@ def credit_analysis_page(page):
             "credit-benchmarking": "analysis_credit_benchmarking.html",
             "credit-concentration": "analysis_credit_concentration.html",
             "credit-fundamentals": "analysis_credit_fundamentals.html",
+            "credit-underwrite-outcome": "analysis_credit_underwrite_outcome.html",
             "credit-data-cuts": "analysis_credit_data_cuts.html",
         }
 
@@ -4433,6 +4444,10 @@ def credit_analysis_series_api(page):
             payload = compute_credit_concentration(loans, metrics_by_id)
         elif page == "credit-fundamentals":
             payload = compute_credit_fundamentals(
+                loans, metrics_by_id, snapshots_by_loan=ctx["snapshots_by_loan"]
+            )
+        elif page == "credit-underwrite-outcome":
+            payload = compute_credit_underwrite_outcome(
                 loans, metrics_by_id, snapshots_by_loan=ctx["snapshots_by_loan"]
             )
         elif page == "credit-data-cuts":
