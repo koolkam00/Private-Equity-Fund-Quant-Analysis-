@@ -556,6 +556,8 @@ def parse_credit_loan_tape(
         issue_report_id = batch_id
 
     issues = []
+    resolved_firm_id = firm_id
+    resolved_firm_name = firm_name
 
     def _log_issue(row_num, severity, message, payload=None):
         issues.append({"row": row_num, "severity": severity, "message": message})
@@ -571,6 +573,12 @@ def parse_credit_loan_tape(
             ))
         except Exception:
             pass
+
+    def _scoped_credit_loan_query():
+        query = CreditLoan.query.filter(CreditLoan.firm_id == resolved_firm_id)
+        if team_id is None:
+            return query.filter(CreditLoan.team_id.is_(None))
+        return query.filter(CreditLoan.team_id == team_id)
 
     # Read Excel
     try:
@@ -607,8 +615,6 @@ def parse_credit_loan_tape(
         raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
 
     # Resolve firm
-    resolved_firm_id = firm_id
-    resolved_firm_name = firm_name
     if resolved_firm_id is None and "firm_name" in df.columns:
         first_firm = _clean_str(df["firm_name"].iloc[0]) if len(df) > 0 else None
         if first_firm:
@@ -626,32 +632,10 @@ def parse_credit_loan_tape(
             if is_new and team_id:
                 db.session.add(TeamFirmAccess(team_id=team_id, firm_id=resolved_firm_id))
 
-    # Per-fund replace: delete existing loans for funds in this upload
-    fund_names_in_upload = set()
-    for _, row in df.iterrows():
-        fn = _clean_str(row.get("fund_name"))
-        if fn:
-            fund_names_in_upload.add(fn)
-
-    if fund_names_in_upload and resolved_firm_id:
-        # Count existing loans for reconciliation warning
-        for fn in fund_names_in_upload:
-            existing_count = CreditLoan.query.filter_by(
-                firm_id=resolved_firm_id, fund_name=fn
-            ).count()
-            new_count = sum(1 for _, r in df.iterrows() if _clean_str(r.get("fund_name")) == fn)
-            if existing_count > 0 and new_count != existing_count:
-                _log_issue(0, "warning",
-                           f"Fund '{fn}': loan count changed from {existing_count} to {new_count}")
-
-        # Delete existing loans for these funds
-        for fn in fund_names_in_upload:
-            CreditLoan.query.filter_by(firm_id=resolved_firm_id, fund_name=fn).delete()
-
     # Parse rows
-    loan_count = 0
+    parsed_loans = []
+    fund_row_counts = defaultdict(int)
     fund_set = set()
-    warning_count = 0
 
     for idx, row in df.iterrows():
         row_num = idx + 2  # Excel row (1-indexed header + data)
@@ -661,11 +645,14 @@ def parse_credit_loan_tape(
 
         if not company:
             _log_issue(row_num, "error", "Missing company name, skipping row")
-            warning_count += 1
             continue
         if not fund:
             _log_issue(row_num, "error", "Missing fund name, skipping row")
-            warning_count += 1
+            continue
+
+        close_date = _clean_date(row.get("close_date"))
+        if close_date is None:
+            _log_issue(row_num, "error", "Missing or invalid entry date, skipping row")
             continue
 
         # Clean all fields
@@ -674,7 +661,7 @@ def parse_credit_loan_tape(
             fund_name=fund,
             vintage_year=_clean_int(row.get("vintage_year")),
             fund_size=_clean_float(row.get("fund_size")),
-            close_date=_clean_date(row.get("close_date")),
+            close_date=close_date,
             exit_date=_clean_date(row.get("exit_date")),
             status=_clean_str(row.get("status")) or "Unrealized",
             as_of_date=_clean_date(row.get("as_of_date")),
@@ -826,21 +813,49 @@ def parse_credit_loan_tape(
         # PIK consistency
         if loan.pik_toggle and loan.pik_rate is None:
             _log_issue(row_num, "warning", "PIK is enabled but no PIK rate provided")
-            warning_count += 1
 
         # Covenant consistency
         if loan.covenant_type and loan.covenant_type.lower() != "none" and loan.covenant_compliant is None:
             _log_issue(row_num, "warning", "Covenant type set but compliance not specified")
-            warning_count += 1
 
         # Credit rating range
         if loan.internal_credit_rating is not None and not (1 <= loan.internal_credit_rating <= 5):
             _log_issue(row_num, "warning", f"Credit rating {loan.internal_credit_rating} outside 1-5 range")
-            warning_count += 1
 
-        db.session.add(loan)
-        loan_count += 1
+        parsed_loans.append(loan)
+        fund_row_counts[fund] += 1
         fund_set.add(fund)
+
+    if not parsed_loans:
+        raise ValueError("No valid credit loans found. Each row must include Company Name, Fund Name, and Entry Date.")
+
+    # Per-fund replace: only replace funds that have at least one valid row in
+    # this upload, and scope replacement to the uploading team.
+    if resolved_firm_id:
+        for fn, new_count in fund_row_counts.items():
+            existing_query = _scoped_credit_loan_query().filter(CreditLoan.fund_name == fn)
+            existing_count = existing_query.count()
+            if existing_count > 0 and new_count != existing_count:
+                _log_issue(
+                    0,
+                    "warning",
+                    f"Fund '{fn}': loan count changed from {existing_count} to {new_count}",
+                )
+
+            existing_ids = [
+                row[0]
+                for row in existing_query.with_entities(CreditLoan.id).all()
+            ]
+            if existing_ids:
+                CreditLoanSnapshot.query.filter(
+                    CreditLoanSnapshot.credit_loan_id.in_(existing_ids)
+                ).delete(synchronize_session=False)
+                existing_query.delete(synchronize_session=False)
+
+    for loan in parsed_loans:
+        db.session.add(loan)
+    db.session.flush()
+    loan_count = len(parsed_loans)
 
     # Parse optional Snapshots sheet
     snapshot_count = 0
@@ -873,7 +888,7 @@ def parse_credit_loan_tape(
         "funds": fund_set,
         "snapshots": snapshot_count,
         "fund_performance": fund_perf_count,
-        "warnings": warning_count + len([i for i in issues if i["severity"] == "warning"]),
+        "warnings": len([i for i in issues if i["severity"] == "warning"]),
         "errors": len([i for i in issues if i["severity"] == "error"]),
         "batch_id": batch_id,
         "firm_id": resolved_firm_id,
@@ -892,6 +907,9 @@ def _parse_snapshot_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue
         "company": "company_name",
         "company name": "company_name",
         "borrower": "company_name",
+        "fund": "fund_name",
+        "fund name": "fund_name",
+        "vehicle": "fund_name",
         "snapshot date": "snapshot_date",
         "quarter end": "snapshot_date",
         "reporting date": "snapshot_date",
@@ -936,19 +954,40 @@ def _parse_snapshot_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue
     for idx, row in df.iterrows():
         row_num = idx + 2
         company = _clean_str(row.get("company_name"))
+        fund_name = _clean_str(row.get("fund_name"))
         snap_date = _clean_date(row.get("snapshot_date"))
 
         if not company or not snap_date:
             log_issue(row_num, "warning", "Snapshot row missing company or date, skipping")
             continue
 
-        # Find the matching CreditLoan
-        loan = CreditLoan.query.filter_by(
-            firm_id=firm_id, company_name=company
-        ).first()
-        if not loan:
-            log_issue(row_num, "warning", f"No matching loan for snapshot company '{company}'")
+        # Match only against loans created in this upload so shared firms or
+        # repeated company names in other teams cannot hijack the snapshot.
+        loan_query = CreditLoan.query.filter(
+            CreditLoan.firm_id == firm_id,
+            CreditLoan.upload_batch == batch_id,
+            CreditLoan.company_name == company,
+        )
+        if team_id is None:
+            loan_query = loan_query.filter(CreditLoan.team_id.is_(None))
+        else:
+            loan_query = loan_query.filter(CreditLoan.team_id == team_id)
+        if fund_name:
+            loan_query = loan_query.filter(CreditLoan.fund_name == fund_name)
+
+        matches = loan_query.all()
+        if not matches:
+            detail = f" for fund '{fund_name}'" if fund_name else ""
+            log_issue(row_num, "warning", f"No matching loan for snapshot company '{company}'{detail}")
             continue
+        if len(matches) > 1:
+            log_issue(
+                row_num,
+                "warning",
+                f"Multiple matching loans found for snapshot company '{company}'. Include Fund Name on the Snapshots sheet.",
+            )
+            continue
+        loan = matches[0]
 
         snapshot = CreditLoanSnapshot(
             credit_loan_id=loan.id,
@@ -1067,7 +1106,12 @@ def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, l
 
     # Per-firm replace semantics: delete existing rows for this firm before insert.
     if firm_id is not None:
-        CreditFundPerformance.query.filter_by(firm_id=firm_id).delete()
+        scoped_delete = CreditFundPerformance.query.filter(CreditFundPerformance.firm_id == firm_id)
+        if team_id is None:
+            scoped_delete = scoped_delete.filter(CreditFundPerformance.team_id.is_(None))
+        else:
+            scoped_delete = scoped_delete.filter(CreditFundPerformance.team_id == team_id)
+        scoped_delete.delete(synchronize_session=False)
 
     count = 0
     for idx, row in df.iterrows():

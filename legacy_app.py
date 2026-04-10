@@ -23,6 +23,7 @@ from werkzeug.utils import secure_filename
 from models import (
     BenchmarkPoint,
     ChartBuilderTemplate,
+    CreditFundPerformance,
     CreditLoan,
     CreditLoanSnapshot,
     Deal,
@@ -4812,7 +4813,7 @@ def download_credit_template():
         "PE Portfolio Lab - Credit Loan Template",
         "",
         "CREDIT LOANS SHEET (required)",
-        "  Required columns: Company Name, Fund Name",
+        "  Required columns: Company Name, Fund Name, Entry Date",
         "  All other columns are optional. Include what your data has.",
         "",
         "  FIELD GUIDE",
@@ -4889,7 +4890,7 @@ def delete_credit_firm_data(firm_id):
         flash("You do not have access to this firm.", "danger")
         return redirect(url_for("upload_credit_loans"))
 
-    firm = Firm.query.get(firm_id)
+    firm = db.session.get(Firm, firm_id)
     firm_name = firm.name if firm else f"Firm #{firm_id}"
 
     try:
@@ -4899,8 +4900,15 @@ def delete_credit_firm_data(firm_id):
             )
         ).delete(synchronize_session=False)
         loan_count = CreditLoan.query.filter_by(firm_id=firm_id, team_id=team_id).delete()
+        fund_perf_count = CreditFundPerformance.query.filter_by(
+            firm_id=firm_id, team_id=team_id
+        ).delete(synchronize_session=False)
         db.session.commit()
-        flash(f"Deleted {loan_count} credit loan(s) and {snap_count} snapshot(s) for {firm_name}.", "success")
+        flash(
+            f"Deleted {loan_count} credit loan(s), {snap_count} snapshot(s), and "
+            f"{fund_perf_count} fund performance row(s) for {firm_name}.",
+            "success",
+        )
     except SQLAlchemyError as exc:
         db.session.rollback()
         flash(f"Delete failed: {exc}", "danger")
