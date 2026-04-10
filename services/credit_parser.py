@@ -364,11 +364,19 @@ def _clean_date(val):
     if val is None or (isinstance(val, float) and math.isnan(val)):
         return None
     if isinstance(val, date):
+        if val.year < 1900 or val.year > 2200:
+            return None
         return val
     if hasattr(val, "date"):
-        return val.date()
+        d = val.date()
+        if d.year < 1900 or d.year > 2200:
+            return None
+        return d
     try:
-        return pd.to_datetime(val).date()
+        d = pd.to_datetime(val).date()
+        if d.year < 1900 or d.year > 2200:
+            return None
+        return d
     except Exception:
         return None
 

@@ -1239,6 +1239,17 @@ def ensure_schema_updates():
     for table, col, sql_type in _credit_fp_cols:
         _ensure_column(engine, inspector, table, col, sql_type)
 
+    # Fix corrupted dates (year > 9999 crashes psycopg on read)
+    for date_col in ("close_date", "exit_date", "as_of_date", "maturity_date"):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"UPDATE credit_loans SET {date_col} = NULL "
+                    f"WHERE {date_col} IS NOT NULL AND EXTRACT(YEAR FROM {date_col}) > 2200"
+                ))
+        except Exception:
+            pass  # SQLite doesn't support EXTRACT, skip silently
+
     # Credit indexes
     _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
     _ensure_index(engine, "ix_credit_loans_team_id", "credit_loans", "team_id")
