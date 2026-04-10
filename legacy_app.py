@@ -444,11 +444,13 @@ def _handle_db_exception(exc, log_message):
 
 def _json_schema_failure(exc, log_message, status_code=503):
     _handle_db_exception(exc, log_message)
+    root = _root_db_error(exc)
     return (
         jsonify(
             {
-                "error": "database_schema_not_ready",
+                "error": "database_error",
                 "message": _schema_upgrade_message(),
+                "detail": f"{type(root).__name__}: {str(root)[:500]}",
             }
         ),
         status_code,
@@ -457,7 +459,9 @@ def _json_schema_failure(exc, log_message, status_code=503):
 
 def _redirect_schema_failure(exc, log_message, endpoint="dashboard"):
     _handle_db_exception(exc, log_message)
-    flash(_schema_upgrade_message(), "danger")
+    root = _root_db_error(exc)
+    detail = f" Detail: {type(root).__name__}: {str(root)[:300]}"
+    flash(_schema_upgrade_message() + detail, "danger")
     return redirect(url_for(endpoint))
 
 
