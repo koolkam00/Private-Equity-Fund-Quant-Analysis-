@@ -2145,6 +2145,7 @@ def _credit_empty_track_totals():
         "invested_equity": 0.0,
         "realized_value": 0.0,
         "unrealized_value": 0.0,
+        "unrealized_warrant_equity_value": 0.0,
         "total_value": 0.0,
         "_gross_irr_weight_num": 0.0,
         "_gross_irr_weight_den": 0.0,
@@ -2159,6 +2160,7 @@ def _credit_update_track_totals(totals, row):
     equity = row.get("invested_equity") or 0.0
     realized = row.get("realized_value") or 0.0
     unrealized = row.get("unrealized_value") or 0.0
+    unrealized_warrant = row.get("unrealized_warrant_equity_value") or 0.0
     total_value = row.get("total_value") or 0.0
     gross_irr = row.get("gross_irr")
     hold_period = row.get("hold_period")
@@ -2168,6 +2170,7 @@ def _credit_update_track_totals(totals, row):
     totals["invested_equity"] += equity
     totals["realized_value"] += realized
     totals["unrealized_value"] += unrealized
+    totals["unrealized_warrant_equity_value"] += unrealized_warrant
     totals["total_value"] += total_value
 
     if gross_irr is not None and equity > 0:
@@ -2196,12 +2199,16 @@ def _credit_finalize_track_totals(raw_totals, invested_total=None, fund_size=Non
     total_value = raw_totals["total_value"]
     realized_value = raw_totals["realized_value"]
     unrealized_value = raw_totals["unrealized_value"]
+    unrealized_warrant_equity_value = raw_totals["unrealized_warrant_equity_value"]
+    unrealized_total_value = unrealized_value + unrealized_warrant_equity_value
 
     return {
         "deal_count": raw_totals["deal_count"],
         "invested_equity": invested_equity,
         "realized_value": realized_value,
         "unrealized_value": unrealized_value,
+        "unrealized_warrant_equity_value": unrealized_warrant_equity_value,
+        "unrealized_total_value": unrealized_total_value,
         "total_value": total_value,
         "hold_period": safe_divide(
             raw_totals["_hold_period_weight_num"], raw_totals["_hold_period_weight_den"]
@@ -2218,7 +2225,7 @@ def _credit_finalize_track_totals(raw_totals, invested_total=None, fund_size=Non
         ),
         "gross_moic": safe_divide(total_value, invested_equity),
         "realized_gross_moic": safe_divide(realized_value, invested_equity),
-        "unrealized_gross_moic": safe_divide(unrealized_value, invested_equity),
+        "unrealized_gross_moic": safe_divide(unrealized_total_value, invested_equity),
         # Backwards-compat aliases for downstream consumers.
         "moic": safe_divide(total_value, invested_equity),
         "irr": safe_divide(
@@ -2311,23 +2318,26 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
         invested = _credit_position_amount(loan, fx)
 
         realized_value = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
-        # For unrealized value, prefer explicit unrealized_loan_value +
-        # warrant/equity; fall back to fair_value.
         ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
         uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
-        if ulv or uwev:
-            unrealized_value = ulv + uwev
-        elif getattr(loan, "fair_value", None) is not None:
-            unrealized_value = loan.fair_value * fx
-        else:
-            unrealized_value = 0.0
-
-        # Prefer an explicit total_value column; else sum realized + unrealized.
+        fair_value = getattr(loan, "fair_value", None)
         tv_col = getattr(loan, "total_value", None)
-        if tv_col is not None:
-            total_value = tv_col * fx
+
+        # Track record shows unrealized loan value and warrant/equity value as
+        # separate columns. When the workbook only provides total/fair value,
+        # treat the residual as the loan value so the displayed components
+        # still reconcile to total value.
+        if ulv or uwev:
+            unrealized_loan_value = ulv
+        elif fair_value is not None:
+            unrealized_loan_value = fair_value * fx
+        elif tv_col is not None:
+            unrealized_loan_value = max((tv_col * fx) - realized_value - uwev, 0.0)
         else:
-            total_value = realized_value + unrealized_value
+            unrealized_loan_value = 0.0
+
+        unrealized_total_value = unrealized_loan_value + uwev
+        total_value = realized_value + unrealized_total_value
 
         issue_size = (loan.issue_size or 0.0) * fx
         facility_pct = safe_divide(hold_size, issue_size)
@@ -2335,7 +2345,7 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
         gross_irr = getattr(loan, "gross_irr", None)
         gross_moic = safe_divide(total_value, invested) if invested > 0 else getattr(loan, "moic", None)
         realized_moic = safe_divide(realized_value, invested)
-        unrealized_moic = safe_divide(unrealized_value, invested)
+        unrealized_moic = safe_divide(unrealized_total_value, invested)
 
         status = _credit_loan_status(loan)
         fund = loan.fund_name or "Unknown Fund"
@@ -2354,8 +2364,11 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             "ownership_pct": facility_pct,
             "facility_pct": facility_pct,
             "invested_equity": invested,
+            "current_invested_capital": invested,
             "realized_value": realized_value,
-            "unrealized_value": unrealized_value,
+            "unrealized_value": unrealized_loan_value,
+            "unrealized_warrant_equity_value": uwev,
+            "unrealized_total_value": unrealized_total_value,
             "total_value": total_value,
             "gross_irr": gross_irr,
             "gross_moic": gross_moic,

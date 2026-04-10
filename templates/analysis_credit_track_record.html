@@ -70,9 +70,10 @@
                     <th class="num">% of Facility</th>
                     <th class="num">% of Fund Invested</th>
                     <th class="num">% of Fund Size</th>
-                    <th class="num">Invested</th>
-                    <th class="num">Realized</th>
-                    <th class="num">Unrealized</th>
+                    <th class="num">Current Invested Capital</th>
+                    <th class="num">Realized Value</th>
+                    <th class="num">Unrealized Value</th>
+                    <th class="num">Unrealized Warrant/Equity Value</th>
                     <th class="num">Total Value</th>
                     <th class="num">Gross IRR</th>
                     <th class="num">Gross MOIC</th>
@@ -83,7 +84,7 @@
             <tbody>
                 {% for fund in analysis.funds %}
                 <tr class="tr-fund-header">
-                    <td colspan="17">
+                    <td colspan="18">
                         {{ fund.fund_name }}
                         {% if fund.vintage_year %} · Vintage {{ fund.vintage_year }}{% endif %}
                         {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
@@ -101,9 +102,10 @@
                     <td class="num">{{ fmt_pct_1dp(row.facility_pct) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.pct_total_invested) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.pct_fund_size) }}</td>
-                    <td class="num">{{ fmt_currency(row.invested_equity) }}</td>
+                    <td class="num">{{ fmt_currency(row.current_invested_capital) }}</td>
                     <td class="num">{{ fmt_currency(row.realized_value) }}</td>
                     <td class="num">{{ fmt_currency(row.unrealized_value) }}</td>
+                    <td class="num">{{ fmt_currency(row.unrealized_warrant_equity_value) }}</td>
                     <td class="num">{{ fmt_currency(row.total_value) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.gross_irr) }}</td>
                     <td class="num">{{ fmt_multiple(row.gross_moic) }}</td>
@@ -124,6 +126,7 @@
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
                     <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
@@ -144,6 +147,7 @@
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
                     <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
@@ -153,7 +157,7 @@
                 {% endfor %}
 
                 <tr class="tr-net">
-                    <td colspan="13"><strong>{{ fund.fund_name }} Net Performance</strong></td>
+                    <td colspan="14"><strong>{{ fund.fund_name }} Net Performance</strong></td>
                     <td class="num"><strong>Net IRR:</strong></td>
                     <td class="num">
                         {% if fund.net_performance.net_irr is none %}N/A{% else %}{{ fmt_pct_1dp(fund.net_performance.net_irr) }}{% endif %}
@@ -164,7 +168,7 @@
                     </td>
                 </tr>
                 <tr class="tr-net tr-net-second">
-                    <td colspan="13"></td>
+                    <td colspan="14"></td>
                     <td class="num"><strong>Net DPI:</strong></td>
                     <td class="num">
                         {% if fund.net_performance.net_dpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_dpi) }}{% endif %}
@@ -172,11 +176,11 @@
                     <td colspan="2"></td>
                 </tr>
 
-                <tr class="tr-gap"><td colspan="17"></td></tr>
+                <tr class="tr-gap"><td colspan="18"></td></tr>
                 {% endfor %}
 
                 <tr class="tr-fund-header tr-overall-header">
-                    <td colspan="17">All Funds Summary</td>
+                    <td colspan="18">All Funds Summary</td>
                 </tr>
                 {% for rollup in analysis.overall.status_rollups %}
                 <tr class="tr-rollup tr-rollup-status">
@@ -190,6 +194,7 @@
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
                     <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
@@ -210,6 +215,7 @@
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.gross_irr) }}</strong></td>
                     <td class="num"><strong>{{ fmt_multiple(rollup.totals.gross_moic) }}</strong></td>
@@ -224,7 +230,7 @@
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
     Gross metrics are loan-level, hold-weighted. Net metrics are fund-level, populated from the <em>Fund Performance</em> sheet in the credit upload template.
-    <strong>% of Facility</strong> is hold size ÷ issue size (what portion of each loan this manager holds). If only Net MOIC is uploaded on the fund sheet, the page reuses it as Net TVPI.
+    <strong>% of Facility</strong> is hold size ÷ issue size (what portion of each loan this manager holds). <strong>Gross MOIC</strong> is calculated as (Realized Value + Unrealized Value + Unrealized Warrant/Equity Value) ÷ Current Invested Capital. If only Net MOIC is uploaded on the fund sheet, the page reuses it as Net TVPI.
 </p>
 
 {% else %}

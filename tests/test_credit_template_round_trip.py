@@ -353,6 +353,11 @@ def test_credit_track_record_route_renders_net_tvpi_not_net_moic(credit_round_tr
     resp = client.get("/credit/analysis/credit-track-record")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
+    assert "Current Invested Capital" in body
+    assert "Realized Value" in body
+    assert "Unrealized Value" in body
+    assert "Unrealized Warrant/Equity Value" in body
+    assert "Total Value" in body
     assert "Net TVPI:" in body
     assert "Net DPI:" in body
     assert "Net MOIC:" not in body

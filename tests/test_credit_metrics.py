@@ -1542,7 +1542,8 @@ class TestCreditTrackRecord:
         assert row["status"] == "Unrealized"
         assert row["invested_equity"] == 25.0
         assert row["realized_value"] == 5.0
-        assert row["unrealized_value"] == 23.5  # 22.0 + 1.5
+        assert row["unrealized_value"] == 22.0
+        assert row["unrealized_warrant_equity_value"] == 1.5
         assert row["total_value"] == 28.5
         assert row["row_num"] == 1
         assert row["pct_total_invested"] == pytest.approx(1.0)
@@ -1601,12 +1602,17 @@ class TestCreditTrackRecord:
     def test_gross_moic_calculation(self):
         loan = self._make_track_loan(
             id=1, fund_name="F1",
-            entry_loan_amount=20.0, total_value=30.0,
+            entry_loan_amount=20.0,
+            realized_proceeds=5.0,
+            unrealized_loan_value=23.5,
+            unrealized_warrant_equity_value=1.5,
+            total_value=30.0,
         )
         result = compute_credit_track_record([loan])
         row = result["funds"][0]["rows"][0]
         assert row["gross_moic"] == pytest.approx(1.5)
         assert row["realized_gross_moic"] == pytest.approx(5.0 / 20.0)
+        assert row["unrealized_gross_moic"] == pytest.approx((23.5 + 1.5) / 20.0)
 
     def test_facility_pct(self):
         loan = self._make_track_loan(id=1, fund_name="F1", hold_size=25.0, issue_size=100.0)
@@ -1702,8 +1708,13 @@ class TestCreditTrackRecord:
 
         assert fund["fund_size"] == pytest.approx(200.0)
         assert row["invested_equity"] == pytest.approx(40.0)
+        assert row["current_invested_capital"] == pytest.approx(40.0)
         assert row["pct_total_invested"] == pytest.approx(1.0)
         assert row["pct_fund_size"] == pytest.approx(0.20)
+        assert row["realized_value"] == pytest.approx(10.0)
+        assert row["unrealized_value"] == pytest.approx(50.0)
+        assert row["unrealized_warrant_equity_value"] == pytest.approx(0.0)
+        assert row["total_value"] == pytest.approx(60.0)
         assert row["gross_moic"] == pytest.approx(1.5)
         assert row["realized_gross_moic"] == pytest.approx(0.25)
         assert row["unrealized_gross_moic"] == pytest.approx(1.25)
@@ -1784,6 +1795,9 @@ class TestCreditTrackRecord:
         loan = self._make_track_loan(
             id=1, fund_name="F1",
             entry_loan_amount=20.0,
+            realized_proceeds=5.0,
+            unrealized_loan_value=18.5,
+            unrealized_warrant_equity_value=1.5,
             total_value=25.0,
             currency="EUR",
             fx_rate_to_usd=1.1,
