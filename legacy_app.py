@@ -3837,59 +3837,83 @@ def select_firm_scope(firm_id):
 @login_required
 def delete_firm(firm_id):
     """Delete a firm and ALL associated data across every table."""
-    membership = _require_team_scope()
-    team_id = membership.team_id
-    accessible_ids = {f.id for f in _accessible_firms_for_team(team_id)}
-    if firm_id not in accessible_ids:
-        flash("You do not have access to this firm.", "danger")
-        return redirect(url_for("firms"))
-
-    firm = db.session.get(Firm, firm_id)
-    if firm is None:
-        flash("Firm not found.", "danger")
-        return redirect(url_for("firms"))
-
-    firm_name = firm.name
     try:
-        # Credit: snapshots first (FK to credit_loans), then loans, then fund perf
-        CreditLoanSnapshot.query.filter(
-            CreditLoanSnapshot.credit_loan_id.in_(
-                db.session.query(CreditLoan.id).filter_by(firm_id=firm_id)
-            )
-        ).delete(synchronize_session=False)
-        CreditLoan.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
-        CreditFundPerformance.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        membership = _require_team_scope()
+        team_id = membership.team_id
+        accessible_ids = {f.id for f in _accessible_firms_for_team(team_id)}
+        if firm_id not in accessible_ids:
+            flash("You do not have access to this firm.", "danger")
+            return redirect(url_for("firms"))
 
-        # PE: deal-level children first, then deals
-        deal_ids = db.session.query(Deal.id).filter_by(firm_id=firm_id)
-        DealCashflowEvent.query.filter(DealCashflowEvent.deal_id.in_(deal_ids)).delete(synchronize_session=False)
-        DealQuarterSnapshot.query.filter(DealQuarterSnapshot.deal_id.in_(deal_ids)).delete(synchronize_session=False)
-        DealUnderwriteBaseline.query.filter(DealUnderwriteBaseline.deal_id.in_(deal_ids)).delete(synchronize_session=False)
-        Deal.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        firm = db.session.get(Firm, firm_id)
+        if firm is None:
+            flash("Firm not found.", "danger")
+            return redirect(url_for("firms"))
 
-        # Fund-level data
-        FundQuarterSnapshot.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
-        FundMetadata.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
-        FundCashflow.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        firm_name = firm.name
 
-        # Memo data (deepest children first to respect FK constraints)
-        run_ids = db.session.query(MemoGenerationRun.id).filter_by(firm_id=firm_id)
-        MemoGenerationClaim.query.filter(MemoGenerationClaim.run_id.in_(run_ids)).delete(synchronize_session=False)
-        MemoGenerationSection.query.filter(MemoGenerationSection.run_id.in_(run_ids)).delete(synchronize_session=False)
-        MemoJob.query.filter(MemoJob.run_id.in_(run_ids)).delete(synchronize_session=False)
-        MemoGenerationRun.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        # Use raw SQL for the cascade delete. This avoids ORM issues with
+        # tables that might not exist on older Postgres schemas, and handles
+        # FK ordering in a single explicit sequence.
+        from sqlalchemy import text as sa_text
+        conn = db.session.connection()
 
-        doc_ids = db.session.query(MemoDocument.id).filter_by(firm_id=firm_id)
-        MemoStyleExemplar.query.filter(MemoStyleExemplar.document_id.in_(doc_ids)).delete(synchronize_session=False)
-        MemoDocumentChunk.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
-        MemoDocument.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        # Credit cascade
+        conn.execute(sa_text(
+            "DELETE FROM credit_loan_snapshots WHERE credit_loan_id IN "
+            "(SELECT id FROM credit_loans WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM credit_loans WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM credit_fund_performance WHERE firm_id = :fid"), {"fid": firm_id})
+
+        # PE cascade: children first
+        conn.execute(sa_text(
+            "DELETE FROM deal_cashflow_events WHERE deal_id IN "
+            "(SELECT id FROM deals WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text(
+            "DELETE FROM deal_quarter_snapshots WHERE deal_id IN "
+            "(SELECT id FROM deals WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text(
+            "DELETE FROM deal_underwrite_baselines WHERE deal_id IN "
+            "(SELECT id FROM deals WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM deals WHERE firm_id = :fid"), {"fid": firm_id})
+
+        # Fund data
+        conn.execute(sa_text("DELETE FROM fund_quarter_snapshots WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM fund_metadata WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM fund_cashflows WHERE firm_id = :fid"), {"fid": firm_id})
+
+        # Memo cascade: deepest children first
+        conn.execute(sa_text(
+            "DELETE FROM memo_generation_claims WHERE run_id IN "
+            "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text(
+            "DELETE FROM memo_generation_sections WHERE run_id IN "
+            "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text(
+            "DELETE FROM memo_jobs WHERE run_id IN "
+            "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM memo_generation_runs WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text(
+            "DELETE FROM memo_style_exemplars WHERE document_id IN "
+            "(SELECT id FROM memo_documents WHERE firm_id = :fid)"
+        ), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM memo_document_chunks WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM memo_documents WHERE firm_id = :fid"), {"fid": firm_id})
 
         # Upload issues
-        UploadIssue.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        conn.execute(sa_text("DELETE FROM upload_issues WHERE firm_id = :fid"), {"fid": firm_id})
 
         # Access record and the firm itself
-        TeamFirmAccess.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
-        db.session.delete(firm)
+        conn.execute(sa_text("DELETE FROM team_firm_access WHERE firm_id = :fid"), {"fid": firm_id})
+        conn.execute(sa_text("DELETE FROM firms WHERE id = :fid"), {"fid": firm_id})
+
         db.session.commit()
 
         # If the deleted firm was the active scope, clear it
@@ -3897,10 +3921,10 @@ def delete_firm(firm_id):
             session.pop("active_firm_id", None)
 
         flash(f"Deleted firm '{firm_name}' and all associated data.", "success")
-    except SQLAlchemyError as exc:
+    except Exception as exc:
         db.session.rollback()
-        root = _root_db_error(exc)
-        flash(f"Delete failed: {type(root).__name__}: {str(root)[:200]}", "danger")
+        logger.exception("Delete firm %s failed", firm_id)
+        flash(f"Delete failed: {type(exc).__name__}: {str(exc)[:300]}", "danger")
 
     return redirect(url_for("firms"))
 
