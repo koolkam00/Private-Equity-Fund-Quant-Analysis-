@@ -634,6 +634,41 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
         if any(getattr(loan, f, None) is not None for f in ("entry_loan_amount", "total_value", "committed_amount")):
             has_new_fields = True
 
+    # Collateral, coverage ratio, equity cushion aggregations
+    collateral_num = 0.0
+    collateral_den = 0.0
+    collateral_count = 0
+    coverage_ratio_num = 0.0
+    coverage_ratio_den = 0.0
+    coverage_ratio_count = 0
+    equity_cushion_num = 0.0
+    equity_cushion_den = 0.0
+    equity_cushion_count = 0
+    total_current_collateral = 0.0
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
+        hold = (loan.hold_size or 0.0) * fx
+        weight = entry_amt if entry_amt > 0 else hold
+
+        cur_coll = getattr(loan, "current_collateral", None)
+        if cur_coll is not None:
+            total_current_collateral += cur_coll * fx
+            collateral_count += 1
+
+        cur_cov = getattr(loan, "current_coverage_ratio", None)
+        if cur_cov is not None and weight > 0:
+            coverage_ratio_num += cur_cov * weight
+            coverage_ratio_den += weight
+            coverage_ratio_count += 1
+
+        cur_ec = getattr(loan, "current_equity_cushion", None)
+        if cur_ec is not None and weight > 0:
+            equity_cushion_num += cur_ec * weight
+            equity_cushion_den += weight
+            equity_cushion_count += 1
+
     performing_count = status_dist.get("Performing", 0)
     pct_performing = safe_divide(performing_count, len(loans), 0.0) if loans else 0.0
     covenant_breach_pct = safe_divide(covenant_breach_hold, total_hold) if total_hold > 0 else None
@@ -663,6 +698,13 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
         "ltv_coverage": ltv_count,
         "irr_coverage": irr_count,
         "moic_coverage": moic_count,
+        # Collateral & coverage
+        "total_current_collateral": total_current_collateral if collateral_count > 0 else None,
+        "wavg_coverage_ratio": safe_divide(coverage_ratio_num, coverage_ratio_den),
+        "wavg_equity_cushion": safe_divide(equity_cushion_num, equity_cushion_den),
+        "collateral_coverage": collateral_count,
+        "coverage_ratio_coverage": coverage_ratio_count,
+        "equity_cushion_coverage": equity_cushion_count,
     }
 
 
@@ -2965,6 +3007,12 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
             "business_description": getattr(loan, "business_description", None),
             "is_public": getattr(loan, "is_public", None),
             "recovery_rate": getattr(loan, "recovery_rate", None),
+            "entry_collateral": (getattr(loan, "entry_collateral", None) or 0.0) * fx if getattr(loan, "entry_collateral", None) else None,
+            "current_collateral": (getattr(loan, "current_collateral", None) or 0.0) * fx if getattr(loan, "current_collateral", None) else None,
+            "entry_coverage_ratio": getattr(loan, "entry_coverage_ratio", None),
+            "current_coverage_ratio": getattr(loan, "current_coverage_ratio", None),
+            "entry_equity_cushion": getattr(loan, "entry_equity_cushion", None),
+            "current_equity_cushion": getattr(loan, "current_equity_cushion", None),
         })
 
     return {

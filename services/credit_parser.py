@@ -245,6 +245,30 @@ CREDIT_COLUMN_MAP = {
     "ttm revenue entry": "ttm_revenue_entry",
     "ttm revenue (current)": "ttm_revenue_current",
     "ttm revenue current": "ttm_revenue_current",
+    # Collateral & coverage
+    "entry collateral": "entry_collateral",
+    "entry collateral $": "entry_collateral",
+    "collateral at entry": "entry_collateral",
+    "current collateral": "current_collateral",
+    "exit collateral": "current_collateral",
+    "exit collateral $": "current_collateral",
+    "collateral value": "current_collateral",
+    "entry coverage ratio": "entry_coverage_ratio",
+    "coverage ratio at entry": "entry_coverage_ratio",
+    "current coverage ratio": "current_coverage_ratio",
+    "exit coverage ratio": "current_coverage_ratio",
+    "coverage ratio": "current_coverage_ratio",
+    "entry equity cushion": "entry_equity_cushion",
+    "entry equity cushion %": "entry_equity_cushion",
+    "equity cushion at entry": "entry_equity_cushion",
+    "current equity cushion": "current_equity_cushion",
+    "exit equity cushion": "current_equity_cushion",
+    "exit equity cushion %": "current_equity_cushion",
+    "equity cushion": "current_equity_cushion",
+    # Renamed warrant aliases
+    "warrant strike (entry)": "warrant_strike_entry",
+    "warrant strike (current)": "warrant_strike_current",
+    "warrants (current)": "warrants_current",
 }
 
 # Columns that trigger credit detection (need 2+ present)
@@ -278,6 +302,9 @@ FLOAT_FIELDS = {
     "cash_margin", "pik_margin", "closing_fee",
     "equity_investment", "warrant_strike_entry", "warrant_strike_current",
     "ttm_revenue_entry", "ttm_revenue_current",
+    "entry_collateral", "current_collateral",
+    "entry_coverage_ratio", "current_coverage_ratio",
+    "entry_equity_cushion", "current_equity_cushion",
 }
 INT_FIELDS = {
     "vintage_year", "spread_bps", "call_protection_months", "internal_credit_rating",
@@ -595,6 +622,12 @@ def parse_credit_loan_tape(
             warrant_term=_clean_str(row.get("warrant_term")),
             ttm_revenue_entry=_clean_float(row.get("ttm_revenue_entry")),
             ttm_revenue_current=_clean_float(row.get("ttm_revenue_current")),
+            entry_collateral=_clean_float(row.get("entry_collateral")),
+            current_collateral=_clean_float(row.get("current_collateral")),
+            entry_coverage_ratio=_clean_float(row.get("entry_coverage_ratio")),
+            current_coverage_ratio=_clean_float(row.get("current_coverage_ratio")),
+            entry_equity_cushion=_clean_float(row.get("entry_equity_cushion")),
+            current_equity_cushion=_clean_float(row.get("current_equity_cushion")),
             sector=_clean_str(row.get("sector")),
             geography=_clean_str(row.get("geography")),
             sponsor=_clean_str(row.get("sponsor")),

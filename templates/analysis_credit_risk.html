@@ -173,6 +173,33 @@
 </div>
 {% endif %}
 
+{# --- Collateral, Coverage & Equity Cushion --- #}
+{% if analysis.collateral_coverage or analysis.coverage_ratio_coverage or analysis.equity_cushion_coverage %}
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    {% if analysis.total_current_collateral is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Total Collateral</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_current_collateral) }}</div>
+        {% if analysis.collateral_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.collateral_coverage }} loan{{ 's' if loans|length - analysis.collateral_coverage != 1 }} not provided</div>{% endif %}
+    </div>
+    {% endif %}
+    {% if analysis.wavg_coverage_ratio is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Coverage Ratio</div>
+        <div class="kpi-value" style="font-family: var(--font-mono); {% if analysis.wavg_coverage_ratio < 1.2 %}color: var(--accent-2);{% endif %}">{{ "%.2f"|format(analysis.wavg_coverage_ratio) }}x</div>
+        {% if analysis.coverage_ratio_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.coverage_ratio_coverage }} loan{{ 's' if loans|length - analysis.coverage_ratio_coverage != 1 }} not provided</div>{% endif %}
+    </div>
+    {% endif %}
+    {% if analysis.wavg_equity_cushion is not none %}
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Equity Cushion</div>
+        <div class="kpi-value" style="{% if analysis.wavg_equity_cushion < 0.15 %}color: var(--accent-2);{% endif %}">{{ fmt_pct_1dp(analysis.wavg_equity_cushion) }}</div>
+        {% if analysis.equity_cushion_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.equity_cushion_coverage }} loan{{ 's' if loans|length - analysis.equity_cushion_coverage != 1 }} not provided</div>{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {# --- Status Distribution --- #}
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
     <div class="panel">

@@ -4515,45 +4515,52 @@ def download_credit_template():
 
     headers = [
         # Core identification
-        "Company Name", "Fund Name", "Status", "Entry Date", "Exit Date",
-        # Company details (new LP fields)
-        "Count of Investments", "Business Description", "Public",
-        "Sector", "Location", "Security Type", "Sourcing Channel",
-        # Capital structure
-        "Committed", "Entry Loan Amount", "Current Invested Capital",
-        # Returns & valuation
-        "Realized Proceeds", "Unrealized Loan Value",
-        "Unrealized Warrant/Equity Value", "Total Value",
-        "Estimated Gross IRR at Entry", "Gross IRR", "Gross MOIC",
+        "Company Name", "Fund Name", "Entry Date", "Exit Date",
+        "Vintage Year", "As Of Date", "Fund Size",
+        # Company details
+        "Sector", "Geography", "Sponsor", "Security Type",
+        "Sourcing Channel", "Business Description", "Public",
+        "Count of Investments",
+        # Loan structure
+        "Hold Size", "Committed", "Current Invested Capital",
+        "Issue Size", "Instrument", "Tranche",
         # Loan economics
-        "Cash Margin / Coupon", "Floor", "PIK Margin / Coupon",
-        "Closing Fee", "Exit Fee", "Prepayment Protection", "Loan Term",
+        "Coupon Rate", "Spread (bps)", "Floor Rate",
+        "Fixed or Floating", "Reference Rate",
+        "PIK", "PIK Rate",
+        "OID", "Upfront Fee", "Exit Fee",
+        "Maturity Date", "Loan Term",
+        "Amortization Type", "Payment Frequency",
+        # Protections
+        "Call Protection (months)", "Make-Whole Premium",
+        "Prepayment Protection",
+        # Credit metrics
+        "Entry LTV", "Current LTV",
+        "Interest Coverage Ratio", "DSCR",
+        "Default Status", "Credit Rating",
+        "Covenant Type", "Covenant Compliant",
+        # Returns & valuation
+        "Gross IRR", "Estimated IRR at Entry", "MOIC",
+        "Realized Value", "Unrealized Value",
+        "Unrealized Warrant/Equity Value", "Total Value",
+        "Fair Value", "Yield to Maturity", "Recovery Rate",
+        # Revenue & EBITDA
+        "Entry Revenue", "Current Revenue",
+        "Entry EBITDA", "Current EBITDA",
+        # Income
+        "Cumulative Interest Income", "Cumulative Fee Income",
+        # Par & outstanding
+        "Original Par", "Current Outstanding", "Accrued Interest",
+        # Collateral & coverage
+        "Entry Collateral", "Current Collateral",
+        "Entry Coverage Ratio", "Current Coverage Ratio",
+        "Entry Equity Cushion", "Current Equity Cushion",
         # Warrants & equity
         "Equity Investment",
-        "# Warrants at Entry", "Warrant Strike Price at Entry",
-        "# Warrants (current)", "Warrant Strike Price (current)", "Warrant Term",
-        # Revenue
-        "TTM Revenue (entry)", "TTM Revenue (current)",
+        "Warrants at Entry", "Warrant Strike (entry)",
+        "Warrants (current)", "Warrant Strike (current)", "Warrant Term",
         # Currency
         "Currency",
-        # Fund metadata
-        "Fund Size",
-        # Legacy fields (still supported)
-        "Vintage Year", "As Of Date", "Default Status",
-        "Instrument", "Tranche", "Issue Size", "Hold Size",
-        "Coupon Rate", "Spread (bps)", "OID", "Upfront Fee",
-        "Maturity Date", "Fixed or Floating", "Reference Rate",
-        "PIK", "PIK Rate", "Call Protection (months)", "Make-Whole Premium",
-        "Amortization Type", "Payment Frequency",
-        "Entry LTV", "Current LTV",
-        "Entry Revenue", "Entry EBITDA", "Current Revenue", "Current EBITDA",
-        "Interest Coverage Ratio", "DSCR",
-        "Credit Rating", "Covenant Type", "Covenant Compliant",
-        "Realized Value", "Unrealized Value",
-        "Cumulative Interest Income", "Cumulative Fee Income",
-        "Fair Value", "Yield to Maturity", "Recovery Rate",
-        "Original Par", "Current Outstanding", "Accrued Interest",
-        "Geography", "Sponsor",
     ]
     ws.append(headers)
 
@@ -4565,48 +4572,55 @@ def download_credit_template():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
-    # Example row (matches new header order)
+    # Example row — one value per header, in exact header order
     ws.append([
-        # Core (Status is auto-calculated from realized/unrealized values)
-        "Acme Software Inc", "PCOF III", None, "2023-06-15", None,
+        # Core identification
+        "Acme Software Inc", "PCOF III", "2023-06-15", None,
+        2023, "2024-12-31", 500.0,
         # Company details
-        1, "Enterprise SaaS platform for healthcare", "No",
-        "Software", "North America", "Senior Secured", "Direct",
-        # Capital structure
-        30.0, 25.0, 24.5,
+        "Software", "North America", "Apollo Global", "Senior Secured",
+        "Direct", "Enterprise SaaS platform for healthcare", "No",
+        1,
+        # Loan structure
+        25.0, 30.0, 24.5,
+        100.0, "Term Loan B", "First Lien",
+        # Loan economics
+        0.085, 425, 0.015,
+        "Floating", "SOFR",
+        "No", None,
+        0.02, 0.50, None,
+        "2028-06-15", "5 years",
+        "Bullet", "Quarterly",
+        # Protections
+        12, None,
+        "12-month no-call",
+        # Credit metrics
+        0.55, 0.58,
+        2.5, 1.8,
+        "Performing", 2,
+        "Maintenance", "Yes",
         # Returns & valuation
+        0.12, 0.15, 1.10,
         None, 26.0,
         1.5, 27.5,
-        0.15, 0.12, 1.10,
-        # Loan economics
-        0.085, 0.01, 0.02,
-        0.02, None, "12-month no-call", "5 years",
+        25.5, 0.09, None,
+        # Revenue & EBITDA
+        50.0, 55.0,
+        15.0, 17.0,
+        # Income
+        4.0, 0.5,
+        # Par & outstanding
+        25.0, 25.0, 0.2,
+        # Collateral & coverage
+        40.0, 42.0,
+        1.6, 1.68,
+        0.25, 0.28,
         # Warrants & equity
         0.5,
         50000, 10.0,
         50000, 12.5, "10 years",
-        # Revenue
-        50.0, 55.0,
         # Currency
         "USD",
-        # Fund metadata
-        500.0,
-        # Legacy fields
-        2023, "2024-12-31", "Performing",
-        "Term Loan B", "First Lien", 100.0, 25.0,
-        0.085, 425, 0.02, 0.50,
-        "2028-06-15", "Floating", "SOFR",
-        "No", None, 12, None,
-        "Bullet", "Quarterly",
-        0.55, 0.58,
-        50.0, 15.0, 55.0, 17.0,
-        2.5, 1.8,
-        2, "Maintenance", "Yes",
-        None, 26.0,
-        4.0, 0.5,
-        25.5, 0.09, None,
-        25.0, 25.0, 0.2,
-        "North America", "Apollo Global",
     ])
 
     # Set column widths
@@ -4688,32 +4702,33 @@ def download_credit_template():
         "  Required columns: Company Name, Fund Name",
         "  All other columns are optional. Include what your data has.",
         "",
-        "  PRIMARY FIELDS (new LP format)",
-        "  Status: AUTO-CALCULATED from realized/unrealized values:",
-        "    Fully Realized = realized > 0 and no unrealized (or Default/Restructured)",
-        "    Partially Realized = realized > 0 and unrealized > 0",
-        "    Unrealized = no realized proceeds",
-        "  Entry Date: Funding/close date",
-        "  Committed / Entry Loan Amount / Current Invested Capital: dollar amounts (millions)",
-        "  Cash Margin / Coupon: decimal (e.g., 0.085 = 8.5%)",
-        "  PIK Margin / Coupon: decimal",
-        "  Floor: decimal",
-        "  Closing Fee / Exit Fee: decimal (e.g., 0.02 = 2%)",
-        "  Gross IRR / Estimated Gross IRR at Entry: decimal",
-        "  Gross MOIC: multiple (e.g., 1.15)",
-        "  Loan Term: text (e.g., '5 years', '60 months')",
-        "  Warrants: count, strike price, term",
-        "  TTM Revenue: dollar amounts (millions)",
+        "  FIELD GUIDE",
+        "  Status: AUTO-CALCULATED (Fully Realized / Partially Realized / Unrealized)",
+        "    Based on realized/unrealized values. Do not fill in manually.",
         "",
-        "  LEGACY FIELDS (also accepted)",
-        "  Default Status: Performing, Watch List, Default, or Restructured",
-        "  LTV: Decimal form (0.55 = 55%). Values > 1 auto-normalized.",
-        "  Credit Rating: 1 (best) to 5 (worst)",
+        "  Dollar amounts: In millions (e.g., 25.0 = $25M)",
+        "    Hold Size, Committed, Issue Size, Revenue, EBITDA, Collateral, etc.",
+        "",
+        "  Rates & percentages: Decimal form (e.g., 0.085 = 8.5%)",
+        "    Coupon Rate, Floor Rate, Gross IRR, LTV, Equity Cushion, etc.",
+        "    LTV: Values > 1 are auto-normalized (55 becomes 0.55)",
+        "",
         "  Spread: In basis points (e.g., 425 = 4.25%)",
-        "  PIK: Yes or No",
-        "  Covenant Type: Maintenance, Incurrence, or None",
-        "  Covenant Compliant: Yes or No",
-        "  Currency: ISO 3-letter code (e.g., USD, EUR, GBP)",
+        "  Credit Rating: 1 (best) to 5 (worst)",
+        "  Coverage Ratio: Multiple (e.g., 1.6 = collateral covers 1.6x the loan)",
+        "  MOIC: Multiple (e.g., 1.15x)",
+        "",
+        "  Yes/No fields: PIK, Covenant Compliant, Public",
+        "    Accepts: Yes/No, True/False, Y/N, 1/0",
+        "",
+        "  Text fields with specific values:",
+        "    Default Status: Performing, Watch List, Default, or Restructured",
+        "    Fixed or Floating: Fixed or Floating",
+        "    Covenant Type: Maintenance, Incurrence, or None",
+        "    Currency: ISO 3-letter code (e.g., USD, EUR, GBP)",
+        "    Loan Term: text (e.g., '5 years', '60 months')",
+        "",
+        "  Dates: YYYY-MM-DD or Excel date format",
         "",
         "SNAPSHOTS SHEET (optional)",
         "  Quarterly updates for metrics that change over time.",

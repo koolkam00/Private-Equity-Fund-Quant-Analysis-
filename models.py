@@ -741,6 +741,14 @@ class CreditLoan(db.Model):
     ttm_revenue_entry = db.Column(db.Float, nullable=True)
     ttm_revenue_current = db.Column(db.Float, nullable=True)
 
+    # Collateral & coverage
+    entry_collateral = db.Column(db.Float, nullable=True)
+    current_collateral = db.Column(db.Float, nullable=True)
+    entry_coverage_ratio = db.Column(db.Float, nullable=True)
+    current_coverage_ratio = db.Column(db.Float, nullable=True)
+    entry_equity_cushion = db.Column(db.Float, nullable=True)
+    current_equity_cushion = db.Column(db.Float, nullable=True)
+
     # Currency
     currency = db.Column(db.String(3), nullable=True, default="USD")
     fx_rate_to_usd = db.Column(db.Float, nullable=True)
@@ -1266,6 +1274,12 @@ def ensure_schema_updates():
         ("credit_loans", "fund_size", "FLOAT"),
         ("credit_loans", "ttm_revenue_entry", "FLOAT"),
         ("credit_loans", "ttm_revenue_current", "FLOAT"),
+        ("credit_loans", "entry_collateral", "FLOAT"),
+        ("credit_loans", "current_collateral", "FLOAT"),
+        ("credit_loans", "entry_coverage_ratio", "FLOAT"),
+        ("credit_loans", "current_coverage_ratio", "FLOAT"),
+        ("credit_loans", "entry_equity_cushion", "FLOAT"),
+        ("credit_loans", "current_equity_cushion", "FLOAT"),
         # Snapshot new columns
         ("credit_loan_snapshots", "current_invested_capital", "FLOAT"),
         ("credit_loan_snapshots", "unrealized_loan_value", "FLOAT"),
