@@ -4613,6 +4613,15 @@ def upload_credit_loans():
         db.session.rollback()
         flash(f"Upload failed: {exc}", "danger")
         return redirect(url_for("upload_credit_loans"))
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Unexpected credit loan upload failure")
+        flash(
+            "Upload failed due to an unexpected workbook or server issue. "
+            f"Detail: {type(exc).__name__}: {str(exc)[:300]}",
+            "danger",
+        )
+        return redirect(url_for("upload_credit_loans"))
 
 
 @app.route("/upload/credit-loans/template")

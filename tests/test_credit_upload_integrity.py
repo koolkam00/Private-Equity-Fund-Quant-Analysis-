@@ -14,6 +14,7 @@ from models import (
     Team,
     TeamFirmAccess,
 )
+import legacy_app
 from services.credit_parser import parse_credit_loan_tape
 
 
@@ -233,3 +234,44 @@ def test_delete_credit_route_removes_fund_performance(client):
         assert CreditLoan.query.filter_by(firm_id=firm_id, team_id=team_id).count() == 0
         assert CreditLoanSnapshot.query.count() == 0
         assert CreditFundPerformance.query.filter_by(firm_id=firm_id, team_id=team_id).count() == 0
+
+
+def test_credit_upload_route_posts_template_successfully(client):
+    template = client.get("/upload/credit-loans/template")
+    assert template.status_code == 200
+
+    response = client.post(
+        "/upload/credit-loans",
+        data={
+            "firm_name": "Posted Upload Firm",
+            "file": (BytesIO(template.data), "credit_loan_template.xlsx"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Credit Portfolio Dashboard" in response.data
+    with app.app_context():
+        assert CreditLoan.query.filter_by(fund_name="PCOF III").count() >= 1
+
+
+def test_credit_upload_route_handles_unexpected_parser_exception(client, monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("parser exploded")
+
+    monkeypatch.setattr(legacy_app, "ensure_schema_updates", lambda: None)
+    monkeypatch.setattr("services.credit_parser.parse_credit_loan_tape", _boom)
+
+    response = client.post(
+        "/upload/credit-loans",
+        data={
+            "firm_name": "Broken Upload Firm",
+            "file": (BytesIO(b"not-an-excel-file"), "broken.xlsx"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/upload/credit-loans")
