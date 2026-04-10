@@ -106,21 +106,25 @@
         <div class="kpi-card">
             <div class="kpi-label">Wtd avg spread</div>
             <div class="kpi-value">{% if analysis.wavg_spread_bps is not none %}{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span>{% else %}—{% endif %}</div>
+            {% if analysis.spread_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.spread_coverage }} loan{{ 's' if loans|length - analysis.spread_coverage != 1 }} not provided</div>{% endif %}
         </div>
         <div class="kpi-card">
             <div class="kpi-label">Wtd avg coupon</div>
             <div class="kpi-value">{% if analysis.wavg_coupon is not none %}{{ fmt_pct_1dp(analysis.wavg_coupon) }}{% else %}—{% endif %}</div>
+            {% if analysis.coupon_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.coupon_coverage }} loan{{ 's' if loans|length - analysis.coupon_coverage != 1 }} not provided</div>{% endif %}
         </div>
         {% if analysis.wavg_ytm is not none %}
         <div class="kpi-card">
             <div class="kpi-label">Wtd avg YTM</div>
             <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_ytm) }}</div>
+            {% if analysis.ytm_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.ytm_coverage }} loan{{ 's' if loans|length - analysis.ytm_coverage != 1 }} not provided</div>{% endif %}
         </div>
         {% endif %}
         {% if analysis.wavg_floor_rate is not none %}
         <div class="kpi-card">
             <div class="kpi-label">Wtd avg floor rate</div>
             <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_floor_rate) }}</div>
+            {% if analysis.floor_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.floor_coverage }} loan{{ 's' if loans|length - analysis.floor_coverage != 1 }} not provided</div>{% endif %}
         </div>
         {% endif %}
         {% if analysis.pik_count > 0 %}

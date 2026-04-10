@@ -391,6 +391,9 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
     yield_denom = 0.0
     ltv_denom = 0.0
     spread_denom = 0.0
+    yield_count = 0
+    ltv_count = 0
+    spread_count = 0
 
     status_dist = defaultdict(int)
     rating_dist = defaultdict(int)
@@ -407,14 +410,17 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
         if loan.coupon_rate is not None and hold > 0:
             weighted_yield += loan.coupon_rate * hold
             yield_denom += hold
+            yield_count += 1
 
         if loan.current_ltv is not None and hold > 0:
             weighted_ltv += loan.current_ltv * hold
             ltv_denom += hold
+            ltv_count += 1
 
         if loan.spread_bps is not None and hold > 0:
             weighted_spread += loan.spread_bps * hold
             spread_denom += hold
+            spread_count += 1
 
         status_dist[loan.default_status or "Unknown"] += 1
         if loan.internal_credit_rating is not None:
@@ -439,10 +445,13 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
     total_equity_investment = 0.0
     weighted_irr = 0.0
     irr_denom = 0.0
+    irr_count = 0
     weighted_moic = 0.0
     moic_denom = 0.0
+    moic_count = 0
     weighted_cash_margin = 0.0
     cash_margin_denom = 0.0
+    cash_margin_count = 0
     has_new_fields = False
 
     for loan in loans:
@@ -471,13 +480,16 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
         if loan.gross_irr is not None and weight > 0:
             weighted_irr += loan.gross_irr * weight
             irr_denom += weight
+            irr_count += 1
         if loan.moic is not None and weight > 0:
             weighted_moic += loan.moic * weight
             moic_denom += weight
+            moic_count += 1
         cm = getattr(loan, 'cash_margin', None)
         if cm is not None and weight > 0:
             weighted_cash_margin += cm * weight
             cash_margin_denom += weight
+            cash_margin_count += 1
 
         if any(getattr(loan, f, None) is not None for f in ('entry_loan_amount', 'total_value', 'committed_amount')):
             has_new_fields = True
@@ -511,6 +523,13 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
         "wavg_cash_margin": safe_divide(weighted_cash_margin, cash_margin_denom),
         "has_new_fields": has_new_fields,
         "has_revenue_data": any(getattr(l, 'ttm_revenue_entry', None) is not None for l in loans),
+        # Coverage counts: how many loans contributed to each weighted average
+        "yield_coverage": yield_count,
+        "ltv_coverage": ltv_count,
+        "spread_coverage": spread_count,
+        "irr_coverage": irr_count,
+        "moic_coverage": moic_count,
+        "cash_margin_coverage": cash_margin_count,
     }
 
 
@@ -534,10 +553,13 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
 
     weighted_ltv = 0.0
     ltv_denom = 0.0
+    ltv_count = 0
     weighted_irr = 0.0
     irr_denom = 0.0
+    irr_count = 0
     weighted_moic = 0.0
     moic_denom = 0.0
+    moic_count = 0
     weighted_icr = 0.0
     icr_denom = 0.0
     weighted_dscr = 0.0
@@ -571,13 +593,16 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
         if loan.current_ltv is not None and weight > 0:
             weighted_ltv += loan.current_ltv * weight
             ltv_denom += weight
+            ltv_count += 1
 
         if loan.gross_irr is not None and weight > 0:
             weighted_irr += loan.gross_irr * weight
             irr_denom += weight
+            irr_count += 1
         if loan.moic is not None and weight > 0:
             weighted_moic += loan.moic * weight
             moic_denom += weight
+            moic_count += 1
 
         if loan.interest_coverage_ratio is not None and weight > 0:
             weighted_icr += loan.interest_coverage_ratio * weight
@@ -634,6 +659,10 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
         "covenant_breach_pct": covenant_breach_pct,
         "loans_with_covenant_data": loans_with_covenant_data,
         "wavg_recovery_rate": safe_divide(weighted_recovery, recovery_denom),
+        # Coverage counts
+        "ltv_coverage": ltv_count,
+        "irr_coverage": irr_count,
+        "moic_coverage": moic_count,
     }
 
 
@@ -1454,6 +1483,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
     pik_hold = 0.0
     spread_num = 0.0
     spread_den = 0.0
+    spread_count = 0
     yield_total_hold = 0.0
 
     for loan in loans:
@@ -1470,6 +1500,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         if loan.spread_bps is not None and hold > 0:
             spread_num += loan.spread_bps * hold
             spread_den += hold
+            spread_count += 1
 
     wavg_spread_bps = safe_divide(spread_num, spread_den)
 
@@ -1530,6 +1561,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         "floating_pct": safe_divide(floating_hold_total, yield_total_hold),
         "fixed_pct": safe_divide(fixed_hold, yield_total_hold),
         "pik_pct": safe_divide(pik_hold, yield_total_hold),
+        "spread_coverage": spread_count,
         # --- Floor coverage block ---
         "floating_loans_count": floating_loans_count,
         "floating_loans_with_floor_count": floating_loans_with_floor_count,
@@ -2757,14 +2789,19 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
     # --- Weighted aggregates ---
     spread_num = 0.0
     spread_den = 0.0
+    spread_count = 0
     coupon_num = 0.0
     coupon_den = 0.0
+    coupon_count = 0
     ytm_num = 0.0
     ytm_den = 0.0
+    ytm_count = 0
     floor_num = 0.0
     floor_den = 0.0
+    floor_count = 0
     call_prot_num = 0.0
     call_prot_den = 0.0
+    call_prot_count = 0
 
     # --- Fee totals ---
     total_fee_oid = 0.0
@@ -2818,26 +2855,31 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
         if spread is not None and hold > 0:
             spread_num += spread * hold
             spread_den += hold
+            spread_count += 1
 
         coupon = loan.coupon_rate
         if coupon is not None and hold > 0:
             coupon_num += coupon * hold
             coupon_den += hold
+            coupon_count += 1
 
         ytm = loan.yield_to_maturity
         if ytm is not None and hold > 0:
             ytm_num += ytm * hold
             ytm_den += hold
+            ytm_count += 1
 
         floor = getattr(loan, "floor_rate", None)
         if floor is not None and floor > 0 and hold > 0:
             floor_num += floor * hold
             floor_den += hold
+            floor_count += 1
 
         call_prot = loan.call_protection_months
         if call_prot is not None and hold > 0:
             call_prot_num += call_prot * hold
             call_prot_den += hold
+            call_prot_count += 1
 
         # Fees
         oid = loan.fee_oid
@@ -2939,6 +2981,12 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
         "wavg_ytm": safe_divide(ytm_num, ytm_den),
         "wavg_floor_rate": safe_divide(floor_num, floor_den),
         "wavg_call_protection_months": safe_divide(call_prot_num, call_prot_den),
+        # Coverage counts
+        "spread_coverage": spread_count,
+        "coupon_coverage": coupon_count,
+        "ytm_coverage": ytm_count,
+        "floor_coverage": floor_count,
+        "call_prot_coverage": call_prot_count,
         # Fees
         "loans_with_fees": loans_with_fees,
         "wavg_oid": safe_divide(total_fee_oid, spread_den) if spread_den > 0 else None,

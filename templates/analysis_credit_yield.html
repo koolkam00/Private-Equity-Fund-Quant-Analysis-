@@ -162,6 +162,7 @@
         <div class="kpi-card">
             <div class="kpi-label">Wtd avg spread</div>
             <div class="kpi-value">{% if analysis.wavg_spread_bps is not none %}{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span>{% else %}—{% endif %}</div>
+            {% if analysis.spread_coverage is not none and analysis.spread_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.spread_coverage }} loan{{ 's' if loans|length - analysis.spread_coverage != 1 }} not provided</div>{% endif %}
         </div>
         {% if analysis.pik_count > 0 %}
         <div class="kpi-card">

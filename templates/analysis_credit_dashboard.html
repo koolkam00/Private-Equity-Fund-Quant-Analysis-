@@ -99,10 +99,12 @@
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg MOIC</div>
         <div class="kpi-value kpi-hero" style="font-family: var(--font-mono);">{% if analysis.weighted_avg_moic is not none %}{{ "%.2f"|format(analysis.weighted_avg_moic) }}x{% else %}&mdash;{% endif %}</div>
+        {% if analysis.moic_coverage is not none and analysis.moic_coverage < analysis.loan_count %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ analysis.loan_count - analysis.moic_coverage }} loan{{ 's' if analysis.loan_count - analysis.moic_coverage != 1 }} not provided</div>{% endif %}
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg IRR</div>
         <div class="kpi-value kpi-hero">{{ fmt_pct_1dp(analysis.weighted_avg_irr) }}</div>
+        {% if analysis.irr_coverage is not none and analysis.irr_coverage < analysis.loan_count %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ analysis.loan_count - analysis.irr_coverage }} loan{{ 's' if analysis.loan_count - analysis.irr_coverage != 1 }} not provided</div>{% endif %}
     </div>
 </div>
 {% else %}
@@ -132,17 +134,20 @@
     <div class="kpi-card">
         <div class="kpi-label">Avg LTV</div>
         <div class="kpi-value">{% if analysis.wavg_ltv is not none %}{{ fmt_pct_1dp(analysis.wavg_ltv) }}{% else %}—{% endif %}</div>
+        {% if analysis.ltv_coverage is not none and analysis.ltv_coverage < analysis.loan_count %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ analysis.loan_count - analysis.ltv_coverage }} loan{{ 's' if analysis.loan_count - analysis.ltv_coverage != 1 }} not provided</div>{% endif %}
     </div>
     {% if analysis.wavg_spread_bps is not none %}
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg Spread</div>
         <div class="kpi-value">{{ "%.0f"|format(analysis.wavg_spread_bps) }}<span style="font-size: 14px; font-weight: 400;">bps</span></div>
+        {% if analysis.spread_coverage < analysis.loan_count %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ analysis.loan_count - analysis.spread_coverage }} loan{{ 's' if analysis.loan_count - analysis.spread_coverage != 1 }} not provided</div>{% endif %}
     </div>
     {% endif %}
     {% if analysis.wavg_cash_margin is not none %}
     <div class="kpi-card">
         <div class="kpi-label">Avg Cash Margin</div>
         <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_cash_margin) }}</div>
+        {% if analysis.cash_margin_coverage < analysis.loan_count %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ analysis.loan_count - analysis.cash_margin_coverage }} loan{{ 's' if analysis.loan_count - analysis.cash_margin_coverage != 1 }} not provided</div>{% endif %}
     </div>
     {% endif %}
     {% if analysis.deployment_ratio is not none %}

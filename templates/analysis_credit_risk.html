@@ -95,6 +95,7 @@
     <div class="kpi-card">
         <div class="kpi-label">Avg LTV</div>
         <div class="kpi-value">{{ fmt_pct_1dp(analysis.wavg_ltv) }}</div>
+        {% if analysis.ltv_coverage is not none and analysis.ltv_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.ltv_coverage }} loan{{ 's' if loans|length - analysis.ltv_coverage != 1 }} not provided</div>{% endif %}
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Watch List</div>
@@ -114,10 +115,12 @@
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg MOIC</div>
         <div class="kpi-value" style="font-family: var(--font-mono);">{% if analysis.weighted_avg_moic is not none %}{{ "%.2f"|format(analysis.weighted_avg_moic) }}x{% else %}&mdash;{% endif %}</div>
+        {% if analysis.moic_coverage is not none and analysis.moic_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.moic_coverage }} loan{{ 's' if loans|length - analysis.moic_coverage != 1 }} not provided</div>{% endif %}
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg IRR</div>
         <div class="kpi-value">{{ fmt_pct_1dp(analysis.weighted_avg_irr) }}</div>
+        {% if analysis.irr_coverage is not none and analysis.irr_coverage < loans|length %}<div style="font-size: 11px; color: var(--accent-2); margin-top: 2px;">{{ loans|length - analysis.irr_coverage }} loan{{ 's' if loans|length - analysis.irr_coverage != 1 }} not provided</div>{% endif %}
     </div>
     {% if analysis.total_total_value and analysis.total_entry_loan %}
     <div class="kpi-card">
