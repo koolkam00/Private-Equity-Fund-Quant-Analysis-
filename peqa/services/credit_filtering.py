@@ -6,7 +6,7 @@ CreditLoan instead of Deal.
 
 from __future__ import annotations
 
-from models import CreditLoan, CreditLoanSnapshot, TeamFirmAccess, db
+from models import CreditFundPerformance, CreditLoan, CreditLoanSnapshot, TeamFirmAccess, db
 from services.metrics.credit import compute_credit_loan_metrics
 
 
@@ -107,12 +107,34 @@ def build_credit_analysis_context(team_id=None, firm_id=None, filters=None):
         for snap in all_snapshots:
             snapshots_by_loan.setdefault(snap.credit_loan_id, []).append(snap)
 
+    # Load fund-level net performance rows for the funds present in `loans`.
+    # Scoped by firm + team so a firm only sees its own rows, and keyed by
+    # fund_name so compute_credit_track_record can do a direct lookup.
+    fund_performance = {}
+    fund_names = {loan.fund_name for loan in loans if loan.fund_name}
+    if fund_names:
+        fp_query = CreditFundPerformance.query.filter(
+            CreditFundPerformance.fund_name.in_(fund_names)
+        )
+        if firm_id is not None:
+            fp_query = fp_query.filter(CreditFundPerformance.firm_id == firm_id)
+        if team_id is not None:
+            fp_query = fp_query.filter(
+                (CreditFundPerformance.team_id == team_id)
+                | (CreditFundPerformance.team_id.is_(None))
+            )
+        # If there are multiple rows per fund (e.g. quarterly history), pick
+        # the most recent report_date so the track record shows current NAV.
+        for row in fp_query.order_by(CreditFundPerformance.report_date.asc()).all():
+            fund_performance[row.fund_name] = row
+
     filter_options = build_credit_filter_options(loans)
 
     return {
         "loans": loans,
         "metrics_by_id": metrics_by_id,
         "snapshots_by_loan": snapshots_by_loan,
+        "fund_performance": fund_performance,
         "filter_options": filter_options,
         "loan_count": len(loans),
     }

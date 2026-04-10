@@ -12,7 +12,7 @@ from io import BytesIO
 import pytest
 
 from app import app, db
-from models import CreditLoan, Firm
+from models import CreditFundPerformance, CreditLoan, Firm
 from services.credit_parser import parse_credit_loan_tape
 
 
@@ -307,6 +307,7 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
 
     pages = [
         "credit-dashboard",
+        "credit-track-record",
         "credit-yield",
         "credit-risk",
         "credit-maturity",
@@ -316,6 +317,7 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         "credit-migration",
         "credit-fundamentals",
         "credit-watchlist",
+        "credit-data-cuts",
     ]
     failures = []
     for page in pages:
@@ -323,3 +325,39 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         if resp.status_code != 200:
             failures.append(f"{page}: {resp.status_code}")
     assert not failures, f"Credit analysis pages crashed: {failures}"
+
+
+def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):
+    """Fund Performance sheet in the template round-trips through the parser
+    and creates CreditFundPerformance rows with correct net return fields."""
+    client, team_id = credit_round_trip_client
+
+    resp = client.get("/upload/credit-loans/template")
+    assert resp.status_code == 200
+    template_bytes = BytesIO(resp.data)
+
+    with app.app_context():
+        result = parse_credit_loan_tape(
+            file_stream=template_bytes,
+            firm_name="Fund Perf Round Trip Firm",
+            team_id=team_id,
+        )
+        assert result.get("fund_performance", 0) >= 1, "Expected at least one fund perf row parsed"
+
+        perf = CreditFundPerformance.query.filter_by(fund_name="PCOF III").first()
+        assert perf is not None, "PCOF III fund performance row not persisted"
+        assert perf.vintage_year == 2021
+        assert perf.fund_size == 500.0
+        assert perf.net_irr == pytest.approx(0.12)
+        assert perf.net_moic == pytest.approx(1.35)
+        assert perf.net_dpi == pytest.approx(0.45)
+        assert perf.net_tvpi == pytest.approx(1.35)
+        assert perf.net_rvpi == pytest.approx(0.90)
+        assert perf.called_capital == pytest.approx(425.0)
+        assert perf.distributed_capital == pytest.approx(190.0)
+        assert perf.nav == pytest.approx(380.0)
+
+        # Second fund row
+        perf2 = CreditFundPerformance.query.filter_by(fund_name="PCOF IV").first()
+        assert perf2 is not None, "PCOF IV fund performance row not persisted"
+        assert perf2.fund_size == 750.0

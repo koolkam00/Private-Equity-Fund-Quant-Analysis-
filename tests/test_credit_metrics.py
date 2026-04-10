@@ -7,11 +7,13 @@ from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 from services.metrics.credit import (
+    compute_credit_data_cuts,
     compute_credit_fundamentals,
     compute_credit_loan_metrics,
     compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
+    compute_credit_track_record,
     compute_credit_watchlist,
     compute_credit_yield_attribution,
     compute_credit_stress_scenarios,
@@ -1465,3 +1467,394 @@ class TestCreditWatchlist:
         assert result["attention_count"] == 1
         assert result["monitor_count"] == 1
         assert result["clear_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Credit Track Record
+# ---------------------------------------------------------------------------
+
+
+class TestCreditTrackRecord:
+    """Tests for compute_credit_track_record — mirrors PE track record shape."""
+
+    def _make_track_loan(self, **overrides):
+        """Shorthand for a loan geared toward track-record testing."""
+        defaults = dict(
+            entry_loan_amount=25.0,
+            realized_proceeds=5.0,
+            unrealized_loan_value=22.0,
+            unrealized_warrant_equity_value=1.5,
+            total_value=28.5,
+        )
+        defaults.update(overrides)
+        return _make_loan(**defaults)
+
+    def test_empty_input(self):
+        result = compute_credit_track_record([])
+        assert result["funds"] == []
+        assert result["overall"]["totals"]["deal_count"] == 0
+
+    def test_single_loan_single_fund(self):
+        loan = self._make_track_loan(id=1, fund_name="Fund A", status="Unrealized")
+        result = compute_credit_track_record([loan])
+
+        assert len(result["funds"]) == 1
+        fund = result["funds"][0]
+        assert fund["fund_name"] == "Fund A"
+        assert len(fund["rows"]) == 1
+        row = fund["rows"][0]
+        assert row["company_name"] == "Acme Corp"
+        assert row["status"] == "Unrealized"
+        assert row["invested_equity"] == 25.0
+        assert row["realized_value"] == 5.0
+        assert row["unrealized_value"] == 23.5  # 22.0 + 1.5
+        assert row["total_value"] == 28.5
+        assert row["row_num"] == 1
+        assert row["pct_total_invested"] == pytest.approx(1.0)
+
+    def test_groups_by_fund(self):
+        loan_a = self._make_track_loan(id=1, fund_name="Fund A", company_name="Co A")
+        loan_b = self._make_track_loan(id=2, fund_name="Fund B", company_name="Co B")
+        loan_a2 = self._make_track_loan(id=3, fund_name="Fund A", company_name="Co C")
+
+        result = compute_credit_track_record([loan_a, loan_b, loan_a2])
+        fund_names = [f["fund_name"] for f in result["funds"]]
+        assert "Fund A" in fund_names
+        assert "Fund B" in fund_names
+
+        fund_a = next(f for f in result["funds"] if f["fund_name"] == "Fund A")
+        assert len(fund_a["rows"]) == 2
+
+    def test_status_ordering(self):
+        """Fully Realized loans sort before Unrealized within a fund."""
+        realized = self._make_track_loan(
+            id=1, fund_name="Fund A", company_name="Realized Co",
+            status="Realized", close_date=date(2020, 1, 1),
+        )
+        unrealized = self._make_track_loan(
+            id=2, fund_name="Fund A", company_name="Unrealized Co",
+            status="Unrealized", close_date=date(2021, 1, 1),
+        )
+        result = compute_credit_track_record([unrealized, realized])
+        rows = result["funds"][0]["rows"]
+        assert rows[0]["status"] == "Fully Realized"
+        assert rows[1]["status"] == "Unrealized"
+
+    def test_status_rollups_and_summary(self):
+        realized = self._make_track_loan(
+            id=1, fund_name="F1", status="Realized",
+            entry_loan_amount=10.0, total_value=15.0,
+        )
+        unrealized = self._make_track_loan(
+            id=2, fund_name="F1", status="Unrealized",
+            entry_loan_amount=20.0, total_value=22.0,
+        )
+        result = compute_credit_track_record([realized, unrealized])
+        fund = result["funds"][0]
+
+        # Should have Fully Realized and Unrealized status rollups
+        status_labels = [r["status"] for r in fund["status_rollups"]]
+        assert "Fully Realized" in status_labels
+        assert "Unrealized" in status_labels
+
+        # Summary rollups: realized bundle + unrealized + all
+        assert len(fund["summary_rollups"]) == 3
+
+        # Overall should aggregate across all funds
+        assert result["overall"]["totals"]["deal_count"] == 2
+
+    def test_gross_moic_calculation(self):
+        loan = self._make_track_loan(
+            id=1, fund_name="F1",
+            entry_loan_amount=20.0, total_value=30.0,
+        )
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+        assert row["gross_moic"] == pytest.approx(1.5)
+        assert row["realized_gross_moic"] == pytest.approx(5.0 / 20.0)
+
+    def test_facility_pct(self):
+        loan = self._make_track_loan(id=1, fund_name="F1", hold_size=25.0, issue_size=100.0)
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+        assert row["facility_pct"] == pytest.approx(0.25)
+        # ownership_pct alias should match
+        assert row["ownership_pct"] == row["facility_pct"]
+
+    def test_hold_period(self):
+        loan = self._make_track_loan(
+            id=1, fund_name="F1",
+            close_date=date(2022, 1, 1),
+            exit_date=date(2024, 1, 1),
+        )
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+        assert row["hold_period"] == pytest.approx(2.0, abs=0.05)
+
+    def test_net_performance_from_fund_performance(self):
+        loan = self._make_track_loan(id=1, fund_name="PCOF III")
+
+        fund_perf = SimpleNamespace(
+            fund_name="PCOF III",
+            fund_size=500.0,
+            vintage_year=2021,
+            net_irr=0.12,
+            net_moic=1.35,
+            net_dpi=0.45,
+            net_tvpi=1.35,
+            net_rvpi=0.90,
+            called_capital=425.0,
+            distributed_capital=190.0,
+            nav=380.0,
+        )
+        result = compute_credit_track_record(
+            [loan], fund_performance={"PCOF III": fund_perf}
+        )
+
+        fund = result["funds"][0]
+        assert fund["fund_size"] == 500.0
+        assert fund["vintage_year"] == 2021
+        np = fund["net_performance"]
+        assert np["net_irr"] == pytest.approx(0.12)
+        assert np["net_moic"] == pytest.approx(1.35)
+        assert np["net_dpi"] == pytest.approx(0.45)
+        assert np["net_tvpi"] == pytest.approx(1.35)
+        assert np["has_data"] is True
+        assert np["conflicts"]["net_irr"] is False
+
+    def test_net_performance_without_fund_performance(self):
+        loan = self._make_track_loan(id=1, fund_name="F1")
+        result = compute_credit_track_record([loan])
+
+        np = result["funds"][0]["net_performance"]
+        assert np["net_irr"] is None
+        assert np["net_moic"] is None
+        assert np["has_data"] is False
+
+    def test_pct_fund_size(self):
+        loan = self._make_track_loan(
+            id=1, fund_name="F1", entry_loan_amount=50.0,
+        )
+        fund_perf = SimpleNamespace(
+            fund_name="F1", fund_size=500.0, vintage_year=None,
+            net_irr=None, net_moic=None, net_dpi=None,
+            net_tvpi=None, net_rvpi=None,
+            called_capital=None, distributed_capital=None, nav=None,
+        )
+        result = compute_credit_track_record(
+            [loan], fund_performance={"F1": fund_perf}
+        )
+        row = result["funds"][0]["rows"][0]
+        assert row["pct_fund_size"] == pytest.approx(0.10)
+
+    def test_fx_conversion(self):
+        loan = self._make_track_loan(
+            id=1, fund_name="F1",
+            entry_loan_amount=20.0,
+            total_value=25.0,
+            currency="EUR",
+            fx_rate_to_usd=1.1,
+        )
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+        assert row["invested_equity"] == pytest.approx(22.0)  # 20 * 1.1
+        assert row["total_value"] == pytest.approx(27.5)  # 25 * 1.1
+
+    def test_overall_rollups(self):
+        loans = [
+            self._make_track_loan(id=1, fund_name="F1", status="Realized"),
+            self._make_track_loan(id=2, fund_name="F1", status="Unrealized"),
+            self._make_track_loan(id=3, fund_name="F2", status="Unrealized"),
+        ]
+        result = compute_credit_track_record(loans)
+
+        overall = result["overall"]
+        assert overall["totals"]["deal_count"] == 3
+        # Should have status_rollups and summary_rollups
+        assert len(overall["status_rollups"]) >= 1
+        assert len(overall["summary_rollups"]) >= 1
+        # status_groups is a back-compat alias
+        assert overall["status_groups"] == overall["status_rollups"]
+
+    def test_default_status_mapped_to_fully_realized(self):
+        """Defaulted/restructured loans count as Fully Realized in track record."""
+        loan = self._make_track_loan(
+            id=1, fund_name="F1", status="Default", default_status="Default",
+        )
+        result = compute_credit_track_record([loan])
+        row = result["funds"][0]["rows"][0]
+        assert row["status"] == "Fully Realized"
+
+    def test_return_shape(self):
+        loan = self._make_track_loan(id=1, fund_name="F1")
+        result = compute_credit_track_record([loan])
+
+        assert "funds" in result
+        assert "overall" in result
+        assert "loan_count" in result
+        assert "fund_count" in result
+        fund = result["funds"][0]
+        required_fund_keys = {
+            "fund_name", "fund_size", "fund_size_conflict", "rows",
+            "status_rollups", "summary_rollups", "net_performance", "totals",
+        }
+        assert required_fund_keys.issubset(set(fund.keys()))
+
+
+# ---------------------------------------------------------------------------
+# Credit data cuts
+# ---------------------------------------------------------------------------
+
+
+class TestCreditDataCuts:
+    """Tests for compute_credit_data_cuts — dimension slicing for credit."""
+
+    def test_basic_grouping_by_sector(self):
+        loans = [
+            _make_loan(id=1, sector="Software", hold_size=20.0, moic=1.3, gross_irr=0.12),
+            _make_loan(id=2, sector="Software", hold_size=30.0, moic=1.2, gross_irr=0.10),
+            _make_loan(id=3, sector="Healthcare", hold_size=50.0, moic=1.5, gross_irr=0.15),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        assert result["primary_dim"] == "sector"
+        assert result["primary_dim_label"] == "Sector"
+        assert result["loan_count"] == 3
+        labels = [g["label"] for g in result["groups"]]
+        assert "Software" in labels
+        assert "Healthcare" in labels
+        sw = next(g for g in result["groups"] if g["label"] == "Software")
+        assert sw["loan_count"] == 2
+
+    def test_grouping_by_fund_name(self):
+        loans = [
+            _make_loan(id=1, fund_name="Fund A", hold_size=10.0),
+            _make_loan(id=2, fund_name="Fund A", hold_size=20.0),
+            _make_loan(id=3, fund_name="Fund B", hold_size=30.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="fund_name")
+        labels = [g["label"] for g in result["groups"]]
+        assert "Fund A" in labels
+        assert "Fund B" in labels
+
+    def test_unknown_fallback(self):
+        loans = [
+            _make_loan(id=1, sector=None, hold_size=10.0),
+            _make_loan(id=2, sector="Tech", hold_size=10.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        labels = [g["label"] for g in result["groups"]]
+        assert "Unknown" in labels
+
+    def test_invalid_dim_falls_back_to_sector(self):
+        loans = [_make_loan(id=1, sector="Tech")]
+        result = compute_credit_data_cuts(loans, primary_dim="nonexistent_dim")
+        assert result["primary_dim"] == "sector"
+
+    def test_cross_tab(self):
+        loans = [
+            _make_loan(id=1, sector="Tech", fund_name="Fund A", hold_size=10.0),
+            _make_loan(id=2, sector="Tech", fund_name="Fund B", hold_size=20.0),
+            _make_loan(id=3, sector="Health", fund_name="Fund A", hold_size=30.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector", secondary_dim="fund_name")
+        assert result["secondary_dim"] == "fund_name"
+        assert result["cross_tab"] is not None
+        assert "Fund A" in result["secondary_labels"]
+        assert "Fund B" in result["secondary_labels"]
+        tech_row = result["cross_tab"]["Tech"]
+        assert tech_row["Fund A"] is not None
+        assert tech_row["Fund B"] is not None
+
+    def test_cross_tab_same_dim_ignored(self):
+        loans = [_make_loan(id=1, sector="Tech")]
+        result = compute_credit_data_cuts(loans, primary_dim="sector", secondary_dim="sector")
+        assert result["secondary_dim"] is None
+        assert result["cross_tab"] is None
+
+    def test_totals_row(self):
+        loans = [
+            _make_loan(id=1, hold_size=10.0),
+            _make_loan(id=2, hold_size=20.0),
+        ]
+        result = compute_credit_data_cuts(loans)
+        assert result["totals"]["loan_count"] == 2
+        assert result["totals"]["invested"] == pytest.approx(30.0, abs=0.01)
+
+    def test_chart_datasets_present(self):
+        loans = [_make_loan(id=1, sector="Tech", hold_size=10.0)]
+        result = compute_credit_data_cuts(loans)
+        assert "chart_labels" in result
+        assert "chart_datasets" in result
+        assert "weighted_moic" in result["chart_datasets"]
+        assert "weighted_irr" in result["chart_datasets"]
+        assert "invested" in result["chart_datasets"]
+
+    def test_data_quality_warning_when_many_unknown(self):
+        loans = [
+            _make_loan(id=i, sector=None, hold_size=10.0) for i in range(5)
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        assert result["data_quality_warning"] is not None
+        assert result["data_quality_warning"]["pct"] == pytest.approx(1.0)
+
+    def test_no_data_quality_warning_when_few_unknown(self):
+        loans = [
+            _make_loan(id=1, sector=None, hold_size=10.0),
+            *[_make_loan(id=i, sector="Tech", hold_size=10.0) for i in range(2, 12)],
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        assert result["data_quality_warning"] is None
+
+    def test_fx_conversion(self):
+        loans = [
+            _make_loan(id=1, sector="Tech", hold_size=10.0, fx_rate_to_usd=2.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        tech = next(g for g in result["groups"] if g["label"] == "Tech")
+        assert tech["invested"] == pytest.approx(20.0, abs=0.01)
+
+    def test_vintage_year_dimension(self):
+        loans = [
+            _make_loan(id=1, vintage_year=2020, hold_size=10.0),
+            _make_loan(id=2, vintage_year=2021, hold_size=10.0),
+            _make_loan(id=3, vintage_year=2020, hold_size=10.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="vintage_year")
+        labels = [g["label"] for g in result["groups"]]
+        assert "2020" in labels
+        assert "2021" in labels
+        y2020 = next(g for g in result["groups"] if g["label"] == "2020")
+        assert y2020["loan_count"] == 2
+
+    def test_empty_input(self):
+        result = compute_credit_data_cuts([])
+        assert result["loan_count"] == 0
+        assert result["groups"] == []
+        assert result["totals"]["loan_count"] == 0
+
+    def test_all_dimensions_valid(self):
+        """Each dimension key in the registry resolves without error."""
+        loan = _make_loan(id=1, hold_size=10.0, sourcing_channel="Direct", fixed_or_floating="Floating")
+        from services.metrics.credit import CREDIT_DIMENSIONS
+        for dim_key in CREDIT_DIMENSIONS:
+            result = compute_credit_data_cuts([loan], primary_dim=dim_key)
+            assert result["primary_dim"] == dim_key
+            assert result["loan_count"] == 1
+
+    def test_allowed_metrics_in_return(self):
+        loans = [_make_loan(id=1, hold_size=10.0)]
+        result = compute_credit_data_cuts(loans)
+        from services.metrics.credit import CREDIT_ALLOWED_METRICS
+        for mk in CREDIT_ALLOWED_METRICS:
+            assert mk in result["chart_datasets"]
+
+    def test_pct_of_invested(self):
+        loans = [
+            _make_loan(id=1, sector="A", hold_size=25.0),
+            _make_loan(id=2, sector="B", hold_size=75.0),
+        ]
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        a = next(g for g in result["groups"] if g["label"] == "A")
+        b = next(g for g in result["groups"] if g["label"] == "B")
+        assert a["pct_of_invested"] == pytest.approx(0.25, abs=0.01)
+        assert b["pct_of_invested"] == pytest.approx(0.75, abs=0.01)

@@ -734,6 +734,9 @@ class CreditLoan(db.Model):
     warrant_strike_current = db.Column(db.Float, nullable=True)
     warrant_term = db.Column(db.String(50), nullable=True)
 
+    # Fund metadata (optional; also stored at fund level in CreditFundPerformance)
+    fund_size = db.Column(db.Float, nullable=True)
+
     # Revenue tracking
     ttm_revenue_entry = db.Column(db.Float, nullable=True)
     ttm_revenue_current = db.Column(db.Float, nullable=True)
@@ -791,6 +794,58 @@ class CreditLoanSnapshot(db.Model):
 
     def __repr__(self):
         return f"<CreditLoanSnapshot loan_id={self.credit_loan_id} date={self.snapshot_date}>"
+
+
+class CreditFundPerformance(db.Model):
+    """Fund-level net performance for private credit funds.
+
+    Captures investor-level metrics (net IRR, net MOIC, DPI, etc.) that the
+    loan tape cannot express because they depend on fund fees, carry, and
+    timing of investor cashflows. Joined onto the credit track record via
+    fund_name + firm_id so the Credit Track Record page can show gross deal
+    metrics and net fund metrics side by side (mirroring the PE Deal-Level
+    Track Record).
+    """
+
+    __tablename__ = "credit_fund_performance"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id", "fund_name", "report_date", name="uq_credit_fund_perf_firm_fund_date"
+        ),
+        Index("ix_credit_fund_perf_firm_fund", "firm_id", "fund_name"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    fund_name = db.Column(db.String(255), nullable=False)
+    vintage_year = db.Column(db.Integer, nullable=True)
+    fund_size = db.Column(db.Float, nullable=True)
+
+    # Net (investor-level) return metrics
+    net_irr = db.Column(db.Float, nullable=True)  # decimal (0.15 = 15%)
+    net_moic = db.Column(db.Float, nullable=True)
+    net_dpi = db.Column(db.Float, nullable=True)
+    net_rvpi = db.Column(db.Float, nullable=True)
+    net_tvpi = db.Column(db.Float, nullable=True)
+
+    # Fund cashflow aggregates
+    called_capital = db.Column(db.Float, nullable=True)
+    distributed_capital = db.Column(db.Float, nullable=True)
+    nav = db.Column(db.Float, nullable=True)
+
+    report_date = db.Column(db.Date, nullable=True)
+
+    # Currency metadata (default USD; mirrors CreditLoan pattern)
+    currency = db.Column(db.String(3), nullable=True, default="USD")
+    fx_rate_to_usd = db.Column(db.Float, nullable=True)
+
+    # Tenancy + upload metadata
+    firm_id = db.Column(db.Integer, ForeignKey("firms.id"), nullable=True, index=True)
+    team_id = db.Column(db.Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    upload_batch = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def __repr__(self):
+        return f"<CreditFundPerformance {self.fund_name} net_irr={self.net_irr}>"
 
 
 def _column_exists(inspector, table_name, column_name):
@@ -1169,6 +1224,7 @@ def ensure_schema_updates():
     # Private Credit tables
     CreditLoan.__table__.create(bind=engine, checkfirst=True)
     CreditLoanSnapshot.__table__.create(bind=engine, checkfirst=True)
+    CreditFundPerformance.__table__.create(bind=engine, checkfirst=True)
     _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
     _ensure_index(engine, "ix_credit_loans_team_id", "credit_loans", "team_id")
     _ensure_index(engine, "ix_credit_loans_fund_name", "credit_loans", "fund_name")
@@ -1177,6 +1233,9 @@ def ensure_schema_updates():
     _ensure_index(engine, "ix_credit_loan_snapshots_team_id", "credit_loan_snapshots", "team_id")
     _ensure_index(engine, "ix_credit_loan_snapshots_credit_loan_id", "credit_loan_snapshots", "credit_loan_id")
     _ensure_index_columns(engine, "ix_credit_loan_snapshots_loan_date", "credit_loan_snapshots", ["credit_loan_id", "snapshot_date"])
+    _ensure_index(engine, "ix_credit_fund_perf_firm_id", "credit_fund_performance", "firm_id")
+    _ensure_index(engine, "ix_credit_fund_perf_team_id", "credit_fund_performance", "team_id")
+    _ensure_index_columns(engine, "ix_credit_fund_perf_firm_fund", "credit_fund_performance", ["firm_id", "fund_name"])
 
     # Add new credit loan columns (non-destructive, idempotent)
     _new_credit_columns = [
@@ -1204,6 +1263,7 @@ def ensure_schema_updates():
         ("credit_loans", "warrants_current", "INTEGER"),
         ("credit_loans", "warrant_strike_current", "FLOAT"),
         ("credit_loans", "warrant_term", "VARCHAR(50)"),
+        ("credit_loans", "fund_size", "FLOAT"),
         ("credit_loans", "ttm_revenue_entry", "FLOAT"),
         ("credit_loans", "ttm_revenue_current", "FLOAT"),
         # Snapshot new columns

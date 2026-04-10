@@ -108,6 +108,7 @@ from services.metrics import (
 )
 from services.metrics.credit import (
     compute_credit_concentration,
+    compute_credit_data_cuts,
     compute_credit_fundamentals,
     compute_credit_loan_metrics,
     compute_credit_maturity_profile,
@@ -115,6 +116,7 @@ from services.metrics.credit import (
     compute_credit_portfolio_analytics,
     compute_credit_risk_metrics,
     compute_credit_stress_scenarios,
+    compute_credit_track_record,
     compute_credit_vintage_comparison,
     compute_credit_watchlist,
     compute_credit_yield_attribution,
@@ -277,6 +279,10 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Portfolio Dashboard",
         "description": "Portfolio KPIs, loan table, traffic-light health signals, and top concerns.",
     },
+    "credit-track-record": {
+        "title": "Credit Track Record",
+        "description": "Deal-level track record grouped by fund with gross loan metrics and net fund performance.",
+    },
     "credit-yield": {
         "title": "Yield Analysis & Attribution",
         "description": "Decompose returns into coupon, fee, PIK, and price components with waterfall chart.",
@@ -313,10 +319,15 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Watchlist",
         "description": "Loans scored against an audited rubric of trend signals and hard triggers, bucketed by urgency.",
     },
+    "credit-data-cuts": {
+        "title": "Credit Data Cuts",
+        "description": "Slice credit portfolio performance by any dimension with cross-tab analysis.",
+    },
 }
 
 CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-dashboard", "label": "Credit Dashboard", "icon": "bi bi-bank2"},
+    {"page_key": "credit-track-record", "label": "Track Record", "icon": "bi bi-table"},
     {"page_key": "credit-yield", "label": "Yield Attribution", "icon": "bi bi-cash-stack"},
     {"page_key": "credit-risk", "label": "Risk & Watch List", "icon": "bi bi-shield-exclamation"},
     {"page_key": "credit-watchlist", "label": "Watchlist", "icon": "bi bi-eye"},
@@ -326,6 +337,7 @@ CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
     {"page_key": "credit-stress", "label": "Stress Lab", "icon": "bi bi-lightning"},
     {"page_key": "credit-vintage", "label": "Vintage Comparison", "icon": "bi bi-arrow-left-right"},
+    {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
 ]
 
 TEAM_ROLE_OWNER = "owner"
@@ -4219,10 +4231,15 @@ def credit_analysis_page(page):
         loans = ctx["loans"]
         metrics_by_id = ctx["metrics_by_id"]
         snapshots_by_loan = ctx["snapshots_by_loan"]
+        fund_performance = ctx.get("fund_performance", {})
 
         payload = {}
         if page == "credit-dashboard":
             payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+        elif page == "credit-track-record":
+            payload = compute_credit_track_record(
+                loans, metrics_by_id, fund_performance=fund_performance
+            )
         elif page == "credit-yield":
             payload = compute_credit_yield_attribution(loans, metrics_by_id)
         elif page == "credit-risk":
@@ -4266,9 +4283,18 @@ def credit_analysis_page(page):
             payload = compute_credit_watchlist(
                 loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
             )
+        elif page == "credit-data-cuts":
+            primary_dim = request.args.get("dim", "sector")
+            secondary_dim = request.args.get("dim2", "")
+            payload = compute_credit_data_cuts(
+                loans, metrics_by_id,
+                primary_dim=primary_dim,
+                secondary_dim=secondary_dim or None,
+            )
 
         template_map = {
             "credit-dashboard": "analysis_credit_dashboard.html",
+            "credit-track-record": "analysis_credit_track_record.html",
             "credit-yield": "analysis_credit_yield.html",
             "credit-risk": "analysis_credit_risk.html",
             "credit-maturity": "analysis_credit_maturity.html",
@@ -4278,6 +4304,7 @@ def credit_analysis_page(page):
             "credit-migration": "analysis_credit_migration.html",
             "credit-fundamentals": "analysis_credit_fundamentals.html",
             "credit-watchlist": "analysis_credit_watchlist.html",
+            "credit-data-cuts": "analysis_credit_data_cuts.html",
         }
 
         return render_template(
@@ -4319,10 +4346,15 @@ def credit_analysis_series_api(page):
         ctx = build_credit_analysis_context(team_id=team_id, firm_id=firm_id, filters=filters)
         loans = ctx["loans"]
         metrics_by_id = ctx["metrics_by_id"]
+        fund_performance = ctx.get("fund_performance", {})
 
         payload = {}
         if page == "credit-dashboard":
             payload = compute_credit_portfolio_analytics(loans, metrics_by_id)
+        elif page == "credit-track-record":
+            payload = compute_credit_track_record(
+                loans, metrics_by_id, fund_performance=fund_performance
+            )
         elif page == "credit-yield":
             payload = compute_credit_yield_attribution(loans, metrics_by_id)
         elif page == "credit-maturity":
@@ -4350,6 +4382,14 @@ def credit_analysis_series_api(page):
             payload = compute_credit_stress_scenarios(loans, scenario)
         elif page == "credit-vintage":
             payload = compute_credit_vintage_comparison(loans)
+        elif page == "credit-data-cuts":
+            primary_dim = request.args.get("dim", "sector")
+            secondary_dim = request.args.get("dim2", "")
+            payload = compute_credit_data_cuts(
+                loans, metrics_by_id,
+                primary_dim=primary_dim,
+                secondary_dim=secondary_dim or None,
+            )
 
         return jsonify({"page": page, "title": CREDIT_ANALYSIS_PAGES[page]["title"], "payload": payload})
     except SQLAlchemyError as exc:
@@ -4485,6 +4525,8 @@ def download_credit_template():
         "TTM Revenue (entry)", "TTM Revenue (current)",
         # Currency
         "Currency",
+        # Fund metadata
+        "Fund Size",
         # Legacy fields (still supported)
         "Vintage Year", "As Of Date", "Default Status",
         "Instrument", "Tranche", "Issue Size", "Hold Size",
@@ -4536,6 +4578,8 @@ def download_credit_template():
         50.0, 55.0,
         # Currency
         "USD",
+        # Fund metadata
+        500.0,
         # Legacy fields
         2023, "2024-12-31", "Performing",
         "Term Loan B", "First Lien", 100.0, 25.0,
@@ -4592,6 +4636,37 @@ def download_credit_template():
     for col_idx in range(1, len(snap_headers) + 1):
         ws2.column_dimensions[ws2.cell(row=1, column=col_idx).column_letter].width = 18
 
+    # --- Fund Performance sheet ---
+    ws_fp = wb.create_sheet("Fund Performance")
+    fp_headers = [
+        "Fund Name", "Vintage Year", "Fund Size",
+        "Net IRR", "Net MOIC", "DPI", "RVPI", "TVPI",
+        "Called Capital", "Distributed Capital", "NAV",
+        "Report Date", "Currency",
+    ]
+    ws_fp.append(fp_headers)
+    for col_idx, _ in enumerate(fp_headers, 1):
+        cell = ws_fp.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    ws_fp.append([
+        "PCOF III", 2021, 500.0,
+        0.12, 1.35, 0.45, 0.90, 1.35,
+        425.0, 190.0, 380.0,
+        "2024-12-31", "USD",
+    ])
+    ws_fp.append([
+        "PCOF IV", 2023, 750.0,
+        0.08, 1.10, 0.15, 0.95, 1.10,
+        300.0, 45.0, 712.0,
+        "2024-12-31", "USD",
+    ])
+
+    for col_idx in range(1, len(fp_headers) + 1):
+        ws_fp.column_dimensions[ws_fp.cell(row=1, column=col_idx).column_letter].width = 18
+
     # --- Instructions sheet ---
     ws3 = wb.create_sheet("Instructions")
     ws3.column_dimensions["A"].width = 80
@@ -4630,6 +4705,13 @@ def download_credit_template():
         "  Quarterly updates for metrics that change over time.",
         "  Match Company Name exactly to the Loans sheet.",
         "  One row per company per quarter.",
+        "",
+        "FUND PERFORMANCE SHEET (optional)",
+        "  Fund-level net returns shown on the Credit Track Record page.",
+        "  One row per fund. Overwrites previous fund performance on re-upload.",
+        "  Net IRR: decimal (0.12 = 12%). Values > 1.5 auto-divided by 100.",
+        "  Net MOIC / DPI / RVPI / TVPI: multiples (e.g., 1.35x)",
+        "  Fund Size / Called Capital / Distributed Capital / NAV: dollar amounts (millions)",
     ]
     for i, line in enumerate(instructions, 1):
         cell = ws3.cell(row=i, column=1, value=line)

@@ -13,6 +13,7 @@ from datetime import date
 import pandas as pd
 
 from models import (
+    CreditFundPerformance,
     CreditLoan,
     CreditLoanSnapshot,
     Firm,
@@ -43,6 +44,8 @@ CREDIT_COLUMN_MAP = {
     "vintage": "vintage_year",
     "vintage year": "vintage_year",
     "fund vintage": "vintage_year",
+    "fund size": "fund_size",
+    "committed fund size": "fund_size",
     # Dates
     "close date": "close_date",
     "deal close date": "close_date",
@@ -516,6 +519,7 @@ def parse_credit_loan_tape(
             company_name=company,
             fund_name=fund,
             vintage_year=_clean_int(row.get("vintage_year")),
+            fund_size=_clean_float(row.get("fund_size")),
             close_date=_clean_date(row.get("close_date")),
             exit_date=_clean_date(row.get("exit_date")),
             status=_clean_str(row.get("status")) or "Unrealized",
@@ -664,12 +668,28 @@ def parse_credit_loan_tape(
             )
             break
 
+    # Parse optional Fund Performance sheet (net returns by fund)
+    fund_perf_count = 0
+    for sname in xls.sheet_names:
+        if sname.lower().strip() in (
+            "fund performance",
+            "funds",
+            "fund returns",
+            "net returns",
+            "fund net returns",
+        ):
+            fund_perf_count = _parse_fund_performance_sheet(
+                xls, sname, resolved_firm_id, team_id, batch_id, _log_issue
+            )
+            break
+
     db.session.commit()
 
     return {
         "loans": loan_count,
         "funds": fund_set,
         "snapshots": snapshot_count,
+        "fund_performance": fund_perf_count,
         "warnings": warning_count + len([i for i in issues if i["severity"] == "warning"]),
         "errors": len([i for i in issues if i["severity"] == "error"]),
         "batch_id": batch_id,
@@ -773,6 +793,126 @@ def _parse_snapshot_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue
             upload_batch=batch_id,
         )
         db.session.add(snapshot)
+        count += 1
+
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Fund Performance sheet parser (net returns by fund)
+# ---------------------------------------------------------------------------
+
+
+def _normalize_pct(value):
+    """Accept percentages written as either 0.15 (decimal) or 15 (integer %).
+
+    Values strictly greater than 1.5 are interpreted as percentages and
+    divided by 100. The 1.5 cutoff lets legitimate 1.2x / 1.5x multiples
+    stay intact — this helper is only meant for rate/IRR fields, so upstream
+    callers should not pass MOIC through here.
+    """
+    if value is None:
+        return None
+    if value > 1.5:
+        return value / 100.0
+    return value
+
+
+def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue):
+    """Parse the optional Fund Performance sheet for CreditFundPerformance rows.
+
+    Expected columns (any combination of the aliases below is accepted):
+    Fund Name, Vintage Year, Fund Size, Net IRR, Net MOIC, DPI, RVPI, TVPI,
+    Called Capital, Distributed Capital, NAV, Report Date, Currency.
+
+    Per-firm replace semantics: existing fund_performance rows for the firm
+    are deleted before inserting. This mirrors the per-fund replace logic
+    used for loans so repeat uploads don't duplicate.
+    """
+    df = pd.read_excel(xls, sheet_name=sheet_name)
+    if df.empty:
+        return 0
+
+    fund_perf_col_map = {
+        "fund": "fund_name",
+        "fund name": "fund_name",
+        "vehicle": "fund_name",
+        "vintage": "vintage_year",
+        "vintage year": "vintage_year",
+        "fund size": "fund_size",
+        "committed fund size": "fund_size",
+        "total commitments": "fund_size",
+        "net irr": "net_irr",
+        "irr (net)": "net_irr",
+        "net_irr": "net_irr",
+        "net moic": "net_moic",
+        "moic (net)": "net_moic",
+        "net_moic": "net_moic",
+        "net tvpi": "net_tvpi",
+        "tvpi": "net_tvpi",
+        "net rvpi": "net_rvpi",
+        "rvpi": "net_rvpi",
+        "net dpi": "net_dpi",
+        "dpi": "net_dpi",
+        "called capital": "called_capital",
+        "capital called": "called_capital",
+        "paid in": "called_capital",
+        "paid-in capital": "called_capital",
+        "distributed capital": "distributed_capital",
+        "distributions": "distributed_capital",
+        "total distributed": "distributed_capital",
+        "nav": "nav",
+        "net asset value": "nav",
+        "ending nav": "nav",
+        "report date": "report_date",
+        "as of date": "report_date",
+        "as-of date": "report_date",
+        "as of": "report_date",
+        "currency": "currency",
+    }
+
+    col_map = {}
+    for col in df.columns:
+        key = str(col).strip().lower()
+        if key in fund_perf_col_map:
+            col_map[col] = fund_perf_col_map[key]
+    df = df.rename(columns=col_map)
+
+    if "fund_name" not in df.columns:
+        log_issue(0, "warning", "Fund Performance sheet missing Fund Name column, skipping")
+        return 0
+
+    # Per-firm replace semantics: delete existing rows for this firm before insert.
+    if firm_id is not None:
+        CreditFundPerformance.query.filter_by(firm_id=firm_id).delete()
+
+    count = 0
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        fund_name = _clean_str(row.get("fund_name"))
+        if not fund_name:
+            log_issue(row_num, "warning", "Fund Performance row missing Fund Name, skipping")
+            continue
+
+        perf = CreditFundPerformance(
+            fund_name=fund_name,
+            vintage_year=_clean_int(row.get("vintage_year")),
+            fund_size=_clean_float(row.get("fund_size")),
+            net_irr=_normalize_pct(_clean_float(row.get("net_irr"))),
+            net_moic=_clean_float(row.get("net_moic")),
+            net_dpi=_clean_float(row.get("net_dpi")),
+            net_rvpi=_clean_float(row.get("net_rvpi")),
+            net_tvpi=_clean_float(row.get("net_tvpi")),
+            called_capital=_clean_float(row.get("called_capital")),
+            distributed_capital=_clean_float(row.get("distributed_capital")),
+            nav=_clean_float(row.get("nav")),
+            report_date=_clean_date(row.get("report_date")),
+            currency=_clean_str(row.get("currency")) or "USD",
+            firm_id=firm_id,
+            team_id=team_id,
+            upload_batch=batch_id,
+        )
+        db.session.add(perf)
         count += 1
 
     return count

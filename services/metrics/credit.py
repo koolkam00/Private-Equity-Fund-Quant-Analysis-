@@ -1781,3 +1781,830 @@ def compute_credit_maturity_profile(loans):
         "already_matured": already_matured,
         "no_maturity_date": no_maturity,
     }
+
+
+# ---------------------------------------------------------------------------
+# Credit Track Record (deal-level track record grouped by fund)
+# ---------------------------------------------------------------------------
+#
+# Mirrors compute_deal_track_record in services/metrics/portfolio.py so the
+# credit track record page can reuse the PE template structure almost verbatim.
+#
+# Key differences vs PE:
+#   - Ownership % column becomes "% of Facility" (hold_size / issue_size)
+#     which is the meaningful credit equivalent ("how much of the facility
+#     does the manager hold").
+#   - Gross IRR comes from loan.gross_irr (per-loan field), not derived.
+#   - Net performance (net IRR / MOIC / DPI) comes from the new
+#     CreditFundPerformance table (passed in as fund_performance dict keyed by
+#     fund_name) instead of being duplicated on every deal row.
+#   - hold_period is computed from close_date -> (exit_date or as_of_date),
+#     expressed in years.
+
+CREDIT_TRACK_RECORD_STATUS_ORDER = ("Fully Realized", "Partially Realized", "Unrealized", "Other")
+
+
+def _credit_normalize_track_status(raw_status):
+    """Normalize CreditLoan.status or default_status into track record buckets."""
+    status = (raw_status or "").strip().lower()
+    if "partial" in status and "realized" in status:
+        return "Partially Realized"
+    if "fully" in status and "realized" in status:
+        return "Fully Realized"
+    if status == "realized" or ("realized" in status and "unrealized" not in status):
+        return "Fully Realized"
+    if status in ("default", "defaulted", "restructured", "write-off", "write off", "writeoff"):
+        # Treat credit losses as "Fully Realized" buckets for track record
+        # purposes — the position is resolved, just at a loss.
+        return "Fully Realized"
+    if "performing" in status or "unrealized" in status or status == "":
+        return "Unrealized"
+    return "Other"
+
+
+def _credit_loan_status(loan):
+    """Prefer explicit `status` column; fall back to `default_status`."""
+    raw = getattr(loan, "status", None) or getattr(loan, "default_status", None)
+    return _credit_normalize_track_status(raw)
+
+
+def _credit_hold_years(loan, as_of_date=None):
+    """Hold period in years from close_date -> (exit_date or as_of)."""
+    if loan.close_date is None:
+        return None
+    end_date = loan.exit_date or as_of_date or loan.as_of_date or date.today()
+    delta_days = (end_date - loan.close_date).days
+    if delta_days <= 0:
+        return None
+    return delta_days / 365.25
+
+
+def _credit_empty_track_totals():
+    return {
+        "deal_count": 0,
+        "invested_equity": 0.0,
+        "realized_value": 0.0,
+        "unrealized_value": 0.0,
+        "total_value": 0.0,
+        "_gross_irr_weight_num": 0.0,
+        "_gross_irr_weight_den": 0.0,
+        "_hold_period_weight_num": 0.0,
+        "_hold_period_weight_den": 0.0,
+        "_facility_weight_num": 0.0,
+        "_facility_weight_den": 0.0,
+    }
+
+
+def _credit_update_track_totals(totals, row):
+    equity = row.get("invested_equity") or 0.0
+    realized = row.get("realized_value") or 0.0
+    unrealized = row.get("unrealized_value") or 0.0
+    total_value = row.get("total_value") or 0.0
+    gross_irr = row.get("gross_irr")
+    hold_period = row.get("hold_period")
+    facility_pct = row.get("facility_pct")
+
+    totals["deal_count"] += 1
+    totals["invested_equity"] += equity
+    totals["realized_value"] += realized
+    totals["unrealized_value"] += unrealized
+    totals["total_value"] += total_value
+
+    if gross_irr is not None and equity > 0:
+        totals["_gross_irr_weight_num"] += gross_irr * equity
+        totals["_gross_irr_weight_den"] += equity
+    if hold_period is not None and equity > 0:
+        totals["_hold_period_weight_num"] += hold_period * equity
+        totals["_hold_period_weight_den"] += equity
+    if facility_pct is not None and equity > 0:
+        totals["_facility_weight_num"] += facility_pct * equity
+        totals["_facility_weight_den"] += equity
+
+
+def _credit_merge_track_totals(lhs, rhs):
+    merged = _credit_empty_track_totals()
+    for key in merged:
+        if key == "deal_count":
+            merged[key] = int((lhs.get(key) or 0) + (rhs.get(key) or 0))
+        else:
+            merged[key] = (lhs.get(key) or 0.0) + (rhs.get(key) or 0.0)
+    return merged
+
+
+def _credit_finalize_track_totals(raw_totals, invested_total=None, fund_size=None):
+    invested_equity = raw_totals["invested_equity"]
+    total_value = raw_totals["total_value"]
+    realized_value = raw_totals["realized_value"]
+    unrealized_value = raw_totals["unrealized_value"]
+
+    return {
+        "deal_count": raw_totals["deal_count"],
+        "invested_equity": invested_equity,
+        "realized_value": realized_value,
+        "unrealized_value": unrealized_value,
+        "total_value": total_value,
+        "hold_period": safe_divide(
+            raw_totals["_hold_period_weight_num"], raw_totals["_hold_period_weight_den"]
+        ),
+        # "ownership_pct" key preserved so the shared template can render the
+        # same field — value is facility %, which is the credit analog.
+        "ownership_pct": safe_divide(
+            raw_totals["_facility_weight_num"], raw_totals["_facility_weight_den"]
+        ),
+        "pct_total_invested": safe_divide(invested_equity, invested_total),
+        "pct_fund_size": safe_divide(invested_equity, fund_size),
+        "gross_irr": safe_divide(
+            raw_totals["_gross_irr_weight_num"], raw_totals["_gross_irr_weight_den"]
+        ),
+        "gross_moic": safe_divide(total_value, invested_equity),
+        "realized_gross_moic": safe_divide(realized_value, invested_equity),
+        "unrealized_gross_moic": safe_divide(unrealized_value, invested_equity),
+        # Backwards-compat aliases for downstream consumers.
+        "moic": safe_divide(total_value, invested_equity),
+        "irr": safe_divide(
+            raw_totals["_gross_irr_weight_num"], raw_totals["_gross_irr_weight_den"]
+        ),
+    }
+
+
+def _credit_fund_net_performance(fund_perf):
+    """Extract net performance fields from a CreditFundPerformance row.
+
+    Unlike PE (which reconciles net_irr across all deals in a fund and flags
+    conflicts), credit stores fund-level net returns on a dedicated row. No
+    reconciliation needed — if the row exists, use it; else emit N/A.
+    """
+    if fund_perf is None:
+        return {
+            "net_irr": None,
+            "net_moic": None,
+            "net_dpi": None,
+            "net_tvpi": None,
+            "net_rvpi": None,
+            "called_capital": None,
+            "distributed_capital": None,
+            "nav": None,
+            "fund_size": None,
+            "has_data": False,
+            # PE template uses .conflicts.* — keep shape compatible so the
+            # shared template macros/logic don't need to branch on asset class.
+            "conflicts": {"net_irr": False, "net_moic": False, "net_dpi": False},
+        }
+    return {
+        "net_irr": getattr(fund_perf, "net_irr", None),
+        "net_moic": getattr(fund_perf, "net_moic", None),
+        "net_dpi": getattr(fund_perf, "net_dpi", None),
+        "net_tvpi": getattr(fund_perf, "net_tvpi", None),
+        "net_rvpi": getattr(fund_perf, "net_rvpi", None),
+        "called_capital": getattr(fund_perf, "called_capital", None),
+        "distributed_capital": getattr(fund_perf, "distributed_capital", None),
+        "nav": getattr(fund_perf, "nav", None),
+        "fund_size": getattr(fund_perf, "fund_size", None),
+        "has_data": any(
+            getattr(fund_perf, f, None) is not None
+            for f in ("net_irr", "net_moic", "net_dpi", "net_tvpi", "net_rvpi")
+        ),
+        "conflicts": {"net_irr": False, "net_moic": False, "net_dpi": False},
+    }
+
+
+def _credit_fund_sort_key(fund_name, fund_performance):
+    """Sort funds by vintage year (if known), then alphabetically."""
+    perf = (fund_performance or {}).get(fund_name) if fund_performance else None
+    vintage = getattr(perf, "vintage_year", None) if perf is not None else None
+    return (vintage if vintage is not None else 9999, (fund_name or "").lower())
+
+
+def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=None):
+    """Build a deal-level track record for credit loans grouped by fund.
+
+    Shape mirrors compute_deal_track_record so the credit track record page
+    can reuse the same Jinja template with minimal changes.
+
+    Args:
+        loans: iterable of CreditLoan ORM rows.
+        metrics_by_id: optional dict of loan_id -> compute_credit_loan_metrics
+            output. Unused today (credit loans carry gross_irr/moic as direct
+            columns) but accepted for API consistency with the PE function.
+        fund_performance: optional dict of fund_name -> CreditFundPerformance
+            ORM row. When provided, net performance rows under each fund
+            show real net IRR / MOIC / DPI; otherwise they render N/A.
+
+    Returns:
+        {"funds": [...], "overall": {...}} with the same key shape as
+        compute_deal_track_record.
+    """
+    fund_performance = fund_performance or {}
+
+    grouped = defaultdict(list)
+    status_index = {status: idx for idx, status in enumerate(CREDIT_TRACK_RECORD_STATUS_ORDER)}
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        hold_size = (loan.hold_size or 0.0) * fx
+        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
+        # "Invested" in credit = entry_loan_amount if available, else hold_size.
+        # This mirrors the weighting convention used by
+        # compute_credit_portfolio_analytics so the numbers reconcile.
+        invested = entry_amt if entry_amt > 0 else hold_size
+
+        realized_value = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
+        # For unrealized value, prefer explicit unrealized_loan_value +
+        # warrant/equity; fall back to fair_value.
+        ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
+        uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
+        if ulv or uwev:
+            unrealized_value = ulv + uwev
+        elif getattr(loan, "fair_value", None) is not None:
+            unrealized_value = loan.fair_value * fx
+        else:
+            unrealized_value = 0.0
+
+        # Prefer an explicit total_value column; else sum realized + unrealized.
+        tv_col = getattr(loan, "total_value", None)
+        if tv_col is not None:
+            total_value = tv_col * fx
+        else:
+            total_value = realized_value + unrealized_value
+
+        issue_size = (loan.issue_size or 0.0) * fx
+        facility_pct = safe_divide(hold_size, issue_size)
+
+        gross_irr = getattr(loan, "gross_irr", None)
+        gross_moic = safe_divide(total_value, invested) if invested > 0 else getattr(loan, "moic", None)
+        realized_moic = safe_divide(realized_value, invested)
+        unrealized_moic = safe_divide(unrealized_value, invested)
+
+        status = _credit_loan_status(loan)
+        fund = loan.fund_name or "Unknown Fund"
+
+        row = {
+            "loan_id": loan.id,
+            # "deal_id" alias so any shared rendering code keeps working.
+            "deal_id": loan.id,
+            "company_name": loan.company_name or "Unknown Company",
+            "status": status,
+            "investment_date": loan.close_date,
+            "exit_date": loan.exit_date,
+            "hold_period": _credit_hold_years(loan),
+            # "ownership_pct" key is reused as % of facility so the shared
+            # template doesn't need a separate column.
+            "ownership_pct": facility_pct,
+            "facility_pct": facility_pct,
+            "invested_equity": invested,
+            "realized_value": realized_value,
+            "unrealized_value": unrealized_value,
+            "total_value": total_value,
+            "gross_irr": gross_irr,
+            "gross_moic": gross_moic,
+            "realized_gross_moic": realized_moic,
+            "unrealized_gross_moic": unrealized_moic,
+            "currency": getattr(loan, "currency", None),
+            "fx_rate_to_usd": loan.fx_rate_to_usd,
+            # Backward compatibility aliases mirroring PE rows.
+            "moic": gross_moic,
+            "irr": gross_irr,
+            # PE template inspects these; credit keeps them None so the badge
+            # only renders when real FX conversion happened.
+            "performance_currency": getattr(loan, "currency", None),
+            "financial_metric_currency": getattr(loan, "currency", None),
+            "perf_fx_rate_to_usd": loan.fx_rate_to_usd,
+            "fin_fx_rate_to_usd": loan.fx_rate_to_usd,
+        }
+        grouped[fund].append(row)
+
+    fund_groups = []
+    overall_status_totals = {
+        status: _credit_empty_track_totals() for status in CREDIT_TRACK_RECORD_STATUS_ORDER
+    }
+    overall_totals = _credit_empty_track_totals()
+    overall_realized_totals = _credit_empty_track_totals()
+    overall_unrealized_totals = _credit_empty_track_totals()
+
+    sorted_funds = sorted(
+        grouped.keys(),
+        key=lambda fn: _credit_fund_sort_key(fn, fund_performance),
+    )
+
+    for fund in sorted_funds:
+        fund_rows = sorted(
+            grouped[fund],
+            key=lambda r: (
+                status_index.get(r["status"], 99),
+                r.get("investment_date") is None,
+                r.get("investment_date").toordinal() if r.get("investment_date") is not None else 3652059,
+                r["company_name"],
+                r["loan_id"] or 0,
+            ),
+        )
+        fund_totals = _credit_empty_track_totals()
+        fund_status_totals = {
+            status: _credit_empty_track_totals() for status in CREDIT_TRACK_RECORD_STATUS_ORDER
+        }
+
+        for row in fund_rows:
+            _credit_update_track_totals(fund_totals, row)
+            _credit_update_track_totals(fund_status_totals[row["status"]], row)
+            _credit_update_track_totals(overall_totals, row)
+            _credit_update_track_totals(overall_status_totals[row["status"]], row)
+            if row["status"] in {"Fully Realized", "Partially Realized"}:
+                _credit_update_track_totals(overall_realized_totals, row)
+            if row["status"] == "Unrealized":
+                _credit_update_track_totals(overall_unrealized_totals, row)
+
+        # Fund size: prefer the fund_performance table; fall back to None.
+        fund_perf = fund_performance.get(fund)
+        fund_size = getattr(fund_perf, "fund_size", None) if fund_perf is not None else None
+        fund_invested_total = fund_totals["invested_equity"]
+
+        for idx, row in enumerate(fund_rows, start=1):
+            row["row_num"] = idx
+            row["pct_total_invested"] = safe_divide(row.get("invested_equity"), fund_invested_total)
+            row["pct_fund_size"] = safe_divide(row.get("invested_equity"), fund_size)
+
+        status_rollups = []
+        for status in CREDIT_TRACK_RECORD_STATUS_ORDER:
+            raw = fund_status_totals[status]
+            if raw["deal_count"] == 0:
+                continue
+            status_rollups.append(
+                {
+                    "status": status,
+                    "label": f"All {raw['deal_count']} {fund} {status} Loans",
+                    "totals": _credit_finalize_track_totals(
+                        raw, invested_total=fund_invested_total, fund_size=fund_size
+                    ),
+                }
+            )
+
+        realized_raw = _credit_merge_track_totals(
+            fund_status_totals["Fully Realized"], fund_status_totals["Partially Realized"]
+        )
+        unrealized_raw = fund_status_totals["Unrealized"]
+        fund_summary_rollups = []
+        if realized_raw["deal_count"] > 0:
+            fund_summary_rollups.append(
+                {
+                    "label": f"All {realized_raw['deal_count']} {fund} Fully and Partially Realized Loans",
+                    "totals": _credit_finalize_track_totals(
+                        realized_raw, invested_total=fund_invested_total, fund_size=fund_size
+                    ),
+                }
+            )
+        if unrealized_raw["deal_count"] > 0:
+            fund_summary_rollups.append(
+                {
+                    "label": f"All {unrealized_raw['deal_count']} {fund} Unrealized Loans",
+                    "totals": _credit_finalize_track_totals(
+                        unrealized_raw, invested_total=fund_invested_total, fund_size=fund_size
+                    ),
+                }
+            )
+        fund_summary_rollups.append(
+            {
+                "label": f"All {fund_totals['deal_count']} {fund} Loans",
+                "totals": _credit_finalize_track_totals(
+                    fund_totals, invested_total=fund_invested_total, fund_size=fund_size
+                ),
+            }
+        )
+
+        fund_groups.append(
+            {
+                "fund_name": fund,
+                "fund_size": fund_size,
+                "fund_size_conflict": False,  # credit reads from a single row, no reconciliation
+                "vintage_year": getattr(fund_perf, "vintage_year", None) if fund_perf else None,
+                "rows": fund_rows,
+                "status_rollups": status_rollups,
+                "summary_rollups": fund_summary_rollups,
+                "net_performance": _credit_fund_net_performance(fund_perf),
+                "totals": _credit_finalize_track_totals(
+                    fund_totals, invested_total=fund_invested_total, fund_size=fund_size
+                ),
+            }
+        )
+
+    overall_invested_total = overall_totals["invested_equity"]
+    overall_status_rollups = []
+    for status in CREDIT_TRACK_RECORD_STATUS_ORDER:
+        totals = _credit_finalize_track_totals(
+            overall_status_totals[status], invested_total=overall_invested_total
+        )
+        if totals["deal_count"] == 0:
+            continue
+        overall_status_rollups.append(
+            {"status": status, "label": f"All {totals['deal_count']} {status} Loans", "totals": totals}
+        )
+
+    overall_summary_rollups = []
+    if overall_realized_totals["deal_count"] > 0:
+        overall_summary_rollups.append(
+            {
+                "label": f"All {overall_realized_totals['deal_count']} Fully and Partially Realized Loans",
+                "totals": _credit_finalize_track_totals(
+                    overall_realized_totals, invested_total=overall_invested_total
+                ),
+            }
+        )
+    if overall_unrealized_totals["deal_count"] > 0:
+        overall_summary_rollups.append(
+            {
+                "label": f"All {overall_unrealized_totals['deal_count']} Unrealized Loans",
+                "totals": _credit_finalize_track_totals(
+                    overall_unrealized_totals, invested_total=overall_invested_total
+                ),
+            }
+        )
+    overall_summary_rollups.append(
+        {
+            "label": f"All {overall_totals['deal_count']} Loans",
+            "totals": _credit_finalize_track_totals(overall_totals, invested_total=overall_invested_total),
+        }
+    )
+
+    return {
+        "funds": fund_groups,
+        "overall": {
+            "status_rollups": overall_status_rollups,
+            "summary_rollups": overall_summary_rollups,
+            "status_groups": overall_status_rollups,  # back-compat alias
+            "totals": _credit_finalize_track_totals(
+                overall_totals, invested_total=overall_invested_total
+            ),
+        },
+        "loan_count": overall_totals["deal_count"],
+        "fund_count": len(fund_groups),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Credit Data Cuts — slice credit portfolio by qualitative dimensions
+# ---------------------------------------------------------------------------
+#
+# Mirrors compute_data_cuts_analytics in services/metrics/data_cuts.py.
+# Dimensions and metrics adapted for credit-specific fields.
+
+import re as _re
+
+
+CREDIT_DIMENSIONS = {
+    "fund_name": {"field": "fund_name", "fallback": "Unknown Fund"},
+    "sector": {"field": "sector", "fallback": "Unknown"},
+    "geography": {"field": "geography", "fallback": "Unknown"},
+    "sponsor": {"field": "sponsor", "fallback": "Unknown"},
+    "instrument": {"field": "instrument", "fallback": "Unknown"},
+    "tranche": {"field": "tranche", "fallback": "Unknown"},
+    "security_type": {"field": "security_type", "fallback": "Unknown"},
+    "default_status": {"field": "default_status", "fallback": "Unknown"},
+    "status": {"field": "status", "fallback": "Unknown"},
+    "vintage_year": {"field": None, "resolver": lambda l: str(l.vintage_year) if l.vintage_year else None, "fallback": "Unknown"},
+    "sourcing_channel": {"field": "sourcing_channel", "fallback": "Unknown"},
+    "fixed_or_floating": {"field": "fixed_or_floating", "fallback": "Unknown"},
+}
+
+CREDIT_DIMENSION_LABELS = {
+    "fund_name": "Fund",
+    "sector": "Sector",
+    "geography": "Geography",
+    "sponsor": "Sponsor",
+    "instrument": "Instrument",
+    "tranche": "Tranche / Lien",
+    "security_type": "Security Type",
+    "default_status": "Default Status",
+    "status": "Realization Status",
+    "vintage_year": "Vintage Year",
+    "sourcing_channel": "Sourcing Channel",
+    "fixed_or_floating": "Rate Type",
+}
+
+CREDIT_ALLOWED_METRICS = [
+    "weighted_moic",
+    "weighted_irr",
+    "invested",
+    "realized_value",
+    "unrealized_value",
+    "total_value",
+    "weighted_yield",
+    "weighted_ltv",
+    "weighted_hold_years",
+    "loss_ratio_count",
+    "loss_ratio_capital",
+    "pct_of_invested",
+    "pct_of_total",
+]
+
+_CREDIT_MAX_SECONDARY_COLUMNS = 20
+_CREDIT_MAX_CHART_SECONDARY = 8
+
+
+def _credit_dc_new_bucket():
+    return {
+        "loan_count": 0,
+        "invested": 0.0,
+        "realized_value": 0.0,
+        "unrealized_value": 0.0,
+        "total_value": 0.0,
+        "_irr_num": 0.0,
+        "_irr_den": 0.0,
+        "_yield_num": 0.0,
+        "_yield_den": 0.0,
+        "_ltv_num": 0.0,
+        "_ltv_den": 0.0,
+        "_hold_num": 0.0,
+        "_hold_den": 0.0,
+        "_loss_count": 0,
+        "_loss_capital": 0.0,
+        "_loans": [],
+        "_loan_ids": [],
+    }
+
+
+def _credit_dc_add(bucket, loan, fx=1.0):
+    hold = (loan.hold_size or 0.0) * fx
+    entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
+    invested = entry_amt if entry_amt > 0 else hold
+
+    rp = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
+    ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
+    uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
+    if ulv or uwev:
+        unrealized = ulv + uwev
+    elif getattr(loan, "fair_value", None) is not None:
+        unrealized = loan.fair_value * fx
+    else:
+        unrealized = 0.0
+
+    tv_col = getattr(loan, "total_value", None)
+    total_val = (tv_col * fx) if tv_col is not None else (rp + unrealized)
+
+    irr = getattr(loan, "gross_irr", None)
+    moic_val = safe_divide(total_val, invested) if invested > 0 else getattr(loan, "moic", None)
+    coupon = loan.coupon_rate
+    ltv = loan.current_ltv
+
+    hold_years = None
+    if loan.close_date:
+        end = loan.exit_date or getattr(loan, "as_of_date", None) or date.today()
+        dd = (end - loan.close_date).days
+        if dd > 0:
+            hold_years = dd / 365.25
+
+    bucket["loan_count"] += 1
+    bucket["invested"] += invested
+    bucket["realized_value"] += rp
+    bucket["unrealized_value"] += unrealized
+    bucket["total_value"] += total_val
+    bucket["_loan_ids"].append(loan.id)
+
+    if irr is not None and invested > 0:
+        bucket["_irr_num"] += irr * invested
+        bucket["_irr_den"] += invested
+    if coupon is not None and hold > 0:
+        bucket["_yield_num"] += coupon * hold
+        bucket["_yield_den"] += hold
+    if ltv is not None and hold > 0:
+        bucket["_ltv_num"] += ltv * hold
+        bucket["_ltv_den"] += hold
+    if hold_years is not None and invested > 0:
+        bucket["_hold_num"] += hold_years * invested
+        bucket["_hold_den"] += invested
+
+    if moic_val is not None and moic_val < 1.0 and invested > 0:
+        bucket["_loss_count"] += 1
+        bucket["_loss_capital"] += max(invested - total_val, 0.0)
+
+    bucket["_loans"].append({
+        "id": loan.id,
+        "company_name": loan.company_name or "",
+        "fund_name": loan.fund_name or "",
+        "sector": getattr(loan, "sector", None) or "",
+        "status": getattr(loan, "status", None) or getattr(loan, "default_status", None) or "",
+        "invested": invested,
+        "moic": moic_val,
+        "irr": irr,
+        "hold_years": hold_years,
+        "coupon_rate": coupon,
+        "current_ltv": ltv,
+    })
+
+
+def _credit_dc_finalize(label, bucket, portfolio_invested=None, portfolio_total=None):
+    inv = bucket["invested"]
+    cnt = bucket["loan_count"]
+    return {
+        "label": label,
+        "loan_count": cnt,
+        "deal_count": cnt,  # back-compat alias for template
+        "invested": inv,
+        "invested_equity": inv,  # alias for template reuse
+        "realized_value": bucket["realized_value"],
+        "unrealized_value": bucket["unrealized_value"],
+        "total_value": bucket["total_value"],
+        "weighted_moic": safe_divide(bucket["total_value"], inv),
+        "weighted_irr": safe_divide(bucket["_irr_num"], bucket["_irr_den"]),
+        "weighted_yield": safe_divide(bucket["_yield_num"], bucket["_yield_den"]),
+        "weighted_ltv": safe_divide(bucket["_ltv_num"], bucket["_ltv_den"]),
+        "weighted_hold_years": safe_divide(bucket["_hold_num"], bucket["_hold_den"]),
+        "loss_ratio_count": safe_divide(bucket["_loss_count"], cnt) if cnt > 0 else None,
+        "loss_ratio_capital": safe_divide(bucket["_loss_capital"], inv) if inv > 0 else None,
+        "pct_of_invested": safe_divide(inv, portfolio_invested) if portfolio_invested else None,
+        "pct_of_total": safe_divide(bucket["total_value"], portfolio_total) if portfolio_total else None,
+        "loans": sorted(bucket["_loans"], key=lambda d: d.get("invested") or 0, reverse=True),
+        "small_n": cnt < 3,
+    }
+
+
+def _credit_dc_resolve_dim(loan, dim_key):
+    cfg = CREDIT_DIMENSIONS.get(dim_key)
+    if cfg is None:
+        return "Unknown"
+    resolver = cfg.get("resolver")
+    if resolver:
+        val = resolver(loan)
+        return val if val else cfg["fallback"]
+    field = cfg["field"]
+    val = getattr(loan, field, None)
+    return val if val else cfg["fallback"]
+
+
+def _credit_dc_validate_dim(dim, default="sector"):
+    if dim and dim.lower() in CREDIT_DIMENSIONS:
+        return dim.lower()
+    return default
+
+
+def _credit_dc_sort_groups(groups, dim_key):
+    if dim_key == "vintage_year":
+        def _key(g):
+            try:
+                return (0, int(g["label"]))
+            except (ValueError, TypeError):
+                return (1, 0)
+        return sorted(groups, key=_key)
+    elif dim_key == "fund_name":
+        roman_map = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+                     "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10}
+        def _fund_key(g):
+            m = _re.search(r'\b([IVX]+)\b', g["label"] or "")
+            if m and m.group(1) in roman_map:
+                return (0, roman_map[m.group(1)], g["label"])
+            return (1, 0, g["label"] or "")
+        return sorted(groups, key=_fund_key)
+    else:
+        fb = CREDIT_DIMENSIONS.get(dim_key, {}).get("fallback", "Unknown")
+        return sorted(groups, key=lambda g: (g["label"] == fb, g["label"] or ""))
+
+
+def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", secondary_dim=None):
+    """Slice credit portfolio performance by any qualitative dimension.
+
+    Mirrors compute_data_cuts_analytics for PE deals.
+    """
+    primary_dim = _credit_dc_validate_dim(primary_dim, "sector")
+    if secondary_dim:
+        secondary_dim = _credit_dc_validate_dim(secondary_dim, None)
+        if secondary_dim == primary_dim:
+            secondary_dim = None
+
+    groups = defaultdict(_credit_dc_new_bucket)
+    cross_tab = defaultdict(lambda: defaultdict(_credit_dc_new_bucket)) if secondary_dim else None
+    totals_bucket = _credit_dc_new_bucket()
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        primary_val = _credit_dc_resolve_dim(loan, primary_dim)
+        _credit_dc_add(groups[primary_val], loan, fx)
+        _credit_dc_add(totals_bucket, loan, fx)
+
+        if cross_tab is not None:
+            secondary_val = _credit_dc_resolve_dim(loan, secondary_dim)
+            _credit_dc_add(cross_tab[primary_val][secondary_val], loan, fx)
+
+    portfolio_invested = totals_bucket["invested"]
+    portfolio_total = totals_bucket["total_value"]
+
+    finalized_groups = [
+        _credit_dc_finalize(label, bucket, portfolio_invested, portfolio_total)
+        for label, bucket in groups.items()
+    ]
+    finalized_groups = _credit_dc_sort_groups(finalized_groups, primary_dim)
+    totals = _credit_dc_finalize("Total", totals_bucket, portfolio_invested, portfolio_total)
+
+    # Data quality warning
+    total_loans = totals["loan_count"]
+    fallback = CREDIT_DIMENSIONS.get(primary_dim, {}).get("fallback", "Unknown")
+    unk = next((g for g in finalized_groups if g["label"] == fallback), None)
+    unk_pct = safe_divide(unk["loan_count"], total_loans) if unk and total_loans > 0 else 0
+    data_quality_warning = None
+    if unk_pct and unk_pct > 0.2:
+        data_quality_warning = {
+            "dimension": CREDIT_DIMENSION_LABELS.get(primary_dim, primary_dim),
+            "count": unk["loan_count"],
+            "pct": unk_pct,
+        }
+
+    # Cross-tab finalization
+    finalized_cross_tab = None
+    secondary_labels = []
+    cross_tab_truncated = False
+    truncated_count = 0
+    finalized_col_totals = None
+
+    if cross_tab is not None:
+        sec_totals = defaultdict(float)
+        for _, sec_buckets in cross_tab.items():
+            for sec_label, bucket in sec_buckets.items():
+                sec_totals[sec_label] += bucket["invested"]
+
+        sorted_sec = sorted(sec_totals.keys(), key=lambda k: sec_totals[k], reverse=True)
+
+        if len(sorted_sec) > _CREDIT_MAX_SECONDARY_COLUMNS:
+            cross_tab_truncated = True
+            truncated_count = len(sorted_sec) - _CREDIT_MAX_SECONDARY_COLUMNS
+            kept_labels = sorted_sec[:_CREDIT_MAX_SECONDARY_COLUMNS]
+            overflow_labels = sorted_sec[_CREDIT_MAX_SECONDARY_COLUMNS:]
+        else:
+            kept_labels = sorted_sec
+            overflow_labels = []
+
+        secondary_labels = kept_labels + (["Other"] if overflow_labels else [])
+        finalized_cross_tab = {}
+        col_totals = {sl: _credit_dc_new_bucket() for sl in secondary_labels}
+
+        for primary_label in [g["label"] for g in finalized_groups]:
+            row = {}
+            sec_buckets = cross_tab.get(primary_label, {})
+
+            for sec_label in kept_labels:
+                bucket = sec_buckets.get(sec_label)
+                if bucket and bucket["loan_count"] > 0:
+                    row[sec_label] = _credit_dc_finalize(sec_label, bucket)
+                    for loan in loans:
+                        if loan.id in bucket["_loan_ids"]:
+                            _credit_dc_add(col_totals[sec_label], loan, loan.fx_rate_to_usd or 1.0)
+                else:
+                    row[sec_label] = None
+
+            if overflow_labels:
+                other_bucket = _credit_dc_new_bucket()
+                for ov_sec in overflow_labels:
+                    ov_bucket = sec_buckets.get(ov_sec)
+                    if ov_bucket:
+                        for loan in loans:
+                            if loan.id in ov_bucket["_loan_ids"]:
+                                fx = loan.fx_rate_to_usd or 1.0
+                                _credit_dc_add(other_bucket, loan, fx)
+                                _credit_dc_add(col_totals["Other"], loan, fx)
+                if other_bucket["loan_count"] > 0:
+                    row["Other"] = _credit_dc_finalize("Other", other_bucket)
+                else:
+                    row["Other"] = None
+
+            finalized_cross_tab[primary_label] = row
+
+        finalized_col_totals = {}
+        for sl in secondary_labels:
+            if col_totals[sl]["loan_count"] > 0:
+                finalized_col_totals[sl] = _credit_dc_finalize(sl, col_totals[sl])
+            else:
+                finalized_col_totals[sl] = None
+
+    # Chart payload
+    chart_groups = finalized_groups[:50]
+    chart_labels = [g["label"] for g in chart_groups]
+    chart_datasets = {}
+    for mk in CREDIT_ALLOWED_METRICS:
+        chart_datasets[mk] = [g.get(mk) for g in chart_groups]
+
+    chart_secondary = None
+    if cross_tab is not None and finalized_cross_tab:
+        chart_sec_labels = secondary_labels[:_CREDIT_MAX_CHART_SECONDARY]
+        chart_secondary = {
+            "secondary_labels": chart_sec_labels,
+            "truncated": len(secondary_labels) > _CREDIT_MAX_CHART_SECONDARY,
+            "total_secondary": len(secondary_labels),
+        }
+
+    return {
+        "primary_dim": primary_dim,
+        "primary_dim_label": CREDIT_DIMENSION_LABELS.get(primary_dim, primary_dim),
+        "secondary_dim": secondary_dim,
+        "secondary_dim_label": CREDIT_DIMENSION_LABELS.get(secondary_dim, secondary_dim) if secondary_dim else None,
+        "groups": finalized_groups,
+        "totals": totals,
+        "cross_tab": finalized_cross_tab,
+        "secondary_labels": secondary_labels if cross_tab is not None else [],
+        "col_totals": finalized_col_totals,
+        "cross_tab_truncated": cross_tab_truncated,
+        "truncated_count": truncated_count,
+        "chart_labels": chart_labels,
+        "chart_datasets": chart_datasets,
+        "chart_secondary": chart_secondary,
+        "dimensions": CREDIT_DIMENSIONS,
+        "dimension_labels": CREDIT_DIMENSION_LABELS,
+        "allowed_metrics": CREDIT_ALLOWED_METRICS,
+        "data_quality_warning": data_quality_warning,
+        "deal_count": totals["loan_count"],
+        "loan_count": totals["loan_count"],
+    }
