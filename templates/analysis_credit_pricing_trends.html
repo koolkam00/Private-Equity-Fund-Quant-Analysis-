@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_date_mdy, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+{% block page_actions %}
+<div class="track-record-actions">
+    <span class="record-count">{{ analysis.loan_count or loans|length }} loans · {{ analysis.fund_count or 0 }} funds</span>
+</div>
+{% endblock %}
+
+{% macro render_metric(value, kind, na_label='—') -%}
+    {%- if kind == "currency" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_currency_symbol(value) }}{%- endif -%}
+    {%- elif kind == "percent" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pct_1dp(value) }}{%- endif -%}
+    {%- else -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ value }}{%- endif -%}
+    {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+{{ credit_firm_banner() }}
+
+{% set status_filter_key = 'status' if filter_options.get('status') else 'default_status' %}
+{% set status_filter_options = filter_options.get(status_filter_key, []) %}
+
+<div class="panel panel-tight filter-panel">
+    <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
+        <div class="filter-grid">
+            <label class="filter-field">
+                <span>Fund</span>
+                <select name="fund_name">
+                    <option value="">All Funds</option>
+                    {% for f in filter_options.get('fund_name', []) %}<option value="{{ f }}" {% if f in (active_filters.get('fund_name') or []) %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Status</span>
+                <select name="{{ status_filter_key }}">
+                    <option value="">All Statuses</option>
+                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get(status_filter_key) or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Sector</span>
+                <select name="sector">
+                    <option value="">All Sectors</option>
+                    {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sector') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% if filter_options.get('sponsor') %}
+            <label class="filter-field">
+                <span>Sponsor</span>
+                <select name="sponsor">
+                    <option value="">All Sponsors</option>
+                    {% for s in filter_options.get('sponsor', []) %}<option value="{{ s }}" {% if s in (active_filters.get('sponsor') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            <label class="filter-field">
+                <span>Entry Date Grouping</span>
+                <select name="time_group">
+                    {% for key, label in analysis.time_groups.items() %}
+                    <option value="{{ key }}" {% if analysis.time_group == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="filter-field">
+                <span>Qualitative Slice</span>
+                <select name="dim">
+                    {% for option in analysis.dimension_options %}
+                    <option value="{{ option.key }}" {% if analysis.primary_dim == option.key %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn-upload btn-filter-apply"><i class="bi bi-funnel"></i> Apply</button>
+            {% if active_filters %}
+            <a class="btn-upload btn-filter-clear" href="{{ url_for('credit_analysis_page', page=page_key) }}"><i class="bi bi-x-circle"></i> Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if not loans %}
+<div class="panel" style="border: 1px dashed var(--line); text-align: center; padding: 48px 24px;">
+    <p style="color: var(--ink-muted);">No credit loans uploaded yet.</p>
+    <a href="{{ url_for('upload_credit_loans') }}" class="btn-upload"><i class="bi bi-cloud-upload"></i> Upload Credit Loans</a>
+</div>
+{% else %}
+
+<div class="kpi-grid" style="margin-bottom: 24px;">
+    <div class="kpi-card">
+        <div class="kpi-label">Current Invested Capital</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_current_invested_capital) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Funds in Scope</div>
+        <div class="kpi-value">{{ analysis.fund_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Weighted Deals</div>
+        <div class="kpi-value">{{ analysis.weighted_loan_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Coupon</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_coupon_rate, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Wtd Avg Floor</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_floor_rate, 'percent') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Avg Upfront Fee</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.average_upfront_fee, 'currency') }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Total Upfront Fees</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.total_upfront_fees, 'currency') }}</div>
+    </div>
+</div>
+
+<div class="panel" style="margin-bottom: 24px;">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Pricing Trend by Entry Date</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Coupon, floor, and upfront fee trends grouped by {{ analysis.time_group_label|lower }} based on each loan's entry date.
+            </p>
+        </div>
+        <div style="font-size: 12px; color: var(--ink-muted); text-align: right;">
+            Weighted averages use <strong>Current Invested Capital</strong> only.
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>{{ analysis.time_group_label }}</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Wtd Avg Coupon</th>
+                <th style="text-align: right;">Avg Coupon</th>
+                <th style="text-align: right;">Wtd Avg Floor</th>
+                <th style="text-align: right;">Avg Floor</th>
+                <th style="text-align: right;">Avg Upfront Fee</th>
+                <th style="text-align: right;">Total Upfront Fees</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.time_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.period_label }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel" style="margin-bottom: 24px;">
+    <h3 style="margin-bottom: 4px;">By Fund</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 0 0 16px 0;">
+        Compare pricing terms across funds using current invested capital as the weighting base.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Wtd Avg Coupon</th>
+                <th style="text-align: right;">Avg Coupon</th>
+                <th style="text-align: right;">Wtd Avg Floor</th>
+                <th style="text-align: right;">Avg Floor</th>
+                <th style="text-align: right;">Avg Upfront Fee</th>
+                <th style="text-align: right;">Total Upfront Fees</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.fund_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.fund_name }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel" style="margin-bottom: 24px;">
+    <h3 style="margin-bottom: 4px;">By {{ analysis.primary_dim_label }}</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 0 0 16px 0;">
+        Slice pricing by the selected qualitative dimension to compare where terms are tighter or looser.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>{{ analysis.primary_dim_label }}</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Wtd Avg Coupon</th>
+                <th style="text-align: right;">Avg Coupon</th>
+                <th style="text-align: right;">Wtd Avg Floor</th>
+                <th style="text-align: right;">Avg Floor</th>
+                <th style="text-align: right;">Avg Upfront Fee</th>
+                <th style="text-align: right;">Total Upfront Fees</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.dimension_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.dimension_value }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="panel">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
+        <div>
+            <h3 style="margin-bottom: 4px;">Pricing Detail</h3>
+            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
+                Deal-level pricing grouped by fund so the trend tables stay auditable.
+            </p>
+        </div>
+    </div>
+    <div class="track-record-scroll">
+        <table class="track-record-template">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Entry Date</th>
+                    <th>Sector</th>
+                    <th>Sponsor</th>
+                    <th>Instrument</th>
+                    <th>Rate Type</th>
+                    <th class="num">Current Invested Capital</th>
+                    <th class="num">Coupon Rate</th>
+                    <th class="num">Floor Rate</th>
+                    <th class="num">Upfront Fee</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in analysis.detail_groups %}
+                <tr class="tr-fund-header">
+                    <td colspan="11">
+                        {{ group.fund_name }}
+                        <span style="color: var(--ink-muted); font-size: 12px;">· {{ group.loan_count }} loans</span>
+                    </td>
+                </tr>
+                {% for row in group.rows %}
+                <tr class="tr-detail">
+                    <td>{{ row.company_name or '—' }}</td>
+                    <td>{{ fmt_date_mdy(row.close_date) if row.close_date else '—' }}</td>
+                    <td>{{ row.sector or '—' }}</td>
+                    <td>{{ row.sponsor or '—' }}</td>
+                    <td>{{ row.instrument or '—' }}</td>
+                    <td>{{ row.fixed_or_floating or '—' }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
+                    <td class="num">{{ render_metric(row.coupon_rate, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.floor_rate, 'percent') }}</td>
+                    <td class="num">{{ render_metric(row.fee_upfront, 'currency') }}</td>
+                    <td>{{ row.status or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not loop.last %}
+                <tr class="tr-gap"><td colspan="11"></td></tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
+    Coupon and floor weighted averages use <strong>Current Invested Capital</strong> only. Entry-date trends are based on each loan’s <strong>Entry Date</strong>. Upfront fees are shown in the uploaded loan units and aggregated as average fee per deal plus total fees by slice.
+</p>
+
+{% endif %}
+{% endblock %}

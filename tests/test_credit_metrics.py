@@ -13,6 +13,7 @@ from services.metrics.credit import (
     compute_credit_loan_metrics,
     compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
+    compute_credit_pricing_trends,
     compute_credit_risk_metrics,
     compute_credit_underwrite_outcome,
     compute_credit_track_record,
@@ -1652,6 +1653,125 @@ class TestCreditUnderwriteOutcome:
         assert row["actual_gross_irr"] == pytest.approx(0.11, abs=0.001)
         assert row["actual_gross_irr_source"] == "Latest Snapshot"
         assert row["delta_irr"] == pytest.approx(-0.07, abs=0.001)
+
+
+class TestCreditPricingTrends:
+    def test_weighted_coupon_and_floor_use_current_invested_capital(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Fund A",
+                company_name="Large Position",
+                close_date=date(2024, 1, 15),
+                current_invested_capital=80.0,
+                hold_size=10.0,
+                entry_loan_amount=10.0,
+                coupon_rate=0.10,
+                floor_rate=0.01,
+                fee_upfront=1.0,
+                sector="Software",
+            ),
+            _make_loan(
+                id=2,
+                fund_name="Fund A",
+                company_name="Small Position",
+                close_date=date(2024, 2, 1),
+                current_invested_capital=20.0,
+                hold_size=90.0,
+                entry_loan_amount=90.0,
+                coupon_rate=0.30,
+                floor_rate=0.05,
+                fee_upfront=3.0,
+                sector="Software",
+            ),
+        ]
+
+        result = compute_credit_pricing_trends(loans, primary_dim="sector", time_group="quarter")
+
+        assert result["summary"]["weighted_average_coupon_rate"] == pytest.approx(0.14, abs=0.001)
+        assert result["summary"]["weighted_average_floor_rate"] == pytest.approx(0.018, abs=0.001)
+        assert result["summary"]["average_coupon_rate"] == pytest.approx(0.20, abs=0.001)
+        assert result["summary"]["average_upfront_fee"] == pytest.approx(2.0, abs=0.001)
+        assert result["summary"]["total_upfront_fees"] == pytest.approx(4.0, abs=0.001)
+
+    def test_time_rows_group_by_selected_entry_date_granularity(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Q1 Deal",
+                fund_name="Fund A",
+                close_date=date(2024, 2, 5),
+                current_invested_capital=40.0,
+                coupon_rate=0.08,
+                floor_rate=0.01,
+                fee_upfront=0.5,
+            ),
+            _make_loan(
+                id=2,
+                company_name="Q2 Deal",
+                fund_name="Fund A",
+                close_date=date(2024, 5, 20),
+                current_invested_capital=60.0,
+                coupon_rate=0.09,
+                floor_rate=0.015,
+                fee_upfront=0.7,
+            ),
+            _make_loan(
+                id=3,
+                company_name="Unknown Date Deal",
+                fund_name="Fund B",
+                close_date=None,
+                current_invested_capital=10.0,
+                coupon_rate=0.11,
+                floor_rate=0.02,
+                fee_upfront=0.2,
+            ),
+        ]
+
+        result = compute_credit_pricing_trends(loans, time_group="quarter")
+
+        labels = [row["period_label"] for row in result["time_rows"]]
+        assert labels == ["2024 Q1", "2024 Q2", "Unknown Date"]
+        assert result["time_rows"][0]["loan_count"] == 1
+        assert result["time_rows"][1]["total_current_invested_capital"] == pytest.approx(60.0, abs=0.001)
+        assert result["time_rows"][2]["average_upfront_fee"] == pytest.approx(0.2, abs=0.001)
+
+    def test_dimension_rows_and_detail_groups_follow_selected_dimension_and_fund(self):
+        loans = [
+            _make_loan(
+                id=1,
+                company_name="Alpha",
+                fund_name="Fund A",
+                close_date=date(2024, 1, 10),
+                current_invested_capital=25.0,
+                coupon_rate=0.08,
+                floor_rate=0.01,
+                fee_upfront=0.5,
+                sponsor="Apollo",
+            ),
+            _make_loan(
+                id=2,
+                company_name="Beta",
+                fund_name="Fund B",
+                close_date=date(2024, 3, 12),
+                current_invested_capital=35.0,
+                coupon_rate=0.09,
+                floor_rate=0.015,
+                fee_upfront=0.8,
+                sponsor=None,
+            ),
+        ]
+
+        result = compute_credit_pricing_trends(loans, primary_dim="sponsor", time_group="year")
+
+        assert result["primary_dim"] == "sponsor"
+        assert result["primary_dim_label"] == "Sponsor"
+        dimension_labels = [row["dimension_value"] for row in result["dimension_rows"]]
+        assert "Apollo" in dimension_labels
+        assert "Unknown" in dimension_labels
+        assert result["detail_groups"][0]["fund_name"] == "Fund A"
+        assert result["detail_groups"][1]["fund_name"] == "Fund B"
+        assert result["detail_groups"][0]["rows"][0]["company_name"] == "Alpha"
 
 
 class TestCreditWatchlist:

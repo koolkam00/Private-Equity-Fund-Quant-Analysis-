@@ -303,6 +303,7 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
         "credit-benchmarking",
         "credit-concentration",
         "credit-fundamentals",
+        "credit-pricing-trends",
         "credit-underwrite-outcome",
         "credit-data-cuts",
     ]
@@ -378,6 +379,25 @@ def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_tr
     assert "Current Invested Capital" in body
 
 
+def test_credit_pricing_trends_route_renders_time_and_dimension_tables(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Pricing Trends Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-pricing-trends?time_group=quarter&dim=sector")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Pricing Trend by Entry Date" in body
+    assert "Wtd Avg Coupon" in body
+    assert "Wtd Avg Floor" in body
+    assert "Avg Upfront Fee" in body
+    assert "By Fund" in body
+    assert "By Sector" in body
+    assert "Pricing Detail" in body
+
+
 def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Underwrite Outcome Render Firm")
@@ -433,6 +453,27 @@ def test_credit_benchmarking_api_payload_shape(credit_round_trip_client):
     assert "fund_rows" in payload
     assert "threshold_rows" in payload
     assert payload["meta"]["benchmark_asset_class"] == "Private Credit"
+
+
+def test_credit_pricing_trends_api_payload_shape(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Pricing Trends API Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/api/analysis/credit-pricing-trends/series?time_group=quarter&dim=sector")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["page"] == "credit-pricing-trends"
+    payload = body["payload"]
+    assert payload["time_group"] == "quarter"
+    assert payload["primary_dim"] == "sector"
+    assert "summary" in payload
+    assert "time_rows" in payload
+    assert "fund_rows" in payload
+    assert "dimension_rows" in payload
+    assert "detail_groups" in payload
 
 
 def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):

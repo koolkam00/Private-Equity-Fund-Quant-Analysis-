@@ -117,6 +117,7 @@ from services.metrics.credit import (
     compute_credit_maturity_profile,
     compute_credit_migration_matrix,
     compute_credit_portfolio_analytics,
+    compute_credit_pricing_trends,
     compute_credit_risk_metrics,
     compute_credit_stress_scenarios,
     compute_credit_track_record,
@@ -295,6 +296,10 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Fundamentals",
         "description": "Analyze entry vs exit/current revenue, LTV, coverage ratio, and equity cushion on deal and fund level using current invested capital weightings.",
     },
+    "credit-pricing-trends": {
+        "title": "Credit Pricing Trends",
+        "description": "Track coupon rates, floor rates, and upfront fees by entry date, by fund, and by qualitative dimensions.",
+    },
     "credit-underwrite-outcome": {
         "title": "Credit Underwrite vs Outcome",
         "description": "Compare Estimated IRR at Entry against actual Gross IRR, rank the biggest underwriting misses, and inspect full loan context.",
@@ -310,6 +315,7 @@ CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-benchmarking", "label": "Benchmarking", "icon": "bi bi-bar-chart-steps"},
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
     {"page_key": "credit-fundamentals", "label": "Fundamentals", "icon": "bi bi-bar-chart-line"},
+    {"page_key": "credit-pricing-trends", "label": "Pricing Trends", "icon": "bi bi-graph-up-arrow"},
     {"page_key": "credit-underwrite-outcome", "label": "Underwrite vs Outcome", "icon": "bi bi-bullseye"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
 ]
@@ -4347,6 +4353,13 @@ def credit_analysis_page(page):
             payload = compute_credit_fundamentals(
                 loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
             )
+        elif page == "credit-pricing-trends":
+            payload = compute_credit_pricing_trends(
+                loans,
+                metrics_by_id,
+                primary_dim=request.args.get("dim", "sector"),
+                time_group=request.args.get("time_group", "quarter"),
+            )
         elif page == "credit-underwrite-outcome":
             payload = compute_credit_underwrite_outcome(
                 loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan
@@ -4365,6 +4378,7 @@ def credit_analysis_page(page):
             "credit-benchmarking": "analysis_credit_benchmarking.html",
             "credit-concentration": "analysis_credit_concentration.html",
             "credit-fundamentals": "analysis_credit_fundamentals.html",
+            "credit-pricing-trends": "analysis_credit_pricing_trends.html",
             "credit-underwrite-outcome": "analysis_credit_underwrite_outcome.html",
             "credit-data-cuts": "analysis_credit_data_cuts.html",
         }
@@ -4445,6 +4459,13 @@ def credit_analysis_series_api(page):
         elif page == "credit-fundamentals":
             payload = compute_credit_fundamentals(
                 loans, metrics_by_id, snapshots_by_loan=ctx["snapshots_by_loan"]
+            )
+        elif page == "credit-pricing-trends":
+            payload = compute_credit_pricing_trends(
+                loans,
+                metrics_by_id,
+                primary_dim=request.args.get("dim", "sector"),
+                time_group=request.args.get("time_group", "quarter"),
             )
         elif page == "credit-underwrite-outcome":
             payload = compute_credit_underwrite_outcome(

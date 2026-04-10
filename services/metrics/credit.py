@@ -3614,6 +3614,12 @@ CREDIT_DIMENSION_LABELS = {
     "term_bucket": "Term Bucket",
 }
 
+CREDIT_PRICING_TIME_GROUPS = {
+    "month": "Month",
+    "quarter": "Quarter",
+    "year": "Year",
+}
+
 CREDIT_ALLOWED_METRICS = [
     "weighted_moic",
     "weighted_irr",
@@ -3632,6 +3638,108 @@ CREDIT_ALLOWED_METRICS = [
 
 _CREDIT_MAX_SECONDARY_COLUMNS = 20
 _CREDIT_MAX_CHART_SECONDARY = 8
+
+
+def _credit_validate_time_group(time_group, default="quarter"):
+    if time_group and time_group.lower() in CREDIT_PRICING_TIME_GROUPS:
+        return time_group.lower()
+    return default
+
+
+def _credit_pricing_period(date_value, time_group):
+    if not date_value:
+        return ((9999, 99), "Unknown Date")
+    if time_group == "year":
+        return ((date_value.year, 1), str(date_value.year))
+    if time_group == "month":
+        return ((date_value.year, date_value.month), f"{date_value.year}-{date_value.month:02d}")
+
+    quarter = ((date_value.month - 1) // 3) + 1
+    return ((date_value.year, quarter), f"{date_value.year} Q{quarter}")
+
+
+def _credit_pricing_empty_bucket():
+    return {
+        "loan_count": 0,
+        "weighted_loan_count": 0,
+        "total_current_invested_capital": 0.0,
+        "_coupon_num": 0.0,
+        "_coupon_den": 0.0,
+        "_coupon_sum": 0.0,
+        "_coupon_count": 0,
+        "_floor_num": 0.0,
+        "_floor_den": 0.0,
+        "_floor_sum": 0.0,
+        "_floor_count": 0,
+        "_upfront_sum": 0.0,
+        "_upfront_count": 0,
+        "_upfront_total": 0.0,
+    }
+
+
+def _credit_pricing_add(bucket, row):
+    weight = row.get("current_invested_capital") or 0.0
+    bucket["loan_count"] += 1
+    bucket["total_current_invested_capital"] += weight
+    if weight > 0:
+        bucket["weighted_loan_count"] += 1
+
+    coupon_rate = row.get("coupon_rate")
+    if coupon_rate is not None:
+        bucket["_coupon_sum"] += coupon_rate
+        bucket["_coupon_count"] += 1
+        if weight > 0:
+            bucket["_coupon_num"] += coupon_rate * weight
+            bucket["_coupon_den"] += weight
+
+    floor_rate = row.get("floor_rate")
+    if floor_rate is not None:
+        bucket["_floor_sum"] += floor_rate
+        bucket["_floor_count"] += 1
+        if weight > 0:
+            bucket["_floor_num"] += floor_rate * weight
+            bucket["_floor_den"] += weight
+
+    upfront_fee = row.get("fee_upfront")
+    if upfront_fee is not None:
+        bucket["_upfront_sum"] += upfront_fee
+        bucket["_upfront_count"] += 1
+        bucket["_upfront_total"] += upfront_fee
+
+
+def _credit_pricing_finalize(label, bucket, *, extra=None):
+    payload = {
+        "label": label,
+        "loan_count": bucket["loan_count"],
+        "weighted_loan_count": bucket["weighted_loan_count"],
+        "total_current_invested_capital": bucket["total_current_invested_capital"],
+        "weighted_average_coupon_rate": safe_divide(
+            bucket["_coupon_num"], bucket["_coupon_den"]
+        ),
+        "average_coupon_rate": safe_divide(
+            bucket["_coupon_sum"], bucket["_coupon_count"]
+        ),
+        "coupon_coverage": bucket["_coupon_count"],
+        "weighted_average_floor_rate": safe_divide(
+            bucket["_floor_num"], bucket["_floor_den"]
+        ),
+        "average_floor_rate": safe_divide(
+            bucket["_floor_sum"], bucket["_floor_count"]
+        ),
+        "floor_coverage": bucket["_floor_count"],
+        "average_upfront_fee": safe_divide(
+            bucket["_upfront_sum"], bucket["_upfront_count"]
+        ),
+        "upfront_fee_coverage": bucket["_upfront_count"],
+        "total_upfront_fees": (
+            bucket["_upfront_total"]
+            if bucket["_upfront_count"] > 0
+            else None
+        ),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 def _credit_dc_new_bucket():
@@ -3937,6 +4045,155 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
         "data_quality_warning": data_quality_warning,
         "deal_count": totals["loan_count"],
         "loan_count": totals["loan_count"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pricing trends
+# ---------------------------------------------------------------------------
+
+
+def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sector", time_group="quarter"):
+    """Analyze coupon, floor, and upfront fee trends by time, fund, and dimension."""
+    del metrics_by_id  # Unused for now; kept for route signature symmetry.
+
+    primary_dim = _credit_dc_validate_dim(primary_dim, "sector")
+    time_group = _credit_validate_time_group(time_group, "quarter")
+    dimension_options = [
+        {
+            "key": key,
+            "label": CREDIT_DIMENSION_LABELS.get(key, key),
+        }
+        for key in CREDIT_DIMENSIONS
+    ]
+
+    rows = []
+    time_buckets = {}
+    fund_buckets = defaultdict(_credit_pricing_empty_bucket)
+    dimension_buckets = defaultdict(_credit_pricing_empty_bucket)
+    total_bucket = _credit_pricing_empty_bucket()
+
+    for loan in loans:
+        fx = loan.fx_rate_to_usd or 1.0
+        current_invested_capital = _credit_current_invested_weight(loan, fx)
+        fee_upfront_raw = _credit_numeric(getattr(loan, "fee_upfront", None))
+        fee_upfront = (fee_upfront_raw * fx) if fee_upfront_raw is not None else None
+
+        row = {
+            "loan_id": getattr(loan, "id", None),
+            "company_name": getattr(loan, "company_name", None) or "Unknown Company",
+            "fund_name": getattr(loan, "fund_name", None) or "Unknown Fund",
+            "status": _credit_loan_status(loan),
+            "close_date": getattr(loan, "close_date", None),
+            "current_invested_capital": current_invested_capital,
+            "coupon_rate": _credit_numeric(getattr(loan, "coupon_rate", None)),
+            "floor_rate": _credit_numeric(getattr(loan, "floor_rate", None)),
+            "fee_upfront": fee_upfront,
+            "sector": getattr(loan, "sector", None),
+            "geography": getattr(loan, "geography", None),
+            "sponsor": getattr(loan, "sponsor", None),
+            "instrument": getattr(loan, "instrument", None),
+            "tranche": getattr(loan, "tranche", None),
+            "security_type": getattr(loan, "security_type", None),
+            "fixed_or_floating": getattr(loan, "fixed_or_floating", None),
+            "reference_rate": getattr(loan, "reference_rate", None),
+            "sourcing_channel": getattr(loan, "sourcing_channel", None),
+            "default_status": getattr(loan, "default_status", None),
+        }
+        rows.append(row)
+
+        period_sort_key, period_label = _credit_pricing_period(row["close_date"], time_group)
+        period_bucket = time_buckets.setdefault(
+            period_label,
+            {"sort_key": period_sort_key, "bucket": _credit_pricing_empty_bucket()},
+        )
+        _credit_pricing_add(period_bucket["bucket"], row)
+        _credit_pricing_add(fund_buckets[row["fund_name"]], row)
+        _credit_pricing_add(dimension_buckets[_credit_dc_resolve_dim(loan, primary_dim)], row)
+        _credit_pricing_add(total_bucket, row)
+
+    summary = _credit_pricing_finalize("Total", total_bucket)
+    summary.update({
+        "loan_count": len(rows),
+        "fund_count": len({row["fund_name"] for row in rows}),
+    })
+
+    time_rows = []
+    for label, payload in sorted(time_buckets.items(), key=lambda item: item[1]["sort_key"]):
+        time_rows.append(
+            _credit_pricing_finalize(
+                label,
+                payload["bucket"],
+                extra={"period_label": label},
+            )
+        )
+
+    fund_rows = [
+        _credit_pricing_finalize(
+            label,
+            bucket,
+            extra={"fund_name": label},
+        )
+        for label, bucket in fund_buckets.items()
+    ]
+    fund_rows.sort(
+        key=lambda row: (
+            -(row.get("total_current_invested_capital") or 0.0),
+            row.get("fund_name") or "",
+        )
+    )
+
+    dimension_rows = [
+        _credit_pricing_finalize(
+            label,
+            bucket,
+            extra={"dimension_value": label},
+        )
+        for label, bucket in dimension_buckets.items()
+    ]
+    fallback_label = CREDIT_DIMENSIONS.get(primary_dim, {}).get("fallback", "Unknown")
+    dimension_rows.sort(
+        key=lambda row: (
+            row.get("dimension_value") == fallback_label,
+            -(row.get("total_current_invested_capital") or 0.0),
+            row.get("dimension_value") or "",
+        )
+    )
+
+    detail_groups = []
+    for fund_name in sorted({row["fund_name"] for row in rows}):
+        fund_rows_detail = [row for row in rows if row["fund_name"] == fund_name]
+        fund_rows_detail.sort(
+            key=lambda row: (
+                row.get("close_date") is None,
+                row.get("close_date") or date.max,
+                -(row.get("current_invested_capital") or 0.0),
+                row.get("company_name") or "",
+            )
+        )
+        detail_groups.append({
+            "fund_name": fund_name,
+            "loan_count": len(fund_rows_detail),
+            "rows": fund_rows_detail,
+        })
+
+    return {
+        "loan_count": len(rows),
+        "fund_count": len({row["fund_name"] for row in rows}),
+        "weighted_loan_count": summary["weighted_loan_count"],
+        "total_current_invested_capital": summary["total_current_invested_capital"],
+        "summary": summary,
+        "time_group": time_group,
+        "time_group_label": CREDIT_PRICING_TIME_GROUPS[time_group],
+        "time_groups": CREDIT_PRICING_TIME_GROUPS,
+        "time_rows": time_rows,
+        "primary_dim": primary_dim,
+        "primary_dim_label": CREDIT_DIMENSION_LABELS.get(primary_dim, primary_dim),
+        "dimension_options": dimension_options,
+        "dimension_labels": CREDIT_DIMENSION_LABELS,
+        "fund_rows": fund_rows,
+        "dimension_rows": dimension_rows,
+        "detail_groups": detail_groups,
     }
 
 
