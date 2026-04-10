@@ -398,6 +398,21 @@ def test_credit_pricing_trends_route_renders_time_and_dimension_tables(credit_ro
     assert "Pricing Detail" in body
 
 
+def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Data Cuts Entry Metrics Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-data-cuts")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Entry LTV" in body
+    assert "Entry Coverage Ratio" in body
+    assert "Entry Equity Cushion" in body
+
+
 def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Underwrite Outcome Render Firm")

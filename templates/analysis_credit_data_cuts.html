@@ -2,7 +2,7 @@
 {% from "_macros.html" import fmt_currency_symbol, fmt_multiple, fmt_pct_1dp, fmt_years_1dp, credit_firm_banner with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
-{% block page_subtitle %}Slice credit portfolio performance by any dimension.{% endblock %}
+{% block page_subtitle %}Slice credit portfolio performance by any dimension, with LTV, coverage ratio, and equity cushion shown on an entry basis.{% endblock %}
 
 {% set a = analysis %}
 {% set current_dim = request.args.get('dim', 'sector') %}
@@ -44,7 +44,9 @@
                     <option value="unrealized_value" {% if current_metric == 'unrealized_value' %}selected{% endif %}>Unrealized Value</option>
                     <option value="total_value" {% if current_metric == 'total_value' %}selected{% endif %}>Total Value</option>
                     <option value="weighted_yield" {% if current_metric == 'weighted_yield' %}selected{% endif %}>Weighted Yield</option>
-                    <option value="weighted_ltv" {% if current_metric == 'weighted_ltv' %}selected{% endif %}>Weighted LTV</option>
+                    <option value="weighted_ltv" {% if current_metric == 'weighted_ltv' %}selected{% endif %}>Weighted Entry LTV</option>
+                    <option value="weighted_entry_coverage_ratio" {% if current_metric == 'weighted_entry_coverage_ratio' %}selected{% endif %}>Weighted Entry Coverage Ratio</option>
+                    <option value="weighted_entry_equity_cushion" {% if current_metric == 'weighted_entry_equity_cushion' %}selected{% endif %}>Weighted Entry Equity Cushion</option>
                     <option value="weighted_hold_years" {% if current_metric == 'weighted_hold_years' %}selected{% endif %}>Hold Period</option>
                     <option value="loss_ratio_count" {% if current_metric == 'loss_ratio_count' %}selected{% endif %}>Loss Ratio (Count)</option>
                     <option value="loss_ratio_capital" {% if current_metric == 'loss_ratio_capital' %}selected{% endif %}>Loss Ratio (Capital)</option>
@@ -110,7 +112,9 @@
                         {% if cell %}
                         {% if current_metric in ('weighted_moic',) %}
                             {{ fmt_multiple(cell.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
+                        {% elif current_metric == 'weighted_entry_coverage_ratio' %}
+                            {{ fmt_multiple(cell.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'weighted_entry_equity_cushion', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(cell.get(current_metric)) }}
                         {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(cell.get(current_metric)) }}
@@ -124,7 +128,9 @@
                     <td class="text-right mono data-cuts-totals-col">
                         {% if current_metric in ('weighted_moic',) %}
                             {{ fmt_multiple(group.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
+                        {% elif current_metric == 'weighted_entry_coverage_ratio' %}
+                            {{ fmt_multiple(group.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'weighted_entry_equity_cushion', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(group.get(current_metric)) }}
                         {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(group.get(current_metric)) }}
@@ -144,7 +150,9 @@
                         {% if ct %}
                         {% if current_metric in ('weighted_moic',) %}
                             <strong>{{ fmt_multiple(ct.get(current_metric)) }}</strong>
-                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
+                        {% elif current_metric == 'weighted_entry_coverage_ratio' %}
+                            <strong>{{ fmt_multiple(ct.get(current_metric)) }}</strong>
+                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'weighted_entry_equity_cushion', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             <strong>{{ fmt_pct_1dp(ct.get(current_metric)) }}</strong>
                         {% elif current_metric == 'weighted_hold_years' %}
                             <strong>{{ fmt_years_1dp(ct.get(current_metric)) }}</strong>
@@ -158,7 +166,9 @@
                         <strong>
                         {% if current_metric in ('weighted_moic',) %}
                             {{ fmt_multiple(a.totals.get(current_metric)) }}
-                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
+                        {% elif current_metric == 'weighted_entry_coverage_ratio' %}
+                            {{ fmt_multiple(a.totals.get(current_metric)) }}
+                        {% elif current_metric in ('weighted_irr', 'weighted_yield', 'weighted_ltv', 'weighted_entry_equity_cushion', 'loss_ratio_count', 'loss_ratio_capital', 'pct_of_invested', 'pct_of_total') %}
                             {{ fmt_pct_1dp(a.totals.get(current_metric)) }}
                         {% elif current_metric == 'weighted_hold_years' %}
                             {{ fmt_years_1dp(a.totals.get(current_metric)) }}
@@ -192,7 +202,9 @@
                     <th class="text-right">MOIC</th>
                     <th class="text-right">IRR</th>
                     <th class="text-right">Yield</th>
-                    <th class="text-right">LTV</th>
+                    <th class="text-right">Entry LTV</th>
+                    <th class="text-right">Entry Coverage Ratio</th>
+                    <th class="text-right">Entry Equity Cushion</th>
                     <th class="text-right">Loss (Count)</th>
                     <th class="text-right">Loss (Capital)</th>
                     <th class="text-right">Hold (Yrs)</th>
@@ -217,13 +229,15 @@
                     <td class="text-right mono">{% if group.weighted_irr is not none %}{{ fmt_pct_1dp(group.weighted_irr) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.weighted_yield is not none %}{{ fmt_pct_1dp(group.weighted_yield) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.weighted_ltv is not none %}{{ fmt_pct_1dp(group.weighted_ltv) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.weighted_entry_coverage_ratio is not none %}{{ fmt_multiple(group.weighted_entry_coverage_ratio) }}{% else %}—{% endif %}</td>
+                    <td class="text-right mono">{% if group.weighted_entry_equity_cushion is not none %}{{ fmt_pct_1dp(group.weighted_entry_equity_cushion) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.loss_ratio_count is not none %}{{ fmt_pct_1dp(group.loss_ratio_count) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{% if group.loss_ratio_capital is not none %}{{ fmt_pct_1dp(group.loss_ratio_capital) }}{% else %}—{% endif %}</td>
                     <td class="text-right mono">{{ fmt_years_1dp(group.weighted_hold_years) }}</td>
                     <td class="text-center"><i class="bi bi-chevron-right data-cuts-chevron"></i></td>
                 </tr>
                 <tr class="data-cuts-drilldown" style="display:none;">
-                    <td colspan="16" style="padding:0;">
+                    <td colspan="18" style="padding:0;">
                         <div class="data-cuts-drilldown-inner">
                         <table class="table-dense" style="margin:0;">
                             <thead>
@@ -236,7 +250,9 @@
                                     <th class="text-right">IRR</th>
                                     <th class="text-right">Hold (Yrs)</th>
                                     <th class="text-right">Yield</th>
-                                    <th class="text-right">LTV</th>
+                                    <th class="text-right">Entry LTV</th>
+                                    <th class="text-right">Entry Coverage Ratio</th>
+                                    <th class="text-right">Entry Equity Cushion</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -250,11 +266,13 @@
                                     <td class="text-right mono">{% if loan.irr is not none %}{{ fmt_pct_1dp(loan.irr) }}{% else %}—{% endif %}</td>
                                     <td class="text-right mono">{{ fmt_years_1dp(loan.hold_years) }}</td>
                                     <td class="text-right mono">{% if loan.coupon_rate is not none %}{{ fmt_pct_1dp(loan.coupon_rate) }}{% else %}—{% endif %}</td>
-                                    <td class="text-right mono">{% if loan.current_ltv is not none %}{{ fmt_pct_1dp(loan.current_ltv) }}{% else %}—{% endif %}</td>
+                                    <td class="text-right mono">{% if loan.entry_ltv is not none %}{{ fmt_pct_1dp(loan.entry_ltv) }}{% else %}—{% endif %}</td>
+                                    <td class="text-right mono">{% if loan.entry_coverage_ratio is not none %}{{ fmt_multiple(loan.entry_coverage_ratio) }}{% else %}—{% endif %}</td>
+                                    <td class="text-right mono">{% if loan.entry_equity_cushion is not none %}{{ fmt_pct_1dp(loan.entry_equity_cushion) }}{% else %}—{% endif %}</td>
                                 </tr>
                                 {% endfor %}
                                 {% if group.loans|length == 0 %}
-                                <tr><td colspan="9" class="text-center text-muted">No loans in this group.</td></tr>
+                                <tr><td colspan="11" class="text-center text-muted">No loans in this group.</td></tr>
                                 {% endif %}
                             </tbody>
                         </table>
@@ -277,6 +295,8 @@
                     <td class="text-right mono"><strong>{% if a.totals.weighted_irr is not none %}{{ fmt_pct_1dp(a.totals.weighted_irr) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.weighted_yield is not none %}{{ fmt_pct_1dp(a.totals.weighted_yield) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.weighted_ltv is not none %}{{ fmt_pct_1dp(a.totals.weighted_ltv) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_entry_coverage_ratio is not none %}{{ fmt_multiple(a.totals.weighted_entry_coverage_ratio) }}{% else %}—{% endif %}</strong></td>
+                    <td class="text-right mono"><strong>{% if a.totals.weighted_entry_equity_cushion is not none %}{{ fmt_pct_1dp(a.totals.weighted_entry_equity_cushion) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_count is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_count) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{% if a.totals.loss_ratio_capital is not none %}{{ fmt_pct_1dp(a.totals.loss_ratio_capital) }}{% else %}—{% endif %}</strong></td>
                     <td class="text-right mono"><strong>{{ fmt_years_1dp(a.totals.weighted_hold_years) }}</strong></td>
@@ -328,7 +348,9 @@
         'unrealized_value': 'Unrealized Value ($M)',
         'total_value': 'Total Value ($M)',
         'weighted_yield': 'Weighted Yield (%)',
-        'weighted_ltv': 'Weighted LTV (%)',
+        'weighted_ltv': 'Weighted Entry LTV (%)',
+        'weighted_entry_coverage_ratio': 'Weighted Entry Coverage Ratio (x)',
+        'weighted_entry_equity_cushion': 'Weighted Entry Equity Cushion (%)',
         'weighted_hold_years': 'Hold Period (Years)',
         'loss_ratio_count': 'Loss Ratio (Count %)',
         'loss_ratio_capital': 'Loss Ratio (Capital %)',
@@ -367,7 +389,8 @@
                                 var v = ctx.parsed.y;
                                 if (v == null) return '—';
                                 if (metricKey.indexOf('moic') >= 0) return v.toFixed(2) + 'x';
-                                if (metricKey.indexOf('irr') >= 0 || metricKey.indexOf('loss') >= 0 || metricKey.indexOf('yield') >= 0 || metricKey.indexOf('ltv') >= 0 || metricKey.indexOf('pct_of') >= 0)
+                                if (metricKey.indexOf('coverage') >= 0) return v.toFixed(2) + 'x';
+                                if (metricKey.indexOf('irr') >= 0 || metricKey.indexOf('loss') >= 0 || metricKey.indexOf('yield') >= 0 || metricKey.indexOf('ltv') >= 0 || metricKey.indexOf('cushion') >= 0 || metricKey.indexOf('pct_of') >= 0)
                                     return (v * 100).toFixed(1) + '%';
                                 if (metricKey.indexOf('hold') >= 0) return v.toFixed(1) + ' yrs';
                                 return '$' + v.toFixed(1) + 'M';

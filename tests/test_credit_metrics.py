@@ -2543,6 +2543,8 @@ class TestCreditDataCuts:
         assert "weighted_moic" in result["chart_datasets"]
         assert "weighted_irr" in result["chart_datasets"]
         assert "invested" in result["chart_datasets"]
+        assert "weighted_entry_coverage_ratio" in result["chart_datasets"]
+        assert "weighted_entry_equity_cushion" in result["chart_datasets"]
 
     def test_data_quality_warning_when_many_unknown(self):
         loans = [
@@ -2567,6 +2569,47 @@ class TestCreditDataCuts:
         result = compute_credit_data_cuts(loans, primary_dim="sector")
         tech = next(g for g in result["groups"] if g["label"] == "Tech")
         assert tech["invested"] == pytest.approx(20.0, abs=0.01)
+
+    def test_entry_underwriting_metrics_use_entry_fields_not_current_fields(self):
+        loans = [
+            _make_loan(
+                id=1,
+                sector="Software",
+                hold_size=0.0,
+                entry_loan_amount=10.0,
+                current_invested_capital=80.0,
+                entry_ltv=0.40,
+                current_ltv=0.90,
+                entry_coverage_ratio=2.0,
+                current_coverage_ratio=0.5,
+                entry_equity_cushion=0.35,
+                current_equity_cushion=0.05,
+            ),
+            _make_loan(
+                id=2,
+                sector="Software",
+                hold_size=0.0,
+                entry_loan_amount=10.0,
+                current_invested_capital=20.0,
+                entry_ltv=0.60,
+                current_ltv=0.10,
+                entry_coverage_ratio=1.0,
+                current_coverage_ratio=4.0,
+                entry_equity_cushion=0.15,
+                current_equity_cushion=0.80,
+            ),
+        ]
+
+        result = compute_credit_data_cuts(loans, primary_dim="sector")
+        group = next(g for g in result["groups"] if g["label"] == "Software")
+        loan_row = group["loans"][0]
+
+        assert group["weighted_ltv"] == pytest.approx(0.44, abs=0.001)
+        assert group["weighted_entry_coverage_ratio"] == pytest.approx(1.8, abs=0.001)
+        assert group["weighted_entry_equity_cushion"] == pytest.approx(0.31, abs=0.001)
+        assert loan_row["entry_ltv"] in (0.40, 0.60)
+        assert "entry_coverage_ratio" in loan_row
+        assert "entry_equity_cushion" in loan_row
 
     def test_vintage_year_dimension(self):
         loans = [

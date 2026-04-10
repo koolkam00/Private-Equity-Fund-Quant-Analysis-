@@ -3629,6 +3629,8 @@ CREDIT_ALLOWED_METRICS = [
     "total_value",
     "weighted_yield",
     "weighted_ltv",
+    "weighted_entry_coverage_ratio",
+    "weighted_entry_equity_cushion",
     "weighted_hold_years",
     "loss_ratio_count",
     "loss_ratio_capital",
@@ -3755,6 +3757,10 @@ def _credit_dc_new_bucket():
         "_yield_den": 0.0,
         "_ltv_num": 0.0,
         "_ltv_den": 0.0,
+        "_entry_coverage_ratio_num": 0.0,
+        "_entry_coverage_ratio_den": 0.0,
+        "_entry_equity_cushion_num": 0.0,
+        "_entry_equity_cushion_den": 0.0,
         "_hold_num": 0.0,
         "_hold_den": 0.0,
         "_loss_count": 0,
@@ -3779,7 +3785,13 @@ def _credit_dc_add(bucket, loan, fx=1.0):
     irr = getattr(loan, "gross_irr", None)
     moic_val = safe_divide(total_val, invested) if invested > 0 else getattr(loan, "moic", None)
     coupon = loan.coupon_rate
-    ltv = loan.current_ltv
+    entry_ltv = _credit_fundamental_metric_value(getattr(loan, "entry_ltv", None))
+    entry_coverage_ratio = _credit_fundamental_metric_value(
+        getattr(loan, "entry_coverage_ratio", None)
+    )
+    entry_equity_cushion = _credit_fundamental_metric_value(
+        getattr(loan, "entry_equity_cushion", None)
+    )
 
     hold_years = None
     if loan.close_date:
@@ -3801,9 +3813,15 @@ def _credit_dc_add(bucket, loan, fx=1.0):
     if coupon is not None and hold > 0:
         bucket["_yield_num"] += coupon * hold
         bucket["_yield_den"] += hold
-    if ltv is not None and hold > 0:
-        bucket["_ltv_num"] += ltv * hold
-        bucket["_ltv_den"] += hold
+    if entry_ltv is not None and invested > 0:
+        bucket["_ltv_num"] += entry_ltv * invested
+        bucket["_ltv_den"] += invested
+    if entry_coverage_ratio is not None and invested > 0:
+        bucket["_entry_coverage_ratio_num"] += entry_coverage_ratio * invested
+        bucket["_entry_coverage_ratio_den"] += invested
+    if entry_equity_cushion is not None and invested > 0:
+        bucket["_entry_equity_cushion_num"] += entry_equity_cushion * invested
+        bucket["_entry_equity_cushion_den"] += invested
     if hold_years is not None and invested > 0:
         bucket["_hold_num"] += hold_years * invested
         bucket["_hold_den"] += invested
@@ -3823,7 +3841,9 @@ def _credit_dc_add(bucket, loan, fx=1.0):
         "irr": irr,
         "hold_years": hold_years,
         "coupon_rate": coupon,
-        "current_ltv": ltv,
+        "entry_ltv": entry_ltv,
+        "entry_coverage_ratio": entry_coverage_ratio,
+        "entry_equity_cushion": entry_equity_cushion,
     })
 
 
@@ -3843,6 +3863,12 @@ def _credit_dc_finalize(label, bucket, portfolio_invested=None, portfolio_total=
         "weighted_irr": safe_divide(bucket["_irr_num"], bucket["_irr_den"]),
         "weighted_yield": safe_divide(bucket["_yield_num"], bucket["_yield_den"]),
         "weighted_ltv": safe_divide(bucket["_ltv_num"], bucket["_ltv_den"]),
+        "weighted_entry_coverage_ratio": safe_divide(
+            bucket["_entry_coverage_ratio_num"], bucket["_entry_coverage_ratio_den"]
+        ),
+        "weighted_entry_equity_cushion": safe_divide(
+            bucket["_entry_equity_cushion_num"], bucket["_entry_equity_cushion_den"]
+        ),
         "weighted_hold_years": safe_divide(bucket["_hold_num"], bucket["_hold_den"]),
         "loss_ratio_count": safe_divide(bucket["_loss_count"], cnt) if cnt > 0 else None,
         "loss_ratio_capital": safe_divide(bucket["_loss_capital"], inv) if inv > 0 else None,
