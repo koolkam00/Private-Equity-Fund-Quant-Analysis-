@@ -764,6 +764,45 @@ class TestConcentration:
         assert result["total_hold"] == pytest.approx(50.0, abs=0.1)
         assert result["top_10"][0]["value"] == pytest.approx(40.0, abs=0.1)
 
+    def test_concentration_detail_uses_track_record_sort_and_rollups(self):
+        loans = [
+            _make_lp_loan(
+                id=100,
+                fund_name="Fund A",
+                company_name="Unrealized Co",
+                status="Unrealized",
+                close_date=date(2024, 6, 1),
+                current_invested_capital=40.0,
+                total_value=44.0,
+                unrealized_loan_value=44.0,
+                realized_proceeds=0.0,
+            ),
+            _make_lp_loan(
+                id=101,
+                fund_name="Fund A",
+                company_name="Realized Co",
+                status="Realized",
+                close_date=date(2024, 1, 1),
+                current_invested_capital=60.0,
+                total_value=72.0,
+                realized_proceeds=72.0,
+                unrealized_loan_value=0.0,
+            ),
+        ]
+
+        result = compute_credit_concentration(loans)
+
+        assert result["loan_count"] == 2
+        assert result["fund_count"] == 1
+        fund = result["detail_funds"][0]
+        assert fund["fund_name"] == "Fund A"
+        assert fund["rows"][0]["company_name"] == "Realized Co"
+        assert fund["rows"][1]["company_name"] == "Unrealized Co"
+        assert fund["status_rollups"][0]["status"] == "Fully Realized"
+        assert fund["summary_rollups"][-1]["totals"]["total_value"] == pytest.approx(116.0, abs=0.001)
+        assert fund["summary_rollups"][-1]["totals"]["pct_portfolio_value"] == pytest.approx(1.0, abs=0.001)
+        assert result["detail_overall"]["summary_rollups"][-1]["totals"]["total_value"] == pytest.approx(116.0, abs=0.001)
+
 
 # ---------------------------------------------------------------------------
 # Vintage comparison

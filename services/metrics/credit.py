@@ -2570,6 +2570,29 @@ def compute_credit_concentration(loans, metrics_by_id=None):
                 }
             )
 
+    detail_view = compute_credit_track_record(loans)
+
+    for fund in detail_view["funds"]:
+        for row in fund.get("rows", []):
+            row["pct_portfolio_value"] = safe_divide(row.get("total_value"), total_value)
+        for rollup in fund.get("status_rollups", []):
+            rollup["totals"]["pct_portfolio_value"] = safe_divide(
+                rollup.get("totals", {}).get("total_value"), total_value
+            )
+        for rollup in fund.get("summary_rollups", []):
+            rollup["totals"]["pct_portfolio_value"] = safe_divide(
+                rollup.get("totals", {}).get("total_value"), total_value
+            )
+
+    for rollup in detail_view.get("overall", {}).get("status_rollups", []):
+        rollup["totals"]["pct_portfolio_value"] = safe_divide(
+            rollup.get("totals", {}).get("total_value"), total_value
+        )
+    for rollup in detail_view.get("overall", {}).get("summary_rollups", []):
+        rollup["totals"]["pct_portfolio_value"] = safe_divide(
+            rollup.get("totals", {}).get("total_value"), total_value
+        )
+
     return {
         "total_value": total_value,
         "total_hold": total_value,  # back-compat alias
@@ -2588,6 +2611,10 @@ def compute_credit_concentration(loans, metrics_by_id=None):
         "by_public": by_public if has_public else None,
         "has_sourcing_data": has_sourcing,
         "has_public_data": has_public,
+        "detail_funds": detail_view["funds"],
+        "detail_overall": detail_view["overall"],
+        "loan_count": detail_view["loan_count"],
+        "fund_count": detail_view["fund_count"],
     }
 
 

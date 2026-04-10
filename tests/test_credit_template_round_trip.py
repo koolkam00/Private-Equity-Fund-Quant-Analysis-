@@ -413,6 +413,22 @@ def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_t
     assert "Entry Equity Cushion" in body
 
 
+def test_credit_concentration_route_renders_track_record_style_detail(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Concentration Detail Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-concentration")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Deal Detail" in body
+    assert "All Funds Summary" in body
+    assert "% Portfolio Value" in body
+    assert "PCOF III" in body
+
+
 def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Underwrite Outcome Render Firm")
