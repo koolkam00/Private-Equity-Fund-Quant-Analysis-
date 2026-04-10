@@ -418,7 +418,7 @@ def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_t
     assert "Loan Term (Years)" in body
 
 
-def test_credit_concentration_route_renders_track_record_style_detail(credit_round_trip_client):
+def test_credit_concentration_route_renders_full_width_breakdowns_without_detail_section(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Concentration Detail Render Firm")
 
@@ -428,12 +428,14 @@ def test_credit_concentration_route_renders_track_record_style_detail(credit_rou
     resp = client.get("/credit/analysis/credit-concentration")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "Deal Detail" in body
-    assert "All Funds Summary" in body
-    assert "% Portfolio Value" in body
+    assert "Deal Detail" not in body
+    assert "All Funds Summary" not in body
+    assert "credit-concentration-breakdown-table" in body
+    assert "Top 10 Single-Name Exposures" in body
     assert "Total Unrealized Value" in body
     assert "Unrealized Equity Value" in body
-    assert "PCOF III" in body
+    assert "By Sector" in body
+    assert "By Geography" in body
 
 
 def test_active_credit_analysis_pages_do_not_render_default_status_controls(credit_round_trip_client):

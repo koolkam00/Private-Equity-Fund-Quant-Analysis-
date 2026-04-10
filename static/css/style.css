@@ -975,6 +975,28 @@ body.pe-app {
     background: #c8d9e8;
     padding: 8px;
 }
+.credit-concentration-breakdown {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+.credit-concentration-breakdown-table {
+    width: 100%;
+    font-size: 12px;
+    table-layout: fixed;
+}
+.credit-concentration-breakdown-table th:first-child,
+.credit-concentration-breakdown-table td:first-child {
+    width: 24%;
+    white-space: normal;
+}
+.credit-concentration-breakdown-table th:not(:first-child),
+.credit-concentration-breakdown-table td:not(:first-child) {
+    width: 12.66%;
+}
+.credit-concentration-chart-wrap {
+    min-height: 220px;
+}
 .track-record-template {
     width: 100%;
     min-width: 1720px;
