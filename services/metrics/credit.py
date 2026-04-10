@@ -4447,30 +4447,57 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
     time_series_charts = [
         {
             "chart_key": "coupon",
-            "title": "Weighted Avg Coupon by Entry Date",
-            "description": "A line chart is the clearest view for sequential entry periods because it shows when coupons tightened or widened over time.",
-            "metric_label": "Weighted Avg Coupon",
-            "metric_kind": "decimal_percent",
+            "title": "Coupon by Entry Date",
+            "metric_kind": "percent",
             "labels": [row["period_label"] for row in time_rows],
-            "values": [row.get("weighted_average_coupon_rate") for row in time_rows],
+            "datasets": [
+                {
+                    "label": "Weighted Avg Coupon",
+                    "values": [row.get("weighted_average_coupon_rate") for row in time_rows],
+                    "color": "#0A6B58",
+                },
+                {
+                    "label": "Avg Coupon",
+                    "values": [row.get("average_coupon_rate") for row in time_rows],
+                    "color": "#8FA59C",
+                },
+            ],
         },
         {
             "chart_key": "floor",
-            "title": "Weighted Avg Floor by Entry Date",
-            "description": "Floor terms also move sequentially through time, so a line chart makes inflection points and reset-era repricing easy to spot.",
-            "metric_label": "Weighted Avg Floor",
-            "metric_kind": "decimal_percent",
+            "title": "Floor by Entry Date",
+            "metric_kind": "percent",
             "labels": [row["period_label"] for row in time_rows],
-            "values": [row.get("weighted_average_floor_rate") for row in time_rows],
+            "datasets": [
+                {
+                    "label": "Weighted Avg Floor",
+                    "values": [row.get("weighted_average_floor_rate") for row in time_rows],
+                    "color": "#C9982E",
+                },
+                {
+                    "label": "Avg Floor",
+                    "values": [row.get("average_floor_rate") for row in time_rows],
+                    "color": "#D9BE78",
+                },
+            ],
         },
         {
             "chart_key": "upfront",
-            "title": "Weighted Avg Upfront Fee by Entry Date",
-            "description": "Upfront fees are percentage points, and a time-series line best highlights periods where fee discipline improved or softened.",
-            "metric_label": "Weighted Avg Upfront Fee",
-            "metric_kind": "percent_points",
+            "title": "Upfront Fee by Entry Date",
+            "metric_kind": "percent",
             "labels": [row["period_label"] for row in time_rows],
-            "values": [row.get("weighted_average_upfront_fee") for row in time_rows],
+            "datasets": [
+                {
+                    "label": "Weighted Avg Upfront Fee",
+                    "values": [row.get("weighted_average_upfront_fee") for row in time_rows],
+                    "color": "#2563EB",
+                },
+                {
+                    "label": "Avg Upfront Fee",
+                    "values": [row.get("average_upfront_fee") for row in time_rows],
+                    "color": "#8FB3F4",
+                },
+            ],
         },
     ]
 

@@ -394,15 +394,16 @@ def test_credit_pricing_trends_route_renders_time_series_and_sorted_tables(credi
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Pricing Trend by Entry Date" in body
-    assert "Weighted Avg Coupon by Entry Date" in body
-    assert "Weighted Avg Floor by Entry Date" in body
-    assert "Weighted Avg Upfront Fee by Entry Date" in body
+    assert "Coupon by Entry Date" in body
+    assert "Floor by Entry Date" in body
+    assert "Upfront Fee by Entry Date" in body
     assert "Wtd Avg Upfront Fee" in body
     assert "Avg Upfront Fee" in body
     assert "By Fund" in body
     assert "By Sector" in body
     assert "Pricing Detail" not in body
     assert "Total Upfront Fees" not in body
+    assert "A line chart is the clearest view" not in body
 
 
 def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_trip_client):

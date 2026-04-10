@@ -1588,12 +1588,6 @@ def _fmt_track_pct(value):
     return f"{value * 100:.1f}%"
 
 
-def _fmt_track_percent_points(value):
-    if value is None:
-        return "—"
-    return f"{value:.1f}%"
-
-
 def _fmt_track_multiple(value):
     if value is None:
         return "—"
@@ -3288,7 +3282,7 @@ def _build_credit_pricing_trends_pdf(
         ["Weighted Loans", str(analysis_payload.get("weighted_loan_count") or 0), "Current Invested Capital", _fmt_track_currency(analysis_payload.get("total_current_invested_capital"), currency_code=currency_code)],
         ["Wtd Avg Coupon", _fmt_track_pct(summary.get("weighted_average_coupon_rate")), "Avg Coupon", _fmt_track_pct(summary.get("average_coupon_rate"))],
         ["Wtd Avg Floor", _fmt_track_pct(summary.get("weighted_average_floor_rate")), "Avg Floor", _fmt_track_pct(summary.get("average_floor_rate"))],
-        ["Wtd Avg Upfront Fee", _fmt_track_percent_points(summary.get("weighted_average_upfront_fee")), "Avg Upfront Fee", _fmt_track_percent_points(summary.get("average_upfront_fee"))],
+        ["Wtd Avg Upfront Fee", _fmt_track_pct(summary.get("weighted_average_upfront_fee")), "Avg Upfront Fee", _fmt_track_pct(summary.get("average_upfront_fee"))],
     ]
     story.append(_build_pdf_table(summary_rows, col_widths=[150, 120, 150, 120], numeric_cols=[1, 3], font_size=7.4))
 
@@ -3305,8 +3299,8 @@ def _build_credit_pricing_trends_pdf(
                     _fmt_track_pct(row.get("average_coupon_rate")),
                     _fmt_track_pct(row.get("weighted_average_floor_rate")),
                     _fmt_track_pct(row.get("average_floor_rate")),
-                    _fmt_track_percent_points(row.get("weighted_average_upfront_fee")),
-                    _fmt_track_percent_points(row.get("average_upfront_fee")),
+                    _fmt_track_pct(row.get("weighted_average_upfront_fee")),
+                    _fmt_track_pct(row.get("average_upfront_fee")),
                 ]
             )
         story.append(
@@ -5797,7 +5791,7 @@ def download_credit_template():
         0.085, 425, 0.015,
         "Floating", "SOFR",
         "No", None,
-        0.02, 0.50, None,
+        0.02, 0.005, None,
         "2028-06-15", "5 years", 5,
         "Bullet", "Quarterly",
         # Protections

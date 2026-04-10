@@ -1829,7 +1829,7 @@ class TestCreditPricingTrends:
                 entry_loan_amount=10.0,
                 coupon_rate=0.10,
                 floor_rate=0.01,
-                fee_upfront=1.0,
+                fee_upfront=0.01,
                 sector="Software",
             ),
             _make_loan(
@@ -1842,7 +1842,7 @@ class TestCreditPricingTrends:
                 entry_loan_amount=90.0,
                 coupon_rate=0.30,
                 floor_rate=0.05,
-                fee_upfront=3.0,
+                fee_upfront=0.03,
                 sector="Software",
             ),
         ]
@@ -1852,8 +1852,8 @@ class TestCreditPricingTrends:
         assert result["summary"]["weighted_average_coupon_rate"] == pytest.approx(0.14, abs=0.001)
         assert result["summary"]["weighted_average_floor_rate"] == pytest.approx(0.018, abs=0.001)
         assert result["summary"]["average_coupon_rate"] == pytest.approx(0.20, abs=0.001)
-        assert result["summary"]["weighted_average_upfront_fee"] == pytest.approx(1.4, abs=0.001)
-        assert result["summary"]["average_upfront_fee"] == pytest.approx(2.0, abs=0.001)
+        assert result["summary"]["weighted_average_upfront_fee"] == pytest.approx(0.014, abs=0.001)
+        assert result["summary"]["average_upfront_fee"] == pytest.approx(0.02, abs=0.001)
 
     def test_time_rows_group_by_selected_entry_date_granularity(self):
         loans = [
@@ -1865,7 +1865,7 @@ class TestCreditPricingTrends:
                 current_invested_capital=40.0,
                 coupon_rate=0.08,
                 floor_rate=0.01,
-                fee_upfront=0.5,
+                fee_upfront=0.005,
             ),
             _make_loan(
                 id=2,
@@ -1875,7 +1875,7 @@ class TestCreditPricingTrends:
                 current_invested_capital=60.0,
                 coupon_rate=0.09,
                 floor_rate=0.015,
-                fee_upfront=0.7,
+                fee_upfront=0.007,
             ),
             _make_loan(
                 id=3,
@@ -1885,7 +1885,7 @@ class TestCreditPricingTrends:
                 current_invested_capital=10.0,
                 coupon_rate=0.11,
                 floor_rate=0.02,
-                fee_upfront=0.2,
+                fee_upfront=0.002,
             ),
         ]
 
@@ -1895,9 +1895,11 @@ class TestCreditPricingTrends:
         assert labels == ["2024 Q1", "2024 Q2", "Unknown Date"]
         assert result["time_rows"][0]["loan_count"] == 1
         assert result["time_rows"][1]["total_current_invested_capital"] == pytest.approx(60.0, abs=0.001)
-        assert result["time_rows"][2]["average_upfront_fee"] == pytest.approx(0.2, abs=0.001)
+        assert result["time_rows"][2]["average_upfront_fee"] == pytest.approx(0.002, abs=0.001)
         assert result["time_series_charts"][0]["labels"] == labels
-        assert result["time_series_charts"][2]["metric_kind"] == "percent_points"
+        assert result["time_series_charts"][0]["datasets"][0]["label"] == "Weighted Avg Coupon"
+        assert result["time_series_charts"][0]["datasets"][1]["label"] == "Avg Coupon"
+        assert result["time_series_charts"][2]["metric_kind"] == "percent"
 
     def test_dimension_rows_follow_selected_dimension(self):
         loans = [
@@ -1909,7 +1911,7 @@ class TestCreditPricingTrends:
                 current_invested_capital=25.0,
                 coupon_rate=0.08,
                 floor_rate=0.01,
-                fee_upfront=0.5,
+                fee_upfront=0.005,
                 sponsor="Apollo",
             ),
             _make_loan(
@@ -1920,7 +1922,7 @@ class TestCreditPricingTrends:
                 current_invested_capital=35.0,
                 coupon_rate=0.09,
                 floor_rate=0.015,
-                fee_upfront=0.8,
+                fee_upfront=0.008,
                 sponsor=None,
             ),
         ]
@@ -1935,30 +1937,30 @@ class TestCreditPricingTrends:
 
     def test_fund_rows_sort_by_roman_numeral_sequence(self):
         loans = [
-            _make_loan(id=1, fund_name="Fund III", current_invested_capital=40.0, fee_upfront=0.75),
-            _make_loan(id=2, fund_name="Fund I", current_invested_capital=20.0, fee_upfront=0.50),
-            _make_loan(id=3, fund_name="Fund II", current_invested_capital=30.0, fee_upfront=0.60),
+            _make_loan(id=1, fund_name="Fund III", current_invested_capital=40.0, fee_upfront=0.0075),
+            _make_loan(id=2, fund_name="Fund I", current_invested_capital=20.0, fee_upfront=0.0050),
+            _make_loan(id=3, fund_name="Fund II", current_invested_capital=30.0, fee_upfront=0.0060),
         ]
 
         result = compute_credit_pricing_trends(loans, time_group="year")
 
         assert [row["fund_name"] for row in result["fund_rows"]] == ["Fund I", "Fund II", "Fund III"]
 
-    def test_upfront_fee_stays_in_percentage_points_not_currency(self):
+    def test_upfront_fee_stays_decimal_percentage_not_currency(self):
         loans = [
             _make_loan(
                 id=1,
                 fund_name="Fund I",
                 current_invested_capital=50.0,
                 fx_rate_to_usd=1.5,
-                fee_upfront=0.75,
+                fee_upfront=0.0075,
             )
         ]
 
         result = compute_credit_pricing_trends(loans, time_group="year")
 
-        assert result["summary"]["average_upfront_fee"] == pytest.approx(0.75, abs=0.001)
-        assert result["summary"]["weighted_average_upfront_fee"] == pytest.approx(0.75, abs=0.001)
+        assert result["summary"]["average_upfront_fee"] == pytest.approx(0.0075, abs=0.001)
+        assert result["summary"]["weighted_average_upfront_fee"] == pytest.approx(0.0075, abs=0.001)
 
 
 class TestCreditWatchlist:

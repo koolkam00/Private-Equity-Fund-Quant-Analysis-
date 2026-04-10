@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_pct_1dp, fmt_pp_1dp with context %}
+{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_pct_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}{{ page_meta.description }}{% endblock %}
@@ -14,8 +14,6 @@
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_currency_symbol(value) }}{%- endif -%}
     {%- elif kind == "percent" -%}
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pct_1dp(value) }}{%- endif -%}
-    {%- elif kind == "percent_points" -%}
-        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pp_1dp(value) }}{%- endif -%}
     {%- else -%}
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ value }}{%- endif -%}
     {%- endif -%}
@@ -115,11 +113,11 @@
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Wtd Avg Upfront Fee</div>
-        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_upfront_fee, 'percent_points') }}</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_upfront_fee, 'percent') }}</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Avg Upfront Fee</div>
-        <div class="kpi-value">{{ render_metric(analysis.summary.average_upfront_fee, 'percent_points') }}</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.average_upfront_fee, 'percent') }}</div>
     </div>
 </div>
 
@@ -139,10 +137,7 @@
         {% for chart in analysis.time_series_charts %}
         <div class="panel chart-panel" style="margin: 0; padding: 18px;">
             <div class="chart-panel-header">
-                <div>
-                    <h3 style="margin: 0 0 4px 0; font-size: 16px;">{{ chart.title }}</h3>
-                    <p>{{ chart.description }}</p>
-                </div>
+                <h3 style="margin: 0; font-size: 16px;">{{ chart.title }}</h3>
             </div>
             <div style="height: 300px;">
                 <canvas data-credit-pricing-chart="{{ chart.chart_key }}"></canvas>
@@ -150,9 +145,6 @@
         </div>
         {% endfor %}
     </div>
-    <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 14px; font-family: var(--font-sans);">
-        Line charts are used here because entry-date cohorts are sequential. They make it easier to see when market pricing tightened or loosened than a dense period-by-period table.
-    </p>
 </div>
 
 <div class="panel" style="margin-bottom: 24px;">
@@ -184,8 +176,8 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent_points') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent_points') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -221,8 +213,8 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent_points') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent_points') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -230,7 +222,7 @@
 </div>
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
-    Coupon and floor weighted averages use <strong>Current Invested Capital</strong> only. Entry-date trends are based on each loan’s <strong>Entry Date</strong>. Upfront fees are expressed as percentage points from the uploaded credit tape.
+    Coupon, floor, and upfront fee weighted averages use <strong>Current Invested Capital</strong> only. Entry-date trends are based on each loan’s <strong>Entry Date</strong>. Upfront fees are formatted as decimal percentages from the uploaded credit tape.
 </p>
 
 <script id="credit-pricing-trend-chart-payload" type="application/json">{{ analysis.time_series_charts|tojson }}</script>
@@ -240,15 +232,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!payloadEl || typeof Chart === 'undefined') return;
 
     var charts = JSON.parse(payloadEl.textContent || '[]');
-    var colors = {
-        coupon: '#0A6B58',
-        floor: '#C9982E',
-        upfront: '#2563EB'
-    };
 
     function formatValue(kind, value) {
         if (value === null || value === undefined) return '—';
-        if (kind === 'percent_points') return value.toFixed(1) + '%';
         return (value * 100).toFixed(1) + '%';
     }
 
@@ -260,28 +246,31 @@ document.addEventListener('DOMContentLoaded', function() {
             type: 'line',
             data: {
                 labels: chart.labels,
-                datasets: [{
-                    label: chart.metric_label,
-                    data: chart.values || [],
-                    borderColor: colors[chart.chart_key] || '#0A6B58',
-                    backgroundColor: colors[chart.chart_key] || '#0A6B58',
-                    borderWidth: 3,
-                    tension: 0.25,
-                    pointRadius: 3,
-                    pointHoverRadius: 4,
-                    spanGaps: true,
-                    fill: false
-                }]
+                datasets: (chart.datasets || []).map(function(dataset, index) {
+                    return {
+                        label: dataset.label,
+                        data: dataset.values || [],
+                        borderColor: dataset.color || '#0A6B58',
+                        backgroundColor: dataset.color || '#0A6B58',
+                        borderWidth: index === 0 ? 3 : 2,
+                        borderDash: index === 0 ? [] : [6, 4],
+                        tension: 0.25,
+                        pointRadius: 3,
+                        pointHoverRadius: 4,
+                        spanGaps: true,
+                        fill: false
+                    };
+                })
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
+                    legend: { display: true, position: 'top' },
                     tooltip: {
                         callbacks: {
                             label: function(ctx) {
-                                return chart.metric_label + ': ' + formatValue(chart.metric_kind, ctx.raw);
+                                return ctx.dataset.label + ': ' + formatValue(chart.metric_kind, ctx.raw);
                             }
                         }
                     }
