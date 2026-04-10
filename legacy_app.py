@@ -3872,9 +3872,16 @@ def delete_firm(firm_id):
         FundMetadata.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
         FundCashflow.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
 
-        # Memo data
-        MemoDocumentChunk.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        # Memo data (deepest children first to respect FK constraints)
+        run_ids = db.session.query(MemoGenerationRun.id).filter_by(firm_id=firm_id)
+        MemoGenerationClaim.query.filter(MemoGenerationClaim.run_id.in_(run_ids)).delete(synchronize_session=False)
+        MemoGenerationSection.query.filter(MemoGenerationSection.run_id.in_(run_ids)).delete(synchronize_session=False)
+        MemoJob.query.filter(MemoJob.run_id.in_(run_ids)).delete(synchronize_session=False)
         MemoGenerationRun.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        doc_ids = db.session.query(MemoDocument.id).filter_by(firm_id=firm_id)
+        MemoStyleExemplar.query.filter(MemoStyleExemplar.document_id.in_(doc_ids)).delete(synchronize_session=False)
+        MemoDocumentChunk.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
         MemoDocument.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
 
         # Upload issues
