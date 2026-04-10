@@ -13,7 +13,6 @@ from services.metrics.credit import compute_credit_loan_metrics
 CREDIT_FILTER_KEYS = (
     "fund_name",
     "status",
-    "default_status",
     "sector",
     "geography",
     "location",

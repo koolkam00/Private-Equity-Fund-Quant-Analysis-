@@ -431,6 +431,31 @@ def test_credit_concentration_route_renders_track_record_style_detail(credit_rou
     assert "PCOF III" in body
 
 
+def test_active_credit_analysis_pages_do_not_render_default_status_controls(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="No Default Status Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    pages = [
+        "credit-concentration",
+        "credit-fundamentals",
+        "credit-pricing-trends",
+        "credit-underwrite-outcome",
+    ]
+
+    for page in pages:
+        resp = client.get(f"/credit/analysis/{page}")
+        assert resp.status_code == 200, page
+        body = resp.get_data(as_text=True)
+        assert 'name="default_status"' not in body, page
+
+    underwrite_resp = client.get("/credit/analysis/credit-underwrite-outcome")
+    assert underwrite_resp.status_code == 200
+    assert "Default status:" not in underwrite_resp.get_data(as_text=True)
+
+
 def test_credit_underwrite_outcome_route_renders_irr_comparison(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Underwrite Outcome Render Firm")

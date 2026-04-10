@@ -24,8 +24,7 @@
 {% block content %}
 {{ credit_firm_banner() }}
 
-{% set status_filter_key = 'status' if filter_options.get('status') else 'default_status' %}
-{% set status_filter_options = filter_options.get(status_filter_key, []) %}
+{% set status_filter_options = filter_options.get('status', []) %}
 
 <div class="panel panel-tight filter-panel">
     <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
@@ -39,9 +38,9 @@
             </label>
             <label class="filter-field">
                 <span>Status</span>
-                <select name="{{ status_filter_key }}">
+                <select name="status">
                     <option value="">All Statuses</option>
-                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get(status_filter_key) or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get('status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
                 </select>
             </label>
             <label class="filter-field">

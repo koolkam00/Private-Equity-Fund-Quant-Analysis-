@@ -39,8 +39,7 @@
 {% block content %}
 {{ credit_firm_banner() }}
 
-{% set status_filter_key = 'status' if filter_options.get('status') else 'default_status' %}
-{% set status_filter_options = filter_options.get(status_filter_key, []) %}
+{% set status_filter_options = filter_options.get('status', []) %}
 
 <div class="panel panel-tight filter-panel">
     <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
@@ -54,9 +53,9 @@
             </label>
             <label class="filter-field">
                 <span>Status</span>
-                <select name="{{ status_filter_key }}">
+                <select name="status">
                     <option value="">All Statuses</option>
-                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get(status_filter_key) or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    {% for s in status_filter_options %}<option value="{{ s }}" {% if s in (active_filters.get('status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
                 </select>
             </label>
             <label class="filter-field">
@@ -214,7 +213,7 @@
                     <div style="font-size: 12px; color: var(--ink-muted); font-family: var(--font-mono); margin-bottom: 4px;">#{{ loop.index }} worst miss</div>
                     <div style="font-weight: 600;">{{ row.company_name }}{% if row.sector %} <span style="color: var(--ink-muted); font-weight: 400;">· {{ row.sector }}</span>{% endif %}</div>
                     <div style="font-size: 12px; color: var(--ink-muted); margin-top: 4px;">
-                        {{ row.fund_name }} · {{ row.status }}{% if row.default_status and row.default_status != row.raw_status %} · {{ row.default_status }}{% endif %}
+                        {{ row.fund_name }} · {{ row.status }}
                     </div>
                 </div>
                 <div style="text-align: right;">
@@ -252,7 +251,6 @@
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Fund:</span> {{ row.fund_name }}</div>
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Traffic light:</span> <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; {{ traffic_tone(row.traffic_light) }}">{{ row.traffic_light or 'gray' }}</span></div>
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Status:</span> {{ row.status or '—' }}</div>
-                        <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Default status:</span> {{ row.default_status or '—' }}</div>
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Vintage:</span> {{ row.vintage_year or '—' }}</div>
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Entry date:</span> {{ fmt_date_mdy(row.close_date) }}</div>
                         <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Exit date:</span> {{ fmt_date_mdy(row.exit_date) }}</div>

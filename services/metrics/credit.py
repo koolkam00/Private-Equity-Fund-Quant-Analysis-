@@ -1384,7 +1384,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
             "loan_id": loan.id,
             "company_name": getattr(loan, "company_name", None),
             "fund_name": fund_name,
-            "status": getattr(loan, "status", None) or getattr(loan, "default_status", None),
+            "status": getattr(loan, "status", None),
             "exit_current_label": (
                 "Exit"
                 if getattr(loan, "exit_date", None) is not None
@@ -1798,8 +1798,6 @@ def compute_credit_underwrite_outcome(loans, metrics_by_id=None, *, snapshots_by
             "location": getattr(loan, "location", None),
             "sponsor": getattr(loan, "sponsor", None),
             "status": _credit_loan_status(loan),
-            "raw_status": getattr(loan, "status", None),
-            "default_status": getattr(loan, "default_status", None),
             "vintage_year": getattr(loan, "vintage_year", None),
             "close_date": getattr(loan, "close_date", None),
             "exit_date": getattr(loan, "exit_date", None),
@@ -3702,7 +3700,6 @@ CREDIT_DIMENSIONS = {
     "instrument": {"field": "instrument", "fallback": "Unknown"},
     "tranche": {"field": "tranche", "fallback": "Unknown"},
     "security_type": {"field": "security_type", "fallback": "Unknown"},
-    "default_status": {"field": "default_status", "fallback": "Unknown"},
     "status": {"field": "status", "fallback": "Unknown"},
     "vintage_year": {"field": None, "resolver": lambda l: str(l.vintage_year) if l.vintage_year else None, "fallback": "Unknown"},
     "sourcing_channel": {"field": "sourcing_channel", "fallback": "Unknown"},
@@ -3718,7 +3715,6 @@ CREDIT_DIMENSION_LABELS = {
     "instrument": "Instrument",
     "tranche": "Tranche / Lien",
     "security_type": "Security Type",
-    "default_status": "Default Status",
     "status": "Realization Status",
     "vintage_year": "Vintage Year",
     "sourcing_channel": "Sourcing Channel",
@@ -3947,7 +3943,7 @@ def _credit_dc_add(bucket, loan, fx=1.0):
         "company_name": loan.company_name or "",
         "fund_name": loan.fund_name or "",
         "sector": getattr(loan, "sector", None) or "",
-        "status": getattr(loan, "status", None) or getattr(loan, "default_status", None) or "",
+        "status": getattr(loan, "status", None) or "",
         "invested": invested,
         "moic": moic_val,
         "irr": irr,

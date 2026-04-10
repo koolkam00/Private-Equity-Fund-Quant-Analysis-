@@ -2685,6 +2685,10 @@ class TestCreditDataCuts:
             assert result["primary_dim"] == dim_key
             assert result["loan_count"] == 1
 
+    def test_default_status_removed_from_active_data_cuts_dimensions(self):
+        from services.metrics.credit import CREDIT_DIMENSIONS
+        assert "default_status" not in CREDIT_DIMENSIONS
+
     def test_allowed_metrics_in_return(self):
         loans = [_make_loan(id=1, hold_size=10.0)]
         result = compute_credit_data_cuts(loans)

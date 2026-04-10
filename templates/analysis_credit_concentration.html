@@ -20,9 +20,9 @@
             </label>
             <label class="filter-field">
                 <span>Status</span>
-                <select name="default_status">
+                <select name="status">
                     <option value="">All Statuses</option>
-                    {% for s in filter_options.get('default_status', []) %}<option value="{{ s }}" {% if s in (active_filters.get('default_status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    {% for s in filter_options.get('status', []) %}<option value="{{ s }}" {% if s in (active_filters.get('status') or []) %}selected{% endif %}>{{ s }}</option>{% endfor %}
                 </select>
             </label>
             <label class="filter-field">
