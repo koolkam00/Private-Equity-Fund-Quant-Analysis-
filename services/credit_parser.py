@@ -382,8 +382,20 @@ def _clean_date(val):
 
 
 def _normalize_date(value):
-    if value is None:
+    if value is None or pd.isna(value):
         return None
+    if isinstance(value, datetime):
+        value = value.date()
+    elif hasattr(value, "to_pydatetime"):
+        try:
+            value = value.to_pydatetime().date()
+        except Exception:
+            return None
+    elif hasattr(value, "date") and not isinstance(value, date):
+        try:
+            value = value.date()
+        except Exception:
+            return None
     if value < MIN_VALID_DATE or value > MAX_VALID_DATE:
         return None
     return value

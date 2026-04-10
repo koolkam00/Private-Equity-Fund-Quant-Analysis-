@@ -53,6 +53,39 @@ def test_credit_parser_handles_excel_serial_dates_and_numeric_strings(app_contex
     assert fund_perf.report_date == date(2024, 7, 2)
 
 
+def test_credit_parser_handles_timestamp_cells_without_type_errors(app_context):
+    workbook = _build_credit_workbook(
+        loans={
+            "Company Name": ["Timestamp Borrower"],
+            "Fund Name": ["Fund TS"],
+            "Entry Date": [pd.Timestamp("2024-01-15")],
+            "As Of Date": [pd.Timestamp("2024-03-31")],
+            "Maturity Date": [pd.Timestamp("2029-06-30")],
+        },
+        snapshots={
+            "Company Name": ["Timestamp Borrower"],
+            "Snapshot Date": [pd.Timestamp("2024-06-30")],
+        },
+        fund_performance={
+            "Fund Name": ["Fund TS"],
+            "Report Date": [pd.Timestamp("2024-12-31")],
+        },
+    )
+
+    result = parse_credit_loan_tape(workbook, firm_name="Timestamp Date Firm")
+
+    assert result["loans"] == 1
+    loan = CreditLoan.query.filter_by(company_name="Timestamp Borrower").one()
+    snapshot = CreditLoanSnapshot.query.filter_by(credit_loan_id=loan.id).one()
+    fund_perf = CreditFundPerformance.query.filter_by(fund_name="Fund TS").one()
+
+    assert loan.close_date == date(2024, 1, 15)
+    assert loan.as_of_date == date(2024, 3, 31)
+    assert loan.maturity_date == date(2029, 6, 30)
+    assert snapshot.snapshot_date == date(2024, 6, 30)
+    assert fund_perf.report_date == date(2024, 12, 31)
+
+
 def test_credit_parser_ignores_large_year_date_strings_instead_of_crashing(app_context):
     workbook = _build_credit_workbook(
         loans={
