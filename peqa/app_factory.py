@@ -91,4 +91,15 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     _register_request_logging(app)
 
     legacy_binder.register(app, get_blueprints(), ROUTE_BLUEPRINTS)
+
+    # Auto-run schema updates on startup so deploys pick up new columns
+    # without needing a manual `db-upgrade` CLI step.
+    with app.app_context():
+        try:
+            from models import ensure_schema_updates
+            db.create_all()
+            ensure_schema_updates()
+        except Exception as e:
+            app.logger.warning("Auto schema update skipped: %s", e)
+
     return app
