@@ -2498,6 +2498,10 @@ def _credit_empty_track_totals():
 
 def _credit_update_track_totals(totals, row):
     equity = row.get("invested_equity") or 0.0
+    irr_weight = row.get("current_invested_capital")
+    if irr_weight is None:
+        irr_weight = equity
+    irr_weight = irr_weight or 0.0
     realized = row.get("realized_value") or 0.0
     unrealized = row.get("unrealized_value") or 0.0
     unrealized_warrant = row.get("unrealized_warrant_equity_value") or 0.0
@@ -2513,12 +2517,12 @@ def _credit_update_track_totals(totals, row):
     totals["unrealized_warrant_equity_value"] += unrealized_warrant
     totals["total_value"] += total_value
 
-    if gross_irr is not None and equity > 0:
-        totals["_gross_irr_weight_num"] += gross_irr * equity
-        totals["_gross_irr_weight_den"] += equity
-    if hold_period is not None and equity > 0:
-        totals["_hold_period_weight_num"] += hold_period * equity
-        totals["_hold_period_weight_den"] += equity
+    if gross_irr is not None and irr_weight > 0:
+        totals["_gross_irr_weight_num"] += gross_irr * irr_weight
+        totals["_gross_irr_weight_den"] += irr_weight
+    if hold_period is not None and irr_weight > 0:
+        totals["_hold_period_weight_num"] += hold_period * irr_weight
+        totals["_hold_period_weight_den"] += irr_weight
     if facility_pct is not None and equity > 0:
         totals["_facility_weight_num"] += facility_pct * equity
         totals["_facility_weight_den"] += equity

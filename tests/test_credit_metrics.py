@@ -1889,6 +1889,36 @@ class TestCreditTrackRecord:
 
         assert overall_fund_rollup["hold_period"] == pytest.approx(1.6, abs=0.1)
 
+    def test_gross_irr_rollups_weighted_by_current_invested_capital(self):
+        low_irr_large_position = self._make_track_loan(
+            id=1,
+            fund_name="F1",
+            status="Unrealized",
+            hold_size=10.0,
+            entry_loan_amount=10.0,
+            current_invested_capital=80.0,
+            gross_irr=0.10,
+        )
+        high_irr_small_position = self._make_track_loan(
+            id=2,
+            fund_name="F1",
+            status="Unrealized",
+            hold_size=90.0,
+            entry_loan_amount=90.0,
+            current_invested_capital=20.0,
+            gross_irr=0.30,
+        )
+
+        result = compute_credit_track_record([low_irr_large_position, high_irr_small_position])
+        status_rollup = result["funds"][0]["status_rollups"][0]["totals"]
+        summary_rollup = result["funds"][0]["summary_rollups"][-1]["totals"]
+        overall_rollup = result["overall"]["summary_rollups"][-1]["totals"]
+
+        # Weighted by current invested capital: (0.10 * 80 + 0.30 * 20) / 100 = 0.14
+        assert status_rollup["gross_irr"] == pytest.approx(0.14, abs=0.001)
+        assert summary_rollup["gross_irr"] == pytest.approx(0.14, abs=0.001)
+        assert overall_rollup["gross_irr"] == pytest.approx(0.14, abs=0.001)
+
     def test_fx_conversion(self):
         loan = self._make_track_loan(
             id=1, fund_name="F1",
