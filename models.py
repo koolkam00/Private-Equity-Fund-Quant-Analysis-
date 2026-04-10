@@ -1146,7 +1146,7 @@ def ensure_schema_updates():
     # Credit indexes
     _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
     _ensure_index(engine, "ix_credit_loans_team_id", "credit_loans", "team_id")
-    _ensure_index(engine, "ix_credit_loan_snapshots_loan_id", "credit_loan_snapshots", "loan_id")
+    _ensure_index(engine, "ix_credit_loan_snapshots_credit_loan_id", "credit_loan_snapshots", "credit_loan_id")
     _ensure_index(engine, "ix_credit_fund_performance_team_id", "credit_fund_performance", "team_id")
 
     _ensure_index(engine, "ix_deals_firm_id", "deals", "firm_id")
