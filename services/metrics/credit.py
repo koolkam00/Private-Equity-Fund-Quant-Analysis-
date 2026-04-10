@@ -1263,6 +1263,44 @@ def _credit_metric_summary(metric_def, records):
     }
 
 
+def _credit_weighted_average_summary(records):
+    """Aggregate a single metric on weighted-average and simple-average bases."""
+    total_sum = 0.0
+    count = 0
+    weighted_num = 0.0
+    weighted_den = 0.0
+    weighted_count = 0
+
+    for record in records:
+        value = record.get("value")
+        if value is None:
+            continue
+
+        total_sum += value
+        count += 1
+
+        weight = record.get("weight") or 0.0
+        if weight > 0:
+            weighted_num += value * weight
+            weighted_den += weight
+            weighted_count += 1
+
+    return {
+        "weighted_average": safe_divide(weighted_num, weighted_den),
+        "average": safe_divide(total_sum, count),
+        "count": count,
+        "weighted_count": weighted_count,
+    }
+
+
+def _credit_term_years_value(value):
+    """Treat blank, zero, and negative term values as missing."""
+    numeric = _credit_numeric(value)
+    if numeric is None or numeric <= 1e-9:
+        return None
+    return numeric
+
+
 def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=None):
     """Borrower fundamentals plus entry vs exit/current analysis.
 
@@ -1295,6 +1333,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     revenue_decliners = []
     ebitda_decliners = []
     overall_metric_records = {metric["key"]: [] for metric in FUNDAMENTAL_METRIC_DEFS}
+    overall_term_records = []
     fund_buckets = {}
     deal_rows = []
     total_current_invested_capital = 0.0
@@ -1375,6 +1414,8 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
                 "loan_count": 0,
                 "total_current_invested_capital": 0.0,
                 "metric_records": {metric["key"]: [] for metric in FUNDAMENTAL_METRIC_DEFS},
+                "term_records": [],
+                "revenue_delta_pct_records": [],
             }
         fund_bucket = fund_buckets[fund_name]
         fund_bucket["loan_count"] += 1
@@ -1392,6 +1433,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
                 else "Current"
             ),
             "current_invested_capital": weight if weight > 0 else None,
+            "term_years": _credit_term_years_value(getattr(loan, "term_years", None)),
         }
 
         for metric_def in FUNDAMENTAL_METRIC_DEFS:
@@ -1433,6 +1475,17 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
             if revenue_entry not in (None, 0) and revenue_exit_current is not None
             else None
         )
+
+        if deal_row["term_years"] is not None:
+            term_record = {"value": deal_row["term_years"], "weight": weight}
+            overall_term_records.append(term_record)
+            fund_bucket["term_records"].append(term_record)
+
+        if deal_row["revenue_delta_pct"] is not None:
+            fund_bucket["revenue_delta_pct_records"].append(
+                {"value": deal_row["revenue_delta_pct"], "weight": weight}
+            )
+
         deal_rows.append(deal_row)
 
     # Sort decliners by absolute delta (worst first)
@@ -1523,12 +1576,31 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
             )
             for metric_def in FUNDAMENTAL_METRIC_DEFS
         }
+        term_summary = _credit_weighted_average_summary(bucket["term_records"])
+        revenue_delta_pct_summary = _credit_weighted_average_summary(
+            bucket["revenue_delta_pct_records"]
+        )
         fund_rows.append({
             "fund_name": bucket["fund_name"],
             "loan_count": bucket["loan_count"],
             "total_current_invested_capital": bucket["total_current_invested_capital"],
             "metrics": metric_summaries,
+            "term_summary": term_summary,
+            "revenue_delta_pct_summary": revenue_delta_pct_summary,
         })
+
+    term_summary = _credit_weighted_average_summary(overall_term_records)
+    term_by_fund_rows = [
+        {
+            "fund_name": fund_row["fund_name"],
+            "loan_count": fund_row["loan_count"],
+            "total_current_invested_capital": fund_row["total_current_invested_capital"],
+            "term_count": fund_row["term_summary"]["count"],
+            "weighted_average_term_years": fund_row["term_summary"]["weighted_average"],
+            "average_term_years": fund_row["term_summary"]["average"],
+        }
+        for fund_row in fund_rows
+    ]
 
     fund_metric_tables = []
     for metric_def in FUNDAMENTAL_METRIC_DEFS:
@@ -1548,16 +1620,39 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
             "rows": table_rows,
         })
 
+    fund_rows_by_name = {row["fund_name"]: row for row in fund_rows}
     deal_rows.sort(key=lambda row: (row["fund_name"] or "", row["company_name"] or ""))
     deal_groups = []
     for fund_name in sorted(fund_buckets):
         group_rows = [row for row in deal_rows if row["fund_name"] == fund_name]
         if not group_rows:
             continue
+        fund_row = fund_rows_by_name[fund_name]
+        weighted_subtotal = {
+            "label": f"{fund_name} Weighted Average",
+            "current_invested_capital": fund_row["total_current_invested_capital"],
+            "term_years": fund_row["term_summary"]["weighted_average"],
+            "revenue_entry": fund_row["metrics"]["revenue"]["weighted_average_entry"],
+            "revenue_exit_current": fund_row["metrics"]["revenue"]["weighted_average_exit_current"],
+            "revenue_delta": fund_row["metrics"]["revenue"]["weighted_average_delta"],
+            "revenue_delta_pct": fund_row["revenue_delta_pct_summary"]["weighted_average"],
+            "ltv_entry": fund_row["metrics"]["ltv"]["weighted_average_entry"],
+            "ltv_exit_current": fund_row["metrics"]["ltv"]["weighted_average_exit_current"],
+            "ltv_delta": fund_row["metrics"]["ltv"]["weighted_average_delta"],
+            "coverage_ratio_entry": fund_row["metrics"]["coverage_ratio"]["weighted_average_entry"],
+            "coverage_ratio_exit_current": fund_row["metrics"]["coverage_ratio"]["weighted_average_exit_current"],
+            "coverage_ratio_delta": fund_row["metrics"]["coverage_ratio"]["weighted_average_delta"],
+            "equity_cushion_entry": fund_row["metrics"]["equity_cushion"]["weighted_average_entry"],
+            "equity_cushion_exit_current": fund_row["metrics"]["equity_cushion"]["weighted_average_exit_current"],
+            "equity_cushion_delta": fund_row["metrics"]["equity_cushion"]["weighted_average_delta"],
+        }
         deal_groups.append(
             {
                 "fund_name": fund_name,
                 "loan_count": len(group_rows),
+                "term_count": fund_row["term_summary"]["count"],
+                "total_current_invested_capital": fund_row["total_current_invested_capital"],
+                "weighted_subtotal": weighted_subtotal,
                 "rows": group_rows,
             }
         )
@@ -1598,6 +1693,8 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
         "total_current_invested_capital": total_current_invested_capital,
         "summary_metrics": summary_metrics,
         "summary_by_key": summary_by_key,
+        "term_summary": term_summary,
+        "term_by_fund_rows": term_by_fund_rows,
         "fund_rows": fund_rows,
         "fund_metric_tables": fund_metric_tables,
         "deal_rows": deal_rows,
@@ -3678,18 +3775,18 @@ import re as _re
 
 
 def _term_bucket_label(term_years):
-    """Classify term_years into a bucket label. None-safe."""
-    try:
-        tm = float(term_years) if term_years is not None else None
-    except (TypeError, ValueError):
-        return None
+    """Bucket term_years by exact year amount for data-cuts analysis."""
+    tm = _credit_term_years_value(term_years)
     if tm is None:
         return None
-    if tm < 2:
-        return "Short (<2yr)"
-    if tm <= 5:
-        return "Medium (2-5yr)"
-    return "Long (>5yr)"
+
+    rounded = round(tm, 2)
+    if abs(rounded - round(rounded)) <= 1e-9:
+        display = str(int(round(rounded)))
+    else:
+        display = f"{rounded:.2f}".rstrip("0").rstrip(".")
+    suffix = "Year" if display == "1" else "Years"
+    return f"{display} {suffix}"
 
 
 CREDIT_DIMENSIONS = {
@@ -3719,7 +3816,7 @@ CREDIT_DIMENSION_LABELS = {
     "vintage_year": "Vintage Year",
     "sourcing_channel": "Sourcing Channel",
     "fixed_or_floating": "Rate Type",
-    "term_bucket": "Term Bucket",
+    "term_bucket": "Loan Term (Years)",
 }
 
 CREDIT_PRICING_TIME_GROUPS = {
@@ -4007,6 +4104,7 @@ def _credit_dc_validate_dim(dim, default="sector"):
 
 
 def _credit_dc_sort_groups(groups, dim_key):
+    fallback = CREDIT_DIMENSIONS.get(dim_key, {}).get("fallback", "Unknown")
     if dim_key == "vintage_year":
         def _key(g):
             try:
@@ -4023,9 +4121,18 @@ def _credit_dc_sort_groups(groups, dim_key):
                 return (0, roman_map[m.group(1)], g["label"])
             return (1, 0, g["label"] or "")
         return sorted(groups, key=_fund_key)
+    elif dim_key == "term_bucket":
+        def _term_key(g):
+            label = g["label"] or ""
+            if label == fallback:
+                return (1, float("inf"), label)
+            match = _re.match(r"^\s*(\d+(?:\.\d+)?)\s+Year", label)
+            if match:
+                return (0, float(match.group(1)), label)
+            return (0, float("inf"), label)
+        return sorted(groups, key=_term_key)
     else:
-        fb = CREDIT_DIMENSIONS.get(dim_key, {}).get("fallback", "Unknown")
-        return sorted(groups, key=lambda g: (g["label"] == fb, g["label"] or ""))
+        return sorted(groups, key=lambda g: (g["label"] == fallback, g["label"] or ""))
 
 
 def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", secondary_dim=None):

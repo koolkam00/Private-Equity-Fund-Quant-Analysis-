@@ -375,8 +375,11 @@ def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_tr
     assert "Portfolio Summary" in body
     assert "Wtd Avg Exit / Current" in body
     assert "Revenue by Fund" in body
+    assert "Loan Term by Fund" in body
     assert "Deal Detail" in body
     assert "Current Invested Capital" in body
+    assert "Term (Years)" in body
+    assert "Wtd Avg Term" in body
 
 
 def test_credit_pricing_trends_route_renders_time_and_dimension_tables(credit_round_trip_client):
@@ -411,6 +414,7 @@ def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_t
     assert "Entry LTV" in body
     assert "Entry Coverage Ratio" in body
     assert "Entry Equity Cushion" in body
+    assert "Loan Term (Years)" in body
 
 
 def test_credit_concentration_route_renders_track_record_style_detail(credit_round_trip_client):

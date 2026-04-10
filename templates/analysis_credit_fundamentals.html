@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import fmt_currency_symbol, fmt_num_1dp, fmt_pct_1dp, credit_firm_banner with context %}
+{% from "_macros.html" import fmt_currency_symbol, fmt_num_1dp, fmt_pct_1dp, fmt_years_1dp, credit_firm_banner with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}{{ page_meta.description }}{% endblock %}
@@ -178,12 +178,43 @@
 </div>
 {% endfor %}
 
+<div class="panel" style="margin-bottom: 24px;">
+    <h3 style="margin-bottom: 4px;">Loan Term by Fund</h3>
+    <p style="font-size: 13px; color: var(--ink-muted); margin: 0 0 16px 0;">
+        Fund-level loan term averages using term years from the uploaded credit tape.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Fund</th>
+                <th style="text-align: right;">Loans</th>
+                <th style="text-align: right;">Loans with Term</th>
+                <th style="text-align: right;">Current Invested Capital</th>
+                <th style="text-align: right;">Wtd Avg Term</th>
+                <th style="text-align: right;">Avg Term</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis.term_by_fund_rows %}
+            <tr>
+                <td style="font-weight: 500;">{{ row.fund_name }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ row.term_count }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if row.weighted_average_term_years is none %}N/A{% else %}{{ fmt_years_1dp(row.weighted_average_term_years) }}{% endif %}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{% if row.average_term_years is none %}N/A{% else %}{{ fmt_years_1dp(row.average_term_years) }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
 <div class="panel">
     <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
         <div>
             <h3 style="margin-bottom: 4px;">Deal Detail</h3>
             <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
-                Loan-by-loan entry versus {{ analysis.exit_current_label }} view across revenue, LTV, coverage ratio, and equity cushion.
+                Loan-by-loan entry versus {{ analysis.exit_current_label }} view across term, revenue, LTV, coverage ratio, and equity cushion, with fund subtotals shown as weighted averages.
             </p>
         </div>
     </div>
@@ -194,6 +225,7 @@
                     <th>Company</th>
                     <th>Status</th>
                     <th class="num">Current Invested Capital</th>
+                    <th class="num">Term (Years)</th>
                     <th class="num">Entry Revenue</th>
                     <th class="num">{{ analysis.exit_current_label }} Revenue</th>
                     <th class="num">Δ Revenue</th>
@@ -212,7 +244,7 @@
             <tbody>
                 {% for group in analysis.deal_groups %}
                 <tr class="tr-fund-header">
-                    <td colspan="16">
+                    <td colspan="17">
                         {{ group.fund_name }}
                         <span style="color: var(--ink-muted); font-size: 12px;">· {{ group.loan_count }} loans</span>
                     </td>
@@ -222,6 +254,7 @@
                     <td>{{ row.company_name or '—' }}</td>
                     <td>{{ row.status or '—' }}</td>
                     <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
+                    <td class="num">{% if row.term_years is none %}N/A{% else %}{{ fmt_years_1dp(row.term_years) }}{% endif %}</td>
                     <td class="num">{{ render_metric(row.revenue_entry, 'currency') }}</td>
                     <td class="num">{{ render_metric(row.revenue_exit_current, 'currency') }}</td>
                     <td class="num">{{ render_metric(row.revenue_delta, 'currency', 'N/A') }}</td>
@@ -237,8 +270,28 @@
                     <td class="num">{{ render_metric(row.equity_cushion_delta, 'percent', 'N/A') }}</td>
                 </tr>
                 {% endfor %}
+                {% if group.weighted_subtotal %}
+                <tr class="tr-rollup tr-rollup-summary">
+                    <td colspan="2"><strong>{{ group.weighted_subtotal.label }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(group.weighted_subtotal.current_invested_capital) }}</strong></td>
+                    <td class="num"><strong>{% if group.weighted_subtotal.term_years is none %}N/A{% else %}{{ fmt_years_1dp(group.weighted_subtotal.term_years) }}{% endif %}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.revenue_entry, 'currency', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.revenue_exit_current, 'currency', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.revenue_delta, 'currency', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.revenue_delta_pct, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.ltv_entry, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.ltv_exit_current, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.ltv_delta, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.coverage_ratio_entry, 'multiple', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.coverage_ratio_exit_current, 'multiple', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.coverage_ratio_delta, 'multiple', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.equity_cushion_entry, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.equity_cushion_exit_current, 'percent', 'N/A') }}</strong></td>
+                    <td class="num"><strong>{{ render_metric(group.weighted_subtotal.equity_cushion_delta, 'percent', 'N/A') }}</strong></td>
+                </tr>
+                {% endif %}
                 {% if not loop.last %}
-                <tr class="tr-gap"><td colspan="16"></td></tr>
+                <tr class="tr-gap"><td colspan="17"></td></tr>
                 {% endif %}
                 {% endfor %}
             </tbody>
@@ -247,7 +300,7 @@
 </div>
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
-    Weighted averages use <strong>Current Invested Capital</strong> only. Zero-valued fundamentals are treated as missing data and shown as <strong>N/A</strong>. {{ analysis.exit_current_label }} values come from the loan’s current fields, with latest non-zero snapshot fallback for revenue and LTV when the current loan field is blank. LTV and Equity Cushion deltas are shown as absolute percentage-point changes.
+    Weighted averages use <strong>Current Invested Capital</strong> only. Zero-valued fundamentals and zero term years are treated as missing data and shown as <strong>N/A</strong>. {{ analysis.exit_current_label }} values come from the loan’s current fields, with latest non-zero snapshot fallback for revenue and LTV when the current loan field is blank. LTV and Equity Cushion deltas are shown as absolute percentage-point changes.
 </p>
 
 {% endif %}

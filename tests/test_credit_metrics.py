@@ -123,6 +123,7 @@ def _make_loan(**kwargs):
         "closing_fee": None,
         "prepayment_protection": None,
         "loan_term": None,
+        "term_years": None,
         "equity_investment": None,
         "warrants_at_entry": None,
         "warrant_strike_entry": None,
@@ -1541,6 +1542,87 @@ class TestCreditFundamentals:
         assert row["ltv_exit_current"] == pytest.approx(0.58, abs=0.001)
         assert row["ltv_delta"] == pytest.approx(-0.02, abs=0.001)
 
+    def test_fundamentals_term_by_fund_and_group_subtotals_use_current_invested_capital(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Fund A",
+                company_name="Alpha",
+                current_invested_capital=25.0,
+                hold_size=400.0,
+                entry_loan_amount=400.0,
+                term_years=3.0,
+                entry_revenue=100.0,
+                current_revenue=120.0,
+                entry_ltv=0.50,
+                current_ltv=0.45,
+                entry_coverage_ratio=2.00,
+                current_coverage_ratio=2.20,
+                entry_equity_cushion=0.40,
+                current_equity_cushion=0.42,
+            ),
+            _make_loan(
+                id=2,
+                fund_name="Fund A",
+                company_name="Beta",
+                current_invested_capital=75.0,
+                hold_size=100.0,
+                entry_loan_amount=100.0,
+                term_years=5.0,
+                entry_revenue=200.0,
+                current_revenue=180.0,
+                entry_ltv=0.60,
+                current_ltv=0.55,
+                entry_coverage_ratio=1.50,
+                current_coverage_ratio=1.40,
+                entry_equity_cushion=0.30,
+                current_equity_cushion=0.28,
+            ),
+        ]
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan={})
+
+        fund_a = result["fund_rows"][0]
+        assert fund_a["term_summary"]["weighted_average"] == pytest.approx(4.5, abs=0.001)
+        assert fund_a["term_summary"]["average"] == pytest.approx(4.0, abs=0.001)
+
+        term_table_row = result["term_by_fund_rows"][0]
+        assert term_table_row["weighted_average_term_years"] == pytest.approx(4.5, abs=0.001)
+        assert term_table_row["average_term_years"] == pytest.approx(4.0, abs=0.001)
+
+        group = result["deal_groups"][0]
+        assert group["weighted_subtotal"]["term_years"] == pytest.approx(4.5, abs=0.001)
+        assert group["weighted_subtotal"]["revenue_entry"] == pytest.approx(175.0, abs=0.001)
+        assert group["weighted_subtotal"]["revenue_exit_current"] == pytest.approx(165.0, abs=0.001)
+        assert group["weighted_subtotal"]["revenue_delta"] == pytest.approx(-10.0, abs=0.001)
+        assert group["weighted_subtotal"]["revenue_delta_pct"] == pytest.approx(-0.025, abs=0.001)
+
+    def test_fundamentals_zero_term_years_are_excluded_from_term_averages(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Fund A",
+                company_name="Known Term",
+                current_invested_capital=60.0,
+                term_years=4.0,
+            ),
+            _make_loan(
+                id=2,
+                fund_name="Fund A",
+                company_name="Missing Term",
+                current_invested_capital=40.0,
+                term_years=0.0,
+            ),
+        ]
+
+        result = compute_credit_fundamentals(loans, snapshots_by_loan={})
+        fund_a = result["fund_rows"][0]
+
+        assert fund_a["term_summary"]["count"] == 1
+        assert fund_a["term_summary"]["weighted_average"] == pytest.approx(4.0, abs=0.001)
+        assert fund_a["term_summary"]["average"] == pytest.approx(4.0, abs=0.001)
+        assert result["deal_groups"][0]["weighted_subtotal"]["term_years"] == pytest.approx(4.0, abs=0.001)
+
     def test_fundamentals_decliners_sorted_by_absolute_drop(self):
         """ebitda_decliners only contains loans where EBITDA fell, sorted worst first.
 
@@ -2669,6 +2751,26 @@ class TestCreditDataCuts:
         assert "2021" in labels
         y2020 = next(g for g in result["groups"] if g["label"] == "2020")
         assert y2020["loan_count"] == 2
+
+    def test_term_bucket_dimension_uses_exact_year_values_and_numeric_sort(self):
+        loans = [
+            _make_loan(id=1, term_years=10.0, hold_size=10.0),
+            _make_loan(id=2, term_years=1.0, hold_size=10.0),
+            _make_loan(id=3, term_years=2.5, hold_size=10.0),
+            _make_loan(id=4, term_years=2.0, hold_size=10.0),
+            _make_loan(id=5, term_years=0.0, hold_size=10.0),
+        ]
+
+        result = compute_credit_data_cuts(loans, primary_dim="term_bucket")
+
+        assert result["primary_dim_label"] == "Loan Term (Years)"
+        assert [g["label"] for g in result["groups"]] == [
+            "1 Year",
+            "2 Years",
+            "2.5 Years",
+            "10 Years",
+            "Unknown",
+        ]
 
     def test_empty_input(self):
         result = compute_credit_data_cuts([])
