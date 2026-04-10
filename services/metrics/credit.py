@@ -2495,23 +2495,70 @@ def compute_credit_stress_scenarios(loans, scenario):
 
 def compute_credit_concentration(loans, metrics_by_id=None):
     """Sector, geography, sponsor, security type breakdowns with HHI."""
-    total_value = sum(_credit_track_value_components(l)["total_value"] for l in loans)
+    del metrics_by_id
+
+    def _components(loan):
+        fx = loan.fx_rate_to_usd or 1.0
+        values = _credit_track_value_components(loan, fx)
+        invested = _credit_position_amount(loan, fx)
+        realized_value = values["realized_value"]
+        unrealized_value = values["unrealized_value"]
+        unrealized_equity_value = values["unrealized_warrant_equity_value"]
+        total_unrealized_value = unrealized_value + unrealized_equity_value
+        total_value = values["total_value"]
+        return {
+            "invested": invested,
+            "realized_value": realized_value,
+            "unrealized_value": unrealized_value,
+            "unrealized_equity_value": unrealized_equity_value,
+            "total_unrealized_value": total_unrealized_value,
+            "total_value": total_value,
+        }
+
+    loan_components = {getattr(loan, "id", id(loan)): _components(loan) for loan in loans}
+    total_invested = sum(c["invested"] for c in loan_components.values())
+    total_realized_value = sum(c["realized_value"] for c in loan_components.values())
+    total_unrealized_loan_value = sum(c["unrealized_value"] for c in loan_components.values())
+    total_unrealized_equity_value = sum(c["unrealized_equity_value"] for c in loan_components.values())
+    total_unrealized_value = sum(c["total_unrealized_value"] for c in loan_components.values())
+    total_value = sum(c["total_value"] for c in loan_components.values())
 
     def _build_breakdown(loans, attr):
-        groups = defaultdict(lambda: {"value": 0.0, "count": 0})
+        groups = defaultdict(
+            lambda: {
+                "invested": 0.0,
+                "realized_value": 0.0,
+                "unrealized_value": 0.0,
+                "unrealized_equity_value": 0.0,
+                "total_unrealized_value": 0.0,
+                "total_value": 0.0,
+                "count": 0,
+            }
+        )
         for loan in loans:
             key = getattr(loan, attr, None) or "Unknown"
-            value = _credit_track_value_components(loan)["total_value"]
-            groups[key]["value"] += value
+            comp = loan_components[getattr(loan, "id", id(loan))]
+            groups[key]["invested"] += comp["invested"]
+            groups[key]["realized_value"] += comp["realized_value"]
+            groups[key]["unrealized_value"] += comp["unrealized_value"]
+            groups[key]["unrealized_equity_value"] += comp["unrealized_equity_value"]
+            groups[key]["total_unrealized_value"] += comp["total_unrealized_value"]
+            groups[key]["total_value"] += comp["total_value"]
             groups[key]["count"] += 1
         result = []
-        for key, val in sorted(groups.items(), key=lambda x: -x[1]["value"]):
-            pct = safe_divide(val["value"], total_value, 0.0)
+        for key, val in sorted(groups.items(), key=lambda x: -x[1]["total_unrealized_value"]):
+            pct = safe_divide(val["total_unrealized_value"], total_unrealized_value, 0.0)
             result.append(
                 {
                     "name": key,
-                    "value": val["value"],
-                    "hold": val["value"],  # back-compat alias
+                    "invested": val["invested"],
+                    "realized_value": val["realized_value"],
+                    "unrealized_value": val["unrealized_value"],
+                    "unrealized_equity_value": val["unrealized_equity_value"],
+                    "total_unrealized_value": val["total_unrealized_value"],
+                    "total_value": val["total_value"],
+                    "value": val["total_unrealized_value"],
+                    "hold": val["total_unrealized_value"],  # back-compat alias
                     "count": val["count"],
                     "pct": pct,
                 }
@@ -2532,9 +2579,19 @@ def compute_credit_concentration(loans, metrics_by_id=None):
         [
             {
                 "company": l.company_name,
-                "value": _credit_track_value_components(l)["total_value"],
-                "hold": _credit_track_value_components(l)["total_value"],  # back-compat alias
-                "pct": safe_divide(_credit_track_value_components(l)["total_value"], total_value, 0.0),
+                "invested": loan_components[getattr(l, "id", id(l))]["invested"],
+                "realized_value": loan_components[getattr(l, "id", id(l))]["realized_value"],
+                "unrealized_value": loan_components[getattr(l, "id", id(l))]["unrealized_value"],
+                "unrealized_equity_value": loan_components[getattr(l, "id", id(l))]["unrealized_equity_value"],
+                "total_unrealized_value": loan_components[getattr(l, "id", id(l))]["total_unrealized_value"],
+                "total_value": loan_components[getattr(l, "id", id(l))]["total_value"],
+                "value": loan_components[getattr(l, "id", id(l))]["total_unrealized_value"],
+                "hold": loan_components[getattr(l, "id", id(l))]["total_unrealized_value"],  # back-compat alias
+                "pct": safe_divide(
+                    loan_components[getattr(l, "id", id(l))]["total_unrealized_value"],
+                    total_unrealized_value,
+                    0.0,
+                ),
             }
             for l in loans
         ],
@@ -2552,19 +2609,40 @@ def compute_credit_concentration(loans, metrics_by_id=None):
     has_public = any(getattr(l, 'is_public', None) is not None for l in loans)
     by_public = []
     if has_public:
-        groups = defaultdict(lambda: {"value": 0.0, "count": 0})
+        groups = defaultdict(
+            lambda: {
+                "invested": 0.0,
+                "realized_value": 0.0,
+                "unrealized_value": 0.0,
+                "unrealized_equity_value": 0.0,
+                "total_unrealized_value": 0.0,
+                "total_value": 0.0,
+                "count": 0,
+            }
+        )
         for loan in loans:
             key = "Public" if getattr(loan, 'is_public', None) else "Private"
-            value = _credit_track_value_components(loan)["total_value"]
-            groups[key]["value"] += value
+            comp = loan_components[getattr(loan, "id", id(loan))]
+            groups[key]["invested"] += comp["invested"]
+            groups[key]["realized_value"] += comp["realized_value"]
+            groups[key]["unrealized_value"] += comp["unrealized_value"]
+            groups[key]["unrealized_equity_value"] += comp["unrealized_equity_value"]
+            groups[key]["total_unrealized_value"] += comp["total_unrealized_value"]
+            groups[key]["total_value"] += comp["total_value"]
             groups[key]["count"] += 1
-        for key, val in sorted(groups.items(), key=lambda x: -x[1]["value"]):
-            pct = safe_divide(val["value"], total_value, 0.0)
+        for key, val in sorted(groups.items(), key=lambda x: -x[1]["total_unrealized_value"]):
+            pct = safe_divide(val["total_unrealized_value"], total_unrealized_value, 0.0)
             by_public.append(
                 {
                     "name": key,
-                    "value": val["value"],
-                    "hold": val["value"],  # back-compat alias
+                    "invested": val["invested"],
+                    "realized_value": val["realized_value"],
+                    "unrealized_value": val["unrealized_value"],
+                    "unrealized_equity_value": val["unrealized_equity_value"],
+                    "total_unrealized_value": val["total_unrealized_value"],
+                    "total_value": val["total_value"],
+                    "value": val["total_unrealized_value"],
+                    "hold": val["total_unrealized_value"],  # back-compat alias
                     "count": val["count"],
                     "pct": pct,
                 }
@@ -2574,28 +2652,35 @@ def compute_credit_concentration(loans, metrics_by_id=None):
 
     for fund in detail_view["funds"]:
         for row in fund.get("rows", []):
-            row["pct_portfolio_value"] = safe_divide(row.get("total_value"), total_value)
+            row["pct_portfolio_value"] = safe_divide(
+                row.get("unrealized_total_value"), total_unrealized_value
+            )
         for rollup in fund.get("status_rollups", []):
             rollup["totals"]["pct_portfolio_value"] = safe_divide(
-                rollup.get("totals", {}).get("total_value"), total_value
+                rollup.get("totals", {}).get("unrealized_total_value"), total_unrealized_value
             )
         for rollup in fund.get("summary_rollups", []):
             rollup["totals"]["pct_portfolio_value"] = safe_divide(
-                rollup.get("totals", {}).get("total_value"), total_value
+                rollup.get("totals", {}).get("unrealized_total_value"), total_unrealized_value
             )
 
     for rollup in detail_view.get("overall", {}).get("status_rollups", []):
         rollup["totals"]["pct_portfolio_value"] = safe_divide(
-            rollup.get("totals", {}).get("total_value"), total_value
+            rollup.get("totals", {}).get("unrealized_total_value"), total_unrealized_value
         )
     for rollup in detail_view.get("overall", {}).get("summary_rollups", []):
         rollup["totals"]["pct_portfolio_value"] = safe_divide(
-            rollup.get("totals", {}).get("total_value"), total_value
+            rollup.get("totals", {}).get("unrealized_total_value"), total_unrealized_value
         )
 
     return {
+        "total_invested": total_invested,
+        "total_realized_value": total_realized_value,
+        "total_unrealized_loan_value": total_unrealized_loan_value,
+        "total_unrealized_equity_value": total_unrealized_equity_value,
+        "total_unrealized_value": total_unrealized_value,
         "total_value": total_value,
-        "total_hold": total_value,  # back-compat alias
+        "total_hold": total_unrealized_value,  # back-compat alias
         "by_sector": by_sector,
         "by_geography": by_geography,
         "by_sponsor": by_sponsor,

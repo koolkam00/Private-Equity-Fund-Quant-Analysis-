@@ -87,8 +87,24 @@
 
 <div class="kpi-grid" style="margin-bottom: 24px;">
     <div class="kpi-card">
-        <div class="kpi-label">Total Portfolio Value</div>
-        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_value) }}</div>
+        <div class="kpi-label">Total Unrealized Value</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_unrealized_value) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Invested Capital</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_invested) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Realized Value</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_realized_value) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Unrealized Loan Value</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_unrealized_loan_value) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Unrealized Equity Value</div>
+        <div class="kpi-value">{{ fmt_currency_symbol(analysis.total_unrealized_equity_value) }}</div>
     </div>
 </div>
 
@@ -96,13 +112,17 @@
 <div class="panel" style="margin-bottom: 24px;">
     <h3>Top 10 Single-Name Exposures</h3>
     <table class="data-table">
-        <thead><tr><th>#</th><th>Company</th><th style="text-align:right;">Total Value</th><th style="text-align:right;">% Portfolio</th></tr></thead>
+        <thead><tr><th>#</th><th>Company</th><th style="text-align:right;">Invested</th><th style="text-align:right;">Realized</th><th style="text-align:right;">Unrealized</th><th style="text-align:right;">Unrealized Equity</th><th style="text-align:right;">Total Unrealized</th><th style="text-align:right;">% Portfolio</th></tr></thead>
         <tbody>
         {% for row in analysis.top_10 %}
         <tr>
             <td style="font-family: var(--font-mono); color: var(--ink-muted);">{{ loop.index }}</td>
             <td style="font-weight: 500;">{{ row.company }}</td>
-            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.invested) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.realized_value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.unrealized_value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.unrealized_equity_value) }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_unrealized_value) }}</td>
             <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(row.pct) }}</td>
         </tr>
         {% endfor %}
@@ -115,25 +135,35 @@
 <div class="panel">
     <h3>{{ title }}</h3>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;">
-        <table class="data-table" style="font-size: 13px;">
-            <thead><tr><th>Name</th><th style="text-align:right;">Total Value</th><th style="text-align:right;">%</th></tr></thead>
+        <div style="overflow-x: auto;">
+        <table class="data-table" style="font-size: 13px; min-width: 760px;">
+            <thead><tr><th>Name</th><th style="text-align:right;">Invested</th><th style="text-align:right;">Realized</th><th style="text-align:right;">Unrealized</th><th style="text-align:right;">Unrealized Equity</th><th style="text-align:right;">Total Unrealized</th><th style="text-align:right;">%</th></tr></thead>
             <tbody>
             {% for row in data[:8] %}
             <tr>
                 <td>{{ row.name }}</td>
-                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.value) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.invested) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.realized_value) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.unrealized_value) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.unrealized_equity_value) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_unrealized_value) }}</td>
                 <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(row.pct) }}</td>
             </tr>
             {% endfor %}
             {% if data|length > 8 %}
             <tr style="color: var(--ink-muted);">
                 <td>Other ({{ data|length - 8 }})</td>
-                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='value')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='invested')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='realized_value')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='unrealized_value')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='unrealized_equity_value')|sum) }}</td>
+                <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_currency_symbol(data[8:]|map(attribute='total_unrealized_value')|sum) }}</td>
                 <td style="text-align:right; font-family: var(--font-mono);">{{ fmt_pct_1dp(data[8:]|map(attribute='pct')|sum) }}</td>
             </tr>
             {% endif %}
             </tbody>
         </table>
+        </div>
         <div><canvas id="{{ chart_id }}" height="200"
             data-labels='{{ data[:8]|map(attribute="name")|list|tojson }}'
             data-values='{{ data[:8]|map(attribute="value")|list|tojson }}'></canvas></div>
@@ -169,7 +199,7 @@
         <div>
             <h3 style="margin-bottom: 4px;">Deal Detail</h3>
             <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
-                Deals are grouped, sorted, and subtotaled the same way as the credit track record, with concentration sizing based on total value.
+                Deals are grouped, sorted, and subtotaled the same way as the credit track record, with concentration sizing based on total unrealized value.
             </p>
         </div>
     </div>
@@ -182,15 +212,18 @@
                     <th>Status</th>
                     <th>Close Date</th>
                     <th class="num">Hold Period</th>
-                    <th class="num">Current Invested Capital</th>
-                    <th class="num">Total Value</th>
+                    <th class="num">Invested</th>
+                    <th class="num">Realized</th>
+                    <th class="num">Unrealized</th>
+                    <th class="num">Unrealized Equity</th>
+                    <th class="num">Total Unrealized</th>
                     <th class="num">% Portfolio Value</th>
                 </tr>
             </thead>
             <tbody>
                 {% for fund in analysis.detail_funds %}
                 <tr class="tr-fund-header">
-                    <td colspan="8">
+                    <td colspan="11">
                         {{ fund.fund_name }}
                         {% if fund.vintage_year %} · Vintage {{ fund.vintage_year }}{% endif %}
                         {% if fund.fund_size is not none %} ({{ fmt_currency_symbol(fund.fund_size) }}){% endif %}
@@ -205,7 +238,10 @@
                     <td>{{ row.investment_date.strftime('%b %Y') if row.investment_date else '—' }}</td>
                     <td class="num">{% if row.hold_period is not none %}{{ '%.1f yrs'|format(row.hold_period) }}{% else %}—{% endif %}</td>
                     <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
-                    <td class="num">{{ fmt_currency_symbol(row.total_value) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.realized_value) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.unrealized_value) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.unrealized_warrant_equity_value) }}</td>
+                    <td class="num">{{ fmt_currency_symbol(row.unrealized_total_value) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.pct_portfolio_value) }}</td>
                 </tr>
                 {% endfor %}
@@ -215,7 +251,10 @@
                     <td colspan="4"><strong>{{ rollup.label }}</strong></td>
                     <td class="num"><strong>{% if rollup.totals.hold_period is not none %}{{ '%.1f yrs'|format(rollup.totals.hold_period) }}{% else %}—{% endif %}</strong></td>
                     <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.invested_equity) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_portfolio_value) }}</strong></td>
                 </tr>
                 {% endfor %}
@@ -225,23 +264,29 @@
                     <td colspan="4"><strong>{{ rollup.label }}</strong></td>
                     <td class="num"><strong>{% if rollup.totals.hold_period is not none %}{{ '%.1f yrs'|format(rollup.totals.hold_period) }}{% else %}—{% endif %}</strong></td>
                     <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.invested_equity) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_portfolio_value) }}</strong></td>
                 </tr>
                 {% endfor %}
 
-                <tr class="tr-gap"><td colspan="8"></td></tr>
+                <tr class="tr-gap"><td colspan="11"></td></tr>
                 {% endfor %}
 
                 <tr class="tr-fund-header tr-overall-header">
-                    <td colspan="8">All Funds Summary</td>
+                    <td colspan="11">All Funds Summary</td>
                 </tr>
                 {% for rollup in analysis.detail_overall.status_rollups %}
                 <tr class="tr-rollup tr-rollup-status">
                     <td colspan="4"><strong>{{ rollup.label }}</strong></td>
                     <td class="num"><strong>{% if rollup.totals.hold_period is not none %}{{ '%.1f yrs'|format(rollup.totals.hold_period) }}{% else %}—{% endif %}</strong></td>
                     <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.invested_equity) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_portfolio_value) }}</strong></td>
                 </tr>
                 {% endfor %}
@@ -250,7 +295,10 @@
                     <td colspan="4"><strong>{{ rollup.label }}</strong></td>
                     <td class="num"><strong>{% if rollup.totals.hold_period is not none %}{{ '%.1f yrs'|format(rollup.totals.hold_period) }}{% else %}—{% endif %}</strong></td>
                     <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.invested_equity) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.total_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.realized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_warrant_equity_value) }}</strong></td>
+                    <td class="num"><strong>{{ fmt_currency_symbol(rollup.totals.unrealized_total_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_portfolio_value) }}</strong></td>
                 </tr>
                 {% endfor %}

@@ -290,7 +290,7 @@ CREDIT_ANALYSIS_PAGES = {
     },
     "credit-concentration": {
         "title": "Credit Concentration",
-        "description": "Sector, geography, sponsor, and security type breakdowns sized by total value.",
+        "description": "Sector, geography, sponsor, and security type breakdowns sized by total unrealized value.",
     },
     "credit-fundamentals": {
         "title": "Credit Fundamentals",

@@ -426,6 +426,8 @@ def test_credit_concentration_route_renders_track_record_style_detail(credit_rou
     assert "Deal Detail" in body
     assert "All Funds Summary" in body
     assert "% Portfolio Value" in body
+    assert "Total Unrealized Value" in body
+    assert "Unrealized Equity Value" in body
     assert "PCOF III" in body
 
 
