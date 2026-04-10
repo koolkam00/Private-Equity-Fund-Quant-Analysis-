@@ -1587,6 +1587,12 @@ def _fmt_track_pct(value):
     return f"{value * 100:.1f}%"
 
 
+def _fmt_track_percent_points(value):
+    if value is None:
+        return "—"
+    return f"{value:.1f}%"
+
+
 def _fmt_track_multiple(value):
     if value is None:
         return "—"
@@ -3281,13 +3287,13 @@ def _build_credit_pricing_trends_pdf(
         ["Weighted Loans", str(analysis_payload.get("weighted_loan_count") or 0), "Current Invested Capital", _fmt_track_currency(analysis_payload.get("total_current_invested_capital"), currency_code=currency_code)],
         ["Wtd Avg Coupon", _fmt_track_pct(summary.get("weighted_average_coupon_rate")), "Avg Coupon", _fmt_track_pct(summary.get("average_coupon_rate"))],
         ["Wtd Avg Floor", _fmt_track_pct(summary.get("weighted_average_floor_rate")), "Avg Floor", _fmt_track_pct(summary.get("average_floor_rate"))],
-        ["Avg Upfront Fee", _fmt_track_currency(summary.get("average_upfront_fee"), currency_code=currency_code), "Total Upfront Fees", _fmt_track_currency(summary.get("total_upfront_fees"), currency_code=currency_code)],
+        ["Wtd Avg Upfront Fee", _fmt_track_percent_points(summary.get("weighted_average_upfront_fee")), "Avg Upfront Fee", _fmt_track_percent_points(summary.get("average_upfront_fee"))],
     ]
     story.append(_build_pdf_table(summary_rows, col_widths=[150, 120, 150, 120], numeric_cols=[1, 3], font_size=7.4))
 
     def _pricing_table(title, rows, label_key):
         story.extend([Spacer(1, 10), Paragraph(title, styles["Heading5"])])
-        table_rows = [[label_key, "Loans", "Current Invested", "Wtd Avg Coupon", "Avg Coupon", "Wtd Avg Floor", "Avg Floor", "Avg Upfront Fee"]]
+        table_rows = [[label_key, "Loans", "Current Invested", "Wtd Avg Coupon", "Avg Coupon", "Wtd Avg Floor", "Avg Floor", "Wtd Avg Upfront", "Avg Upfront Fee"]]
         for row in rows:
             table_rows.append(
                 [
@@ -3298,14 +3304,15 @@ def _build_credit_pricing_trends_pdf(
                     _fmt_track_pct(row.get("average_coupon_rate")),
                     _fmt_track_pct(row.get("weighted_average_floor_rate")),
                     _fmt_track_pct(row.get("average_floor_rate")),
-                    _fmt_track_currency(row.get("average_upfront_fee"), currency_code=currency_code),
+                    _fmt_track_percent_points(row.get("weighted_average_upfront_fee")),
+                    _fmt_track_percent_points(row.get("average_upfront_fee")),
                 ]
             )
         story.append(
             _build_pdf_table(
                 table_rows,
-                col_widths=[135, 42, 96, 70, 66, 70, 66, 76],
-                numeric_cols=[1, 2, 3, 4, 5, 6, 7],
+                col_widths=[120, 40, 92, 66, 62, 66, 62, 68, 68],
+                numeric_cols=[1, 2, 3, 4, 5, 6, 7, 8],
                 font_size=6.8,
             )
         )

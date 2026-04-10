@@ -383,7 +383,7 @@ def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_tr
     assert "Wtd Avg Term" in body
 
 
-def test_credit_pricing_trends_route_renders_time_and_dimension_tables(credit_round_trip_client):
+def test_credit_pricing_trends_route_renders_time_series_and_sorted_tables(credit_round_trip_client):
     client, team_id = credit_round_trip_client
     firm_id = _seed_template_loans(client, team_id, firm_name="Pricing Trends Render Firm")
 
@@ -394,12 +394,15 @@ def test_credit_pricing_trends_route_renders_time_and_dimension_tables(credit_ro
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Pricing Trend by Entry Date" in body
-    assert "Wtd Avg Coupon" in body
-    assert "Wtd Avg Floor" in body
+    assert "Weighted Avg Coupon by Entry Date" in body
+    assert "Weighted Avg Floor by Entry Date" in body
+    assert "Weighted Avg Upfront Fee by Entry Date" in body
+    assert "Wtd Avg Upfront Fee" in body
     assert "Avg Upfront Fee" in body
     assert "By Fund" in body
     assert "By Sector" in body
-    assert "Pricing Detail" in body
+    assert "Pricing Detail" not in body
+    assert "Total Upfront Fees" not in body
 
 
 def test_credit_data_cuts_route_labels_entry_underwriting_metrics(credit_round_trip_client):
@@ -614,9 +617,10 @@ def test_credit_pricing_trends_api_payload_shape(credit_round_trip_client):
     assert payload["primary_dim"] == "sector"
     assert "summary" in payload
     assert "time_rows" in payload
+    assert "time_series_charts" in payload
     assert "fund_rows" in payload
     assert "dimension_rows" in payload
-    assert "detail_groups" in payload
+    assert "detail_groups" not in payload
 
 
 def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):

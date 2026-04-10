@@ -3865,6 +3865,31 @@ def _credit_pricing_period(date_value, time_group):
     return ((date_value.year, quarter), f"{date_value.year} Q{quarter}")
 
 
+def _credit_fund_label_sort_key(label):
+    roman_map = {
+        "I": 1,
+        "II": 2,
+        "III": 3,
+        "IV": 4,
+        "V": 5,
+        "VI": 6,
+        "VII": 7,
+        "VIII": 8,
+        "IX": 9,
+        "X": 10,
+        "XI": 11,
+        "XII": 12,
+        "XIII": 13,
+        "XIV": 14,
+        "XV": 15,
+    }
+    clean = (label or "").strip()
+    match = _re.search(r"\b([IVX]+)\b", clean.upper())
+    if match and match.group(1) in roman_map:
+        return (0, roman_map[match.group(1)], clean.lower())
+    return (1, clean.lower())
+
+
 def _credit_pricing_empty_bucket():
     return {
         "loan_count": 0,
@@ -3878,9 +3903,10 @@ def _credit_pricing_empty_bucket():
         "_floor_den": 0.0,
         "_floor_sum": 0.0,
         "_floor_count": 0,
+        "_upfront_num": 0.0,
+        "_upfront_den": 0.0,
         "_upfront_sum": 0.0,
         "_upfront_count": 0,
-        "_upfront_total": 0.0,
     }
 
 
@@ -3911,7 +3937,9 @@ def _credit_pricing_add(bucket, row):
     if upfront_fee is not None:
         bucket["_upfront_sum"] += upfront_fee
         bucket["_upfront_count"] += 1
-        bucket["_upfront_total"] += upfront_fee
+        if weight > 0:
+            bucket["_upfront_num"] += upfront_fee * weight
+            bucket["_upfront_den"] += weight
 
 
 def _credit_pricing_finalize(label, bucket, *, extra=None):
@@ -3934,15 +3962,13 @@ def _credit_pricing_finalize(label, bucket, *, extra=None):
             bucket["_floor_sum"], bucket["_floor_count"]
         ),
         "floor_coverage": bucket["_floor_count"],
+        "weighted_average_upfront_fee": safe_divide(
+            bucket["_upfront_num"], bucket["_upfront_den"]
+        ),
         "average_upfront_fee": safe_divide(
             bucket["_upfront_sum"], bucket["_upfront_count"]
         ),
         "upfront_fee_coverage": bucket["_upfront_count"],
-        "total_upfront_fees": (
-            bucket["_upfront_total"]
-            if bucket["_upfront_count"] > 0
-            else None
-        ),
     }
     if extra:
         payload.update(extra)
@@ -4318,7 +4344,7 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
         fx = loan.fx_rate_to_usd or 1.0
         current_invested_capital = _credit_current_invested_weight(loan, fx)
         fee_upfront_raw = _credit_numeric(getattr(loan, "fee_upfront", None))
-        fee_upfront = (fee_upfront_raw * fx) if fee_upfront_raw is not None else None
+        fee_upfront = fee_upfront_raw if fee_upfront_raw is not None else None
 
         row = {
             "loan_id": getattr(loan, "id", None),
@@ -4377,12 +4403,7 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
         )
         for label, bucket in fund_buckets.items()
     ]
-    fund_rows.sort(
-        key=lambda row: (
-            -(row.get("total_current_invested_capital") or 0.0),
-            row.get("fund_name") or "",
-        )
-    )
+    fund_rows.sort(key=lambda row: _credit_fund_label_sort_key(row.get("fund_name")))
 
     dimension_rows = [
         _credit_pricing_finalize(
@@ -4393,30 +4414,48 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
         for label, bucket in dimension_buckets.items()
     ]
     fallback_label = CREDIT_DIMENSIONS.get(primary_dim, {}).get("fallback", "Unknown")
-    dimension_rows.sort(
-        key=lambda row: (
-            row.get("dimension_value") == fallback_label,
-            -(row.get("total_current_invested_capital") or 0.0),
-            row.get("dimension_value") or "",
+    if primary_dim == "fund_name":
+        dimension_rows.sort(
+            key=lambda row: _credit_fund_label_sort_key(row.get("dimension_value"))
         )
-    )
-
-    detail_groups = []
-    for fund_name in sorted({row["fund_name"] for row in rows}):
-        fund_rows_detail = [row for row in rows if row["fund_name"] == fund_name]
-        fund_rows_detail.sort(
+    else:
+        dimension_rows.sort(
             key=lambda row: (
-                row.get("close_date") is None,
-                row.get("close_date") or date.max,
-                -(row.get("current_invested_capital") or 0.0),
-                row.get("company_name") or "",
+                row.get("dimension_value") == fallback_label,
+                -(row.get("total_current_invested_capital") or 0.0),
+                row.get("dimension_value") or "",
             )
         )
-        detail_groups.append({
-            "fund_name": fund_name,
-            "loan_count": len(fund_rows_detail),
-            "rows": fund_rows_detail,
-        })
+
+    time_series_charts = [
+        {
+            "chart_key": "coupon",
+            "title": "Weighted Avg Coupon by Entry Date",
+            "description": "A line chart is the clearest view for sequential entry periods because it shows when coupons tightened or widened over time.",
+            "metric_label": "Weighted Avg Coupon",
+            "metric_kind": "decimal_percent",
+            "labels": [row["period_label"] for row in time_rows],
+            "values": [row.get("weighted_average_coupon_rate") for row in time_rows],
+        },
+        {
+            "chart_key": "floor",
+            "title": "Weighted Avg Floor by Entry Date",
+            "description": "Floor terms also move sequentially through time, so a line chart makes inflection points and reset-era repricing easy to spot.",
+            "metric_label": "Weighted Avg Floor",
+            "metric_kind": "decimal_percent",
+            "labels": [row["period_label"] for row in time_rows],
+            "values": [row.get("weighted_average_floor_rate") for row in time_rows],
+        },
+        {
+            "chart_key": "upfront",
+            "title": "Weighted Avg Upfront Fee by Entry Date",
+            "description": "Upfront fees are percentage points, and a time-series line best highlights periods where fee discipline improved or softened.",
+            "metric_label": "Weighted Avg Upfront Fee",
+            "metric_kind": "percent_points",
+            "labels": [row["period_label"] for row in time_rows],
+            "values": [row.get("weighted_average_upfront_fee") for row in time_rows],
+        },
+    ]
 
     return {
         "loan_count": len(rows),
@@ -4434,7 +4473,7 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
         "dimension_labels": CREDIT_DIMENSION_LABELS,
         "fund_rows": fund_rows,
         "dimension_rows": dimension_rows,
-        "detail_groups": detail_groups,
+        "time_series_charts": time_series_charts,
     }
 
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_date_mdy, fmt_pct_1dp with context %}
+{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_pct_1dp, fmt_pp_1dp with context %}
 {% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
 {% block page_title %}{{ page_meta.title }}{% endblock %}
 {% block page_subtitle %}{{ page_meta.description }}{% endblock %}
@@ -14,6 +14,8 @@
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_currency_symbol(value) }}{%- endif -%}
     {%- elif kind == "percent" -%}
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pct_1dp(value) }}{%- endif -%}
+    {%- elif kind == "percent_points" -%}
+        {%- if value is none -%}{{ na_label }}{%- else -%}{{ fmt_pp_1dp(value) }}{%- endif -%}
     {%- else -%}
         {%- if value is none -%}{{ na_label }}{%- else -%}{{ value }}{%- endif -%}
     {%- endif -%}
@@ -112,12 +114,12 @@
         <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_floor_rate, 'percent') }}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Avg Upfront Fee</div>
-        <div class="kpi-value">{{ render_metric(analysis.summary.average_upfront_fee, 'currency') }}</div>
+        <div class="kpi-label">Wtd Avg Upfront Fee</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.weighted_average_upfront_fee, 'percent_points') }}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Total Upfront Fees</div>
-        <div class="kpi-value">{{ render_metric(analysis.summary.total_upfront_fees, 'currency') }}</div>
+        <div class="kpi-label">Avg Upfront Fee</div>
+        <div class="kpi-value">{{ render_metric(analysis.summary.average_upfront_fee, 'percent_points') }}</div>
     </div>
 </div>
 
@@ -133,36 +135,24 @@
             Weighted averages use <strong>Current Invested Capital</strong> only.
         </div>
     </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>{{ analysis.time_group_label }}</th>
-                <th style="text-align: right;">Loans</th>
-                <th style="text-align: right;">Current Invested Capital</th>
-                <th style="text-align: right;">Wtd Avg Coupon</th>
-                <th style="text-align: right;">Avg Coupon</th>
-                <th style="text-align: right;">Wtd Avg Floor</th>
-                <th style="text-align: right;">Avg Floor</th>
-                <th style="text-align: right;">Avg Upfront Fee</th>
-                <th style="text-align: right;">Total Upfront Fees</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in analysis.time_rows %}
-            <tr>
-                <td style="font-weight: 500;">{{ row.period_label }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ row.loan_count }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ fmt_currency_symbol(row.total_current_invested_capital) }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_coupon_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px;">
+        {% for chart in analysis.time_series_charts %}
+        <div class="panel chart-panel" style="margin: 0; padding: 18px;">
+            <div class="chart-panel-header">
+                <div>
+                    <h3 style="margin: 0 0 4px 0; font-size: 16px;">{{ chart.title }}</h3>
+                    <p>{{ chart.description }}</p>
+                </div>
+            </div>
+            <div style="height: 300px;">
+                <canvas data-credit-pricing-chart="{{ chart.chart_key }}"></canvas>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 14px; font-family: var(--font-sans);">
+        Line charts are used here because entry-date cohorts are sequential. They make it easier to see when market pricing tightened or loosened than a dense period-by-period table.
+    </p>
 </div>
 
 <div class="panel" style="margin-bottom: 24px;">
@@ -180,8 +170,8 @@
                 <th style="text-align: right;">Avg Coupon</th>
                 <th style="text-align: right;">Wtd Avg Floor</th>
                 <th style="text-align: right;">Avg Floor</th>
+                <th style="text-align: right;">Wtd Avg Upfront Fee</th>
                 <th style="text-align: right;">Avg Upfront Fee</th>
-                <th style="text-align: right;">Total Upfront Fees</th>
             </tr>
         </thead>
         <tbody>
@@ -194,8 +184,8 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent_points') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent_points') }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -217,8 +207,8 @@
                 <th style="text-align: right;">Avg Coupon</th>
                 <th style="text-align: right;">Wtd Avg Floor</th>
                 <th style="text-align: right;">Avg Floor</th>
+                <th style="text-align: right;">Wtd Avg Upfront Fee</th>
                 <th style="text-align: right;">Avg Upfront Fee</th>
-                <th style="text-align: right;">Total Upfront Fees</th>
             </tr>
         </thead>
         <tbody>
@@ -231,75 +221,89 @@
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_coupon_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_floor_rate, 'percent') }}</td>
                 <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_floor_rate, 'percent') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'currency') }}</td>
-                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.total_upfront_fees, 'currency') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.weighted_average_upfront_fee, 'percent_points') }}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">{{ render_metric(row.average_upfront_fee, 'percent_points') }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
 
-<div class="panel">
-    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
-        <div>
-            <h3 style="margin-bottom: 4px;">Pricing Detail</h3>
-            <p style="font-size: 13px; color: var(--ink-muted); margin: 0;">
-                Deal-level pricing grouped by fund so the trend tables stay auditable.
-            </p>
-        </div>
-    </div>
-    <div class="track-record-scroll">
-        <table class="track-record-template">
-            <thead>
-                <tr>
-                    <th>Company</th>
-                    <th>Entry Date</th>
-                    <th>Sector</th>
-                    <th>Sponsor</th>
-                    <th>Instrument</th>
-                    <th>Rate Type</th>
-                    <th class="num">Current Invested Capital</th>
-                    <th class="num">Coupon Rate</th>
-                    <th class="num">Floor Rate</th>
-                    <th class="num">Upfront Fee</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for group in analysis.detail_groups %}
-                <tr class="tr-fund-header">
-                    <td colspan="11">
-                        {{ group.fund_name }}
-                        <span style="color: var(--ink-muted); font-size: 12px;">· {{ group.loan_count }} loans</span>
-                    </td>
-                </tr>
-                {% for row in group.rows %}
-                <tr class="tr-detail">
-                    <td>{{ row.company_name or '—' }}</td>
-                    <td>{{ fmt_date_mdy(row.close_date) if row.close_date else '—' }}</td>
-                    <td>{{ row.sector or '—' }}</td>
-                    <td>{{ row.sponsor or '—' }}</td>
-                    <td>{{ row.instrument or '—' }}</td>
-                    <td>{{ row.fixed_or_floating or '—' }}</td>
-                    <td class="num">{{ fmt_currency_symbol(row.current_invested_capital) }}</td>
-                    <td class="num">{{ render_metric(row.coupon_rate, 'percent') }}</td>
-                    <td class="num">{{ render_metric(row.floor_rate, 'percent') }}</td>
-                    <td class="num">{{ render_metric(row.fee_upfront, 'currency') }}</td>
-                    <td>{{ row.status or '—' }}</td>
-                </tr>
-                {% endfor %}
-                {% if not loop.last %}
-                <tr class="tr-gap"><td colspan="11"></td></tr>
-                {% endif %}
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
-    Coupon and floor weighted averages use <strong>Current Invested Capital</strong> only. Entry-date trends are based on each loan’s <strong>Entry Date</strong>. Upfront fees are shown in the uploaded loan units and aggregated as average fee per deal plus total fees by slice.
+    Coupon and floor weighted averages use <strong>Current Invested Capital</strong> only. Entry-date trends are based on each loan’s <strong>Entry Date</strong>. Upfront fees are expressed as percentage points from the uploaded credit tape.
 </p>
+
+<script id="credit-pricing-trend-chart-payload" type="application/json">{{ analysis.time_series_charts|tojson }}</script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var payloadEl = document.getElementById('credit-pricing-trend-chart-payload');
+    if (!payloadEl || typeof Chart === 'undefined') return;
+
+    var charts = JSON.parse(payloadEl.textContent || '[]');
+    var colors = {
+        coupon: '#0A6B58',
+        floor: '#C9982E',
+        upfront: '#2563EB'
+    };
+
+    function formatValue(kind, value) {
+        if (value === null || value === undefined) return '—';
+        if (kind === 'percent_points') return value.toFixed(1) + '%';
+        return (value * 100).toFixed(1) + '%';
+    }
+
+    charts.forEach(function(chart) {
+        var canvas = document.querySelector('[data-credit-pricing-chart="' + chart.chart_key + '"]');
+        if (!canvas || !Array.isArray(chart.labels) || !chart.labels.length) return;
+
+        new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: chart.labels,
+                datasets: [{
+                    label: chart.metric_label,
+                    data: chart.values || [],
+                    borderColor: colors[chart.chart_key] || '#0A6B58',
+                    backgroundColor: colors[chart.chart_key] || '#0A6B58',
+                    borderWidth: 3,
+                    tension: 0.25,
+                    pointRadius: 3,
+                    pointHoverRadius: 4,
+                    spanGaps: true,
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return chart.metric_label + ': ' + formatValue(chart.metric_kind, ctx.raw);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        grid: { color: '#EEECEA' },
+                        ticks: {
+                            callback: function(value) { return formatValue(chart.metric_kind, value); },
+                            font: { family: "'Geist Mono'" }
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { family: "'Instrument Sans'", size: 11 } }
+                    }
+                }
+            }
+        });
+    });
+});
+</script>
 
 {% endif %}
 {% endblock %}
