@@ -1087,8 +1087,64 @@ def ensure_schema_updates():
     CreditFundPerformance.__table__.create(bind=engine, checkfirst=True)
     inspector = inspect(engine)
 
-    # Credit loan columns added after initial model definition
-    _credit_new_cols = [
+    # ALL CreditLoan columns — idempotent, skips columns that already exist.
+    # Listing every column ensures Render Postgres gets them even if the
+    # table was created by an older deploy with fewer columns.
+    _credit_loan_cols = [
+        ("credit_loans", "company_name", "VARCHAR(255)"),
+        ("credit_loans", "fund_name", "VARCHAR(255)"),
+        ("credit_loans", "vintage_year", "INTEGER"),
+        ("credit_loans", "close_date", "DATE"),
+        ("credit_loans", "exit_date", "DATE"),
+        ("credit_loans", "status", "VARCHAR(50)"),
+        ("credit_loans", "as_of_date", "DATE"),
+        ("credit_loans", "instrument", "VARCHAR(100)"),
+        ("credit_loans", "tranche", "VARCHAR(100)"),
+        ("credit_loans", "security_type", "VARCHAR(100)"),
+        ("credit_loans", "issue_size", "FLOAT"),
+        ("credit_loans", "hold_size", "FLOAT"),
+        ("credit_loans", "coupon_rate", "FLOAT"),
+        ("credit_loans", "spread_bps", "INTEGER"),
+        ("credit_loans", "floor_rate", "FLOAT"),
+        ("credit_loans", "fee_oid", "FLOAT"),
+        ("credit_loans", "fee_upfront", "FLOAT"),
+        ("credit_loans", "fee_exit", "FLOAT"),
+        ("credit_loans", "maturity_date", "DATE"),
+        ("credit_loans", "fixed_or_floating", "VARCHAR(20)"),
+        ("credit_loans", "reference_rate", "VARCHAR(20)"),
+        ("credit_loans", "pik_toggle", "BOOLEAN"),
+        ("credit_loans", "pik_rate", "FLOAT"),
+        ("credit_loans", "call_protection_months", "INTEGER"),
+        ("credit_loans", "make_whole_premium", "FLOAT"),
+        ("credit_loans", "amortization_type", "VARCHAR(50)"),
+        ("credit_loans", "payment_frequency", "VARCHAR(20)"),
+        ("credit_loans", "entry_ltv", "FLOAT"),
+        ("credit_loans", "current_ltv", "FLOAT"),
+        ("credit_loans", "entry_revenue", "FLOAT"),
+        ("credit_loans", "entry_ebitda", "FLOAT"),
+        ("credit_loans", "current_revenue", "FLOAT"),
+        ("credit_loans", "current_ebitda", "FLOAT"),
+        ("credit_loans", "interest_coverage_ratio", "FLOAT"),
+        ("credit_loans", "dscr", "FLOAT"),
+        ("credit_loans", "internal_credit_rating", "INTEGER"),
+        ("credit_loans", "default_status", "VARCHAR(50)"),
+        ("credit_loans", "covenant_type", "VARCHAR(50)"),
+        ("credit_loans", "covenant_compliant", "BOOLEAN"),
+        ("credit_loans", "gross_irr", "FLOAT"),
+        ("credit_loans", "moic", "FLOAT"),
+        ("credit_loans", "realized_value", "FLOAT"),
+        ("credit_loans", "unrealized_value", "FLOAT"),
+        ("credit_loans", "cumulative_interest_income", "FLOAT"),
+        ("credit_loans", "cumulative_fee_income", "FLOAT"),
+        ("credit_loans", "fair_value", "FLOAT"),
+        ("credit_loans", "yield_to_maturity", "FLOAT"),
+        ("credit_loans", "recovery_rate", "FLOAT"),
+        ("credit_loans", "original_par", "FLOAT"),
+        ("credit_loans", "current_outstanding", "FLOAT"),
+        ("credit_loans", "accrued_interest", "FLOAT"),
+        ("credit_loans", "sector", "VARCHAR(100)"),
+        ("credit_loans", "geography", "VARCHAR(100)"),
+        ("credit_loans", "sponsor", "VARCHAR(255)"),
         ("credit_loans", "investment_count", "INTEGER"),
         ("credit_loans", "business_description", "TEXT"),
         ("credit_loans", "is_public", "BOOLEAN"),
@@ -1105,7 +1161,7 @@ def ensure_schema_updates():
         ("credit_loans", "cash_margin", "FLOAT"),
         ("credit_loans", "pik_margin", "FLOAT"),
         ("credit_loans", "closing_fee", "FLOAT"),
-        ("credit_loans", "prepayment_protection", "VARCHAR(200)"),
+        ("credit_loans", "prepayment_protection", "VARCHAR(255)"),
         ("credit_loans", "loan_term", "VARCHAR(50)"),
         ("credit_loans", "equity_investment", "FLOAT"),
         ("credit_loans", "warrants_at_entry", "INTEGER"),
@@ -1123,12 +1179,31 @@ def ensure_schema_updates():
         ("credit_loans", "current_coverage_ratio", "FLOAT"),
         ("credit_loans", "entry_equity_cushion", "FLOAT"),
         ("credit_loans", "current_equity_cushion", "FLOAT"),
+        ("credit_loans", "currency", "VARCHAR(3)"),
+        ("credit_loans", "fx_rate_to_usd", "FLOAT"),
+        ("credit_loans", "firm_id", "INTEGER"),
+        ("credit_loans", "team_id", "INTEGER"),
+        ("credit_loans", "upload_batch", "VARCHAR(100)"),
+        ("credit_loans", "created_at", "TIMESTAMP"),
     ]
-    for table, col, sql_type in _credit_new_cols:
+    for table, col, sql_type in _credit_loan_cols:
         _ensure_column(engine, inspector, table, col, sql_type)
 
-    # Credit snapshot columns
+    # ALL CreditLoanSnapshot columns
     _credit_snap_cols = [
+        ("credit_loan_snapshots", "credit_loan_id", "INTEGER"),
+        ("credit_loan_snapshots", "snapshot_date", "DATE"),
+        ("credit_loan_snapshots", "current_ltv", "FLOAT"),
+        ("credit_loan_snapshots", "fair_value", "FLOAT"),
+        ("credit_loan_snapshots", "current_revenue", "FLOAT"),
+        ("credit_loan_snapshots", "current_ebitda", "FLOAT"),
+        ("credit_loan_snapshots", "interest_coverage_ratio", "FLOAT"),
+        ("credit_loan_snapshots", "dscr", "FLOAT"),
+        ("credit_loan_snapshots", "default_status", "VARCHAR(50)"),
+        ("credit_loan_snapshots", "internal_credit_rating", "INTEGER"),
+        ("credit_loan_snapshots", "covenant_compliant", "BOOLEAN"),
+        ("credit_loan_snapshots", "current_outstanding", "FLOAT"),
+        ("credit_loan_snapshots", "accrued_interest", "FLOAT"),
         ("credit_loan_snapshots", "current_invested_capital", "FLOAT"),
         ("credit_loan_snapshots", "unrealized_loan_value", "FLOAT"),
         ("credit_loan_snapshots", "unrealized_warrant_equity_value", "FLOAT"),
@@ -1140,8 +1215,29 @@ def ensure_schema_updates():
     for table, col, sql_type in _credit_snap_cols:
         _ensure_column(engine, inspector, table, col, sql_type)
 
-    # Credit fund performance columns
-    _ensure_column(engine, inspector, "credit_fund_performance", "fund_size", "FLOAT")
+    # ALL CreditFundPerformance columns
+    _credit_fp_cols = [
+        ("credit_fund_performance", "fund_name", "VARCHAR(255)"),
+        ("credit_fund_performance", "vintage_year", "INTEGER"),
+        ("credit_fund_performance", "fund_size", "FLOAT"),
+        ("credit_fund_performance", "net_irr", "FLOAT"),
+        ("credit_fund_performance", "net_moic", "FLOAT"),
+        ("credit_fund_performance", "net_dpi", "FLOAT"),
+        ("credit_fund_performance", "net_rvpi", "FLOAT"),
+        ("credit_fund_performance", "net_tvpi", "FLOAT"),
+        ("credit_fund_performance", "called_capital", "FLOAT"),
+        ("credit_fund_performance", "distributed_capital", "FLOAT"),
+        ("credit_fund_performance", "nav", "FLOAT"),
+        ("credit_fund_performance", "report_date", "DATE"),
+        ("credit_fund_performance", "currency", "VARCHAR(3)"),
+        ("credit_fund_performance", "fx_rate_to_usd", "FLOAT"),
+        ("credit_fund_performance", "firm_id", "INTEGER"),
+        ("credit_fund_performance", "team_id", "INTEGER"),
+        ("credit_fund_performance", "upload_batch", "VARCHAR(100)"),
+        ("credit_fund_performance", "created_at", "TIMESTAMP"),
+    ]
+    for table, col, sql_type in _credit_fp_cols:
+        _ensure_column(engine, inspector, table, col, sql_type)
 
     # Credit indexes
     _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
