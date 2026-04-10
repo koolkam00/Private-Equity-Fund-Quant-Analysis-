@@ -1081,6 +1081,74 @@ def ensure_schema_updates():
     _ensure_column(engine, inspector, "benchmark_points", "region", "VARCHAR(128)")
     _ensure_column(engine, inspector, "benchmark_points", "size_bucket", "VARCHAR(128)")
 
+    # --- Credit tables ---
+    CreditLoan.__table__.create(bind=engine, checkfirst=True)
+    CreditLoanSnapshot.__table__.create(bind=engine, checkfirst=True)
+    CreditFundPerformance.__table__.create(bind=engine, checkfirst=True)
+    inspector = inspect(engine)
+
+    # Credit loan columns added after initial model definition
+    _credit_new_cols = [
+        ("credit_loans", "investment_count", "INTEGER"),
+        ("credit_loans", "business_description", "TEXT"),
+        ("credit_loans", "is_public", "BOOLEAN"),
+        ("credit_loans", "sourcing_channel", "VARCHAR(100)"),
+        ("credit_loans", "location", "VARCHAR(100)"),
+        ("credit_loans", "committed_amount", "FLOAT"),
+        ("credit_loans", "entry_loan_amount", "FLOAT"),
+        ("credit_loans", "current_invested_capital", "FLOAT"),
+        ("credit_loans", "realized_proceeds", "FLOAT"),
+        ("credit_loans", "unrealized_loan_value", "FLOAT"),
+        ("credit_loans", "unrealized_warrant_equity_value", "FLOAT"),
+        ("credit_loans", "total_value", "FLOAT"),
+        ("credit_loans", "estimated_irr_at_entry", "FLOAT"),
+        ("credit_loans", "cash_margin", "FLOAT"),
+        ("credit_loans", "pik_margin", "FLOAT"),
+        ("credit_loans", "closing_fee", "FLOAT"),
+        ("credit_loans", "prepayment_protection", "VARCHAR(200)"),
+        ("credit_loans", "loan_term", "VARCHAR(50)"),
+        ("credit_loans", "equity_investment", "FLOAT"),
+        ("credit_loans", "warrants_at_entry", "INTEGER"),
+        ("credit_loans", "warrant_strike_entry", "FLOAT"),
+        ("credit_loans", "warrants_current", "INTEGER"),
+        ("credit_loans", "warrant_strike_current", "FLOAT"),
+        ("credit_loans", "warrant_term", "VARCHAR(50)"),
+        ("credit_loans", "fund_size", "FLOAT"),
+        ("credit_loans", "ttm_revenue_entry", "FLOAT"),
+        ("credit_loans", "ttm_revenue_current", "FLOAT"),
+        ("credit_loans", "term_years", "FLOAT"),
+        ("credit_loans", "entry_collateral", "FLOAT"),
+        ("credit_loans", "current_collateral", "FLOAT"),
+        ("credit_loans", "entry_coverage_ratio", "FLOAT"),
+        ("credit_loans", "current_coverage_ratio", "FLOAT"),
+        ("credit_loans", "entry_equity_cushion", "FLOAT"),
+        ("credit_loans", "current_equity_cushion", "FLOAT"),
+    ]
+    for table, col, sql_type in _credit_new_cols:
+        _ensure_column(engine, inspector, table, col, sql_type)
+
+    # Credit snapshot columns
+    _credit_snap_cols = [
+        ("credit_loan_snapshots", "current_invested_capital", "FLOAT"),
+        ("credit_loan_snapshots", "unrealized_loan_value", "FLOAT"),
+        ("credit_loan_snapshots", "unrealized_warrant_equity_value", "FLOAT"),
+        ("credit_loan_snapshots", "total_value", "FLOAT"),
+        ("credit_loan_snapshots", "ttm_revenue_current", "FLOAT"),
+        ("credit_loan_snapshots", "gross_irr", "FLOAT"),
+        ("credit_loan_snapshots", "moic", "FLOAT"),
+    ]
+    for table, col, sql_type in _credit_snap_cols:
+        _ensure_column(engine, inspector, table, col, sql_type)
+
+    # Credit fund performance columns
+    _ensure_column(engine, inspector, "credit_fund_performance", "fund_size", "FLOAT")
+
+    # Credit indexes
+    _ensure_index(engine, "ix_credit_loans_firm_id", "credit_loans", "firm_id")
+    _ensure_index(engine, "ix_credit_loans_team_id", "credit_loans", "team_id")
+    _ensure_index(engine, "ix_credit_loan_snapshots_loan_id", "credit_loan_snapshots", "loan_id")
+    _ensure_index(engine, "ix_credit_fund_performance_team_id", "credit_fund_performance", "team_id")
+
     _ensure_index(engine, "ix_deals_firm_id", "deals", "firm_id")
     _ensure_index(engine, "ix_deal_cashflow_events_firm_id", "deal_cashflow_events", "firm_id")
     _ensure_index(engine, "ix_deal_quarter_snapshots_firm_id", "deal_quarter_snapshots", "firm_id")

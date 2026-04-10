@@ -99,7 +99,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             from models import ensure_schema_updates
             db.create_all()
             ensure_schema_updates()
+            app.logger.info("Schema updates applied successfully on startup")
         except Exception as e:
-            app.logger.warning("Auto schema update skipped: %s", e)
+            app.logger.error("Auto schema update FAILED: %s", e, exc_info=True)
 
     return app
