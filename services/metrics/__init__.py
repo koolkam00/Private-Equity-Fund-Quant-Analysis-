@@ -50,6 +50,7 @@ from services.metrics.executive_summary import compute_executive_summary_analysi
 from services.metrics.organic_growth import compute_organic_growth_analysis
 from services.metrics.data_cuts import compute_data_cuts_analytics
 from services.metrics.credit import (
+    compute_credit_benchmarking_analysis,
     compute_credit_data_cuts,
     compute_credit_fundamentals,
     compute_credit_loan_metrics,
@@ -116,6 +117,7 @@ __all__ = [
     "compute_fund_performance_comparison",
     "compute_organic_growth_analysis",
     "compute_data_cuts_analytics",
+    "compute_credit_benchmarking_analysis",
     "compute_credit_data_cuts",
     "compute_credit_loan_metrics",
     "compute_credit_loan_structure",

@@ -5,6 +5,13 @@ from __future__ import annotations
 from datetime import date
 from collections import defaultdict
 
+from services.metrics.benchmarking import (
+    BENCHMARK_METRICS,
+    RANK_CODES,
+    RANK_LABELS,
+    RANK_SCORE_MAP,
+    rank_benchmark_metric,
+)
 from services.metrics.common import safe_divide
 
 
@@ -2630,6 +2637,216 @@ def _credit_fund_sort_key(fund_name, fund_performance):
     perf = (fund_performance or {}).get(fund_name) if fund_performance else None
     vintage = getattr(perf, "vintage_year", None) if perf is not None else None
     return (vintage if vintage is not None else 9999, (fund_name or "").lower())
+
+
+def _credit_composite_rank(score):
+    if score is None:
+        return {"rank_code": "na", "label": RANK_LABELS["na"]}
+    if score >= 4.75:
+        return {"rank_code": "top5", "label": RANK_LABELS["top5"]}
+    if score >= 3.75:
+        return {"rank_code": "q1", "label": RANK_LABELS["q1"]}
+    if score >= 2.75:
+        return {"rank_code": "q2", "label": RANK_LABELS["q2"]}
+    if score >= 1.75:
+        return {"rank_code": "q3", "label": RANK_LABELS["q3"]}
+    return {"rank_code": "q4", "label": RANK_LABELS["q4"]}
+
+
+def _credit_benchmark_as_of_date(loans, fund_performance):
+    report_dates = [
+        getattr(row, "report_date", None)
+        for row in (fund_performance or {}).values()
+        if getattr(row, "report_date", None) is not None
+    ]
+    if report_dates:
+        return max(report_dates)
+
+    explicit_as_of_dates = [
+        getattr(loan, "as_of_date", None)
+        for loan in loans
+        if getattr(loan, "as_of_date", None) is not None
+    ]
+    if explicit_as_of_dates:
+        return max(explicit_as_of_dates)
+
+    exit_dates = [
+        getattr(loan, "exit_date", None)
+        for loan in loans
+        if getattr(loan, "exit_date", None) is not None
+    ]
+    if exit_dates:
+        return max(exit_dates)
+
+    close_dates = [
+        getattr(loan, "close_date", None)
+        for loan in loans
+        if getattr(loan, "close_date", None) is not None
+    ]
+    if close_dates:
+        return max(close_dates)
+
+    return date.today()
+
+
+def _credit_fund_vintage_year(fund_loans, fund_perf=None):
+    perf_vintage = getattr(fund_perf, "vintage_year", None) if fund_perf is not None else None
+    try:
+        if perf_vintage is not None:
+            return int(perf_vintage)
+    except (TypeError, ValueError):
+        pass
+
+    vintage_candidates = []
+    for loan in fund_loans:
+        loan_vintage = getattr(loan, "vintage_year", None)
+        try:
+            if loan_vintage is not None:
+                vintage_candidates.append(int(loan_vintage))
+                continue
+        except (TypeError, ValueError):
+            pass
+        close_date = getattr(loan, "close_date", None)
+        if close_date is not None:
+            vintage_candidates.append(int(close_date.year))
+    return min(vintage_candidates) if vintage_candidates else None
+
+
+def compute_credit_benchmarking_analysis(
+    loans,
+    *,
+    fund_performance=None,
+    benchmark_thresholds=None,
+    benchmark_asset_class="",
+):
+    """Benchmarking analysis for credit funds using uploaded credit fund data."""
+    fund_performance = fund_performance or {}
+    thresholds = benchmark_thresholds or {}
+    selected_asset = (benchmark_asset_class or "").strip()
+    as_of = _credit_benchmark_as_of_date(loans, fund_performance)
+
+    grouped = defaultdict(list)
+    for loan in loans:
+        grouped[(getattr(loan, "fund_name", None) or "Unknown Fund")].append(loan)
+
+    rank_distribution = {
+        metric: {"label": metric.replace("_", " ").upper(), "counts": {code: 0 for code in RANK_CODES}}
+        for metric in BENCHMARK_METRICS
+    }
+
+    fund_rows = []
+    for fund_name in sorted(grouped.keys(), key=lambda fn: _credit_fund_sort_key(fn, fund_performance)):
+        fund_loans = grouped[fund_name]
+        fund_perf = fund_performance.get(fund_name)
+        fund_net = _credit_fund_net_performance(fund_perf)
+        conflicts = fund_net.get("conflicts") or {}
+        vintage_year = _credit_fund_vintage_year(fund_loans, fund_perf=fund_perf)
+        fund_size_meta = _credit_resolve_scalar(
+            [getattr(loan, "fund_size", None) for loan in fund_loans] + [getattr(fund_perf, "fund_size", None)]
+        )
+        perf_fund_size = getattr(fund_perf, "fund_size", None) if fund_perf is not None else None
+        fund_size = perf_fund_size if perf_fund_size is not None else fund_size_meta["value"]
+        net_multiple = fund_net.get("net_tvpi")
+        if net_multiple is None:
+            net_multiple = fund_net.get("net_moic")
+
+        row = {
+            "fund_name": fund_name,
+            "vintage_year": vintage_year,
+            "fund_size": fund_size,
+            "fund_size_conflict": bool(fund_size_meta["conflict"]),
+            "net_irr": fund_net.get("net_irr"),
+            "net_moic": net_multiple,
+            "net_tvpi": net_multiple,
+            "net_dpi": fund_net.get("net_dpi"),
+            "net_irr_conflict": bool(conflicts.get("net_irr")),
+            "net_moic_conflict": bool(conflicts.get("net_moic")),
+            "net_dpi_conflict": bool(conflicts.get("net_dpi")),
+        }
+
+        available_scores = []
+        for metric in BENCHMARK_METRICS:
+            conflict_flag = bool(conflicts.get(metric))
+            metric_value = row.get(metric)
+            ranking_value = None if conflict_flag else metric_value
+            rank = rank_benchmark_metric(
+                ranking_value,
+                vintage_year,
+                metric,
+                thresholds,
+                selected_asset,
+            )
+            rank_distribution[metric]["counts"][rank["rank_code"]] += 1
+            row[f"benchmark_{metric}"] = rank
+
+            if rank["rank_code"] != "na":
+                available_scores.append(RANK_SCORE_MAP[rank["rank_code"]])
+
+        composite_score = safe_divide(sum(available_scores), len(available_scores)) if available_scores else None
+        row["composite_score"] = composite_score
+        row["composite_rank"] = _credit_composite_rank(composite_score)
+        row["any_coverage"] = bool(available_scores)
+        row["full_coverage"] = len(available_scores) == len(BENCHMARK_METRICS)
+        fund_rows.append(row)
+
+    threshold_rows = []
+    vintage_years = sorted(int(year) for year in thresholds.keys())
+    for year in vintage_years:
+        vintage_bucket = thresholds.get(year) or {}
+        threshold_rows.append(
+            {
+                "vintage_year": year,
+                "net_irr_lower_quartile": ((vintage_bucket.get("net_irr") or {}).get("lower_quartile")),
+                "net_irr_median": ((vintage_bucket.get("net_irr") or {}).get("median")),
+                "net_irr_upper_quartile": ((vintage_bucket.get("net_irr") or {}).get("upper_quartile")),
+                "net_irr_top_5": ((vintage_bucket.get("net_irr") or {}).get("top_5")),
+                "net_moic_lower_quartile": ((vintage_bucket.get("net_moic") or {}).get("lower_quartile")),
+                "net_moic_median": ((vintage_bucket.get("net_moic") or {}).get("median")),
+                "net_moic_upper_quartile": ((vintage_bucket.get("net_moic") or {}).get("upper_quartile")),
+                "net_moic_top_5": ((vintage_bucket.get("net_moic") or {}).get("top_5")),
+                "net_dpi_lower_quartile": ((vintage_bucket.get("net_dpi") or {}).get("lower_quartile")),
+                "net_dpi_median": ((vintage_bucket.get("net_dpi") or {}).get("median")),
+                "net_dpi_upper_quartile": ((vintage_bucket.get("net_dpi") or {}).get("upper_quartile")),
+                "net_dpi_top_5": ((vintage_bucket.get("net_dpi") or {}).get("top_5")),
+            }
+        )
+
+    fund_count = len(fund_rows)
+    any_coverage_count = sum(1 for row in fund_rows if row.get("any_coverage"))
+    full_coverage_count = sum(1 for row in fund_rows if row.get("full_coverage"))
+    composite_values = [row["composite_score"] for row in fund_rows if row.get("composite_score") is not None]
+    avg_composite_score = safe_divide(sum(composite_values), len(composite_values)) if composite_values else None
+
+    coverage_note = "Select a Benchmark Asset Class to populate quartile rankings."
+    if selected_asset and not threshold_rows:
+        coverage_note = "No benchmark thresholds found for the selected asset class."
+    elif selected_asset and threshold_rows:
+        coverage_note = "Quartile rankings require exact vintage-year threshold matches."
+
+    return {
+        "meta": {
+            "as_of_date": as_of,
+            "benchmark_asset_class": selected_asset,
+            "coverage_note": coverage_note,
+            "vintage_min": vintage_years[0] if vintage_years else None,
+            "vintage_max": vintage_years[-1] if vintage_years else None,
+            "legend": [
+                "Top 5% >= top_5 threshold",
+                "Quartile ranks use exact vintage-year matches",
+                "Composite score averages available metric rank scores (Top5=5 to Q4=1)",
+            ],
+            "rank_labels": RANK_LABELS,
+        },
+        "kpis": {
+            "fund_count": fund_count,
+            "any_coverage_pct": safe_divide(any_coverage_count, fund_count),
+            "full_coverage_pct": safe_divide(full_coverage_count, fund_count),
+            "avg_composite_score": avg_composite_score,
+        },
+        "rank_distribution": rank_distribution,
+        "fund_rows": fund_rows,
+        "threshold_rows": threshold_rows,
+    }
 
 
 def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=None):

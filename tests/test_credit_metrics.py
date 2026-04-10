@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 from services.metrics.credit import (
+    compute_credit_benchmarking_analysis,
     compute_credit_data_cuts,
     compute_credit_fundamentals,
     compute_credit_loan_metrics,
@@ -1600,6 +1601,78 @@ class TestCreditWatchlist:
         assert result["attention_count"] == 1
         assert result["monitor_count"] == 1
         assert result["clear_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Credit Benchmarking
+# ---------------------------------------------------------------------------
+
+
+class TestCreditBenchmarking:
+    def test_credit_benchmarking_uses_credit_fund_performance(self):
+        loans = [
+            _make_lp_loan(
+                id=1,
+                fund_name="Credit Fund I",
+                vintage_year=2021,
+                close_date=date(2021, 4, 1),
+                status="Unrealized",
+            )
+        ]
+        fund_perf = {
+            "Credit Fund I": SimpleNamespace(
+                fund_name="Credit Fund I",
+                vintage_year=2021,
+                fund_size=500.0,
+                net_irr=0.14,
+                net_moic=None,
+                net_tvpi=1.45,
+                net_dpi=0.60,
+                report_date=date(2024, 12, 31),
+            )
+        }
+        thresholds = {
+            2021: {
+                "net_irr": {
+                    "lower_quartile": 0.08,
+                    "median": 0.11,
+                    "upper_quartile": 0.13,
+                    "top_5": 0.18,
+                },
+                "net_moic": {
+                    "lower_quartile": 1.20,
+                    "median": 1.35,
+                    "upper_quartile": 1.50,
+                    "top_5": 1.90,
+                },
+                "net_dpi": {
+                    "lower_quartile": 0.30,
+                    "median": 0.50,
+                    "upper_quartile": 0.70,
+                    "top_5": 1.00,
+                },
+            }
+        }
+
+        result = compute_credit_benchmarking_analysis(
+            loans,
+            fund_performance=fund_perf,
+            benchmark_thresholds=thresholds,
+            benchmark_asset_class="Private Credit",
+        )
+
+        assert result["meta"]["benchmark_asset_class"] == "Private Credit"
+        assert result["kpis"]["fund_count"] == 1
+        row = result["fund_rows"][0]
+        assert row["fund_name"] == "Credit Fund I"
+        assert row["net_irr"] == pytest.approx(0.14)
+        assert row["net_tvpi"] == pytest.approx(1.45)
+        assert row["net_moic"] == pytest.approx(1.45)
+        assert row["benchmark_net_irr"]["rank_code"] == "q1"
+        assert row["benchmark_net_moic"]["rank_code"] == "q2"
+        assert row["benchmark_net_dpi"]["rank_code"] == "q2"
+        assert row["full_coverage"] is True
+        assert result["threshold_rows"][0]["vintage_year"] == 2021
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ from io import BytesIO
 import pytest
 
 from app import app, db
-from models import CreditFundPerformance, CreditLoan, Firm
+from models import BenchmarkPoint, CreditFundPerformance, CreditLoan, Firm
 from services.credit_parser import parse_credit_loan_tape
 
 
@@ -268,6 +268,27 @@ def _seed_template_loans(client, team_id, firm_name="Smoke Firm"):
         return firm.id
 
 
+def _seed_credit_benchmark_thresholds(team_id, vintage_year=2021, asset_class="Private Credit"):
+    with app.app_context():
+        db.session.add_all(
+            [
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_irr", quartile="lower_quartile", value=0.08),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_irr", quartile="median", value=0.11),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_irr", quartile="upper_quartile", value=0.14),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_irr", quartile="top_5", value=0.18),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_moic", quartile="lower_quartile", value=1.20),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_moic", quartile="median", value=1.35),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_moic", quartile="upper_quartile", value=1.50),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_moic", quartile="top_5", value=1.90),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_dpi", quartile="lower_quartile", value=0.30),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_dpi", quartile="median", value=0.50),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_dpi", quartile="upper_quartile", value=0.70),
+                BenchmarkPoint(team_id=team_id, asset_class=asset_class, vintage_year=vintage_year, metric="net_dpi", quartile="top_5", value=1.00),
+            ]
+        )
+        db.session.commit()
+
+
 def test_all_credit_routes_render_no_500(credit_round_trip_client):
     """Visual walk: only the supported credit analysis pages render."""
     client, team_id = credit_round_trip_client
@@ -278,6 +299,7 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
 
     pages = [
         "credit-track-record",
+        "credit-benchmarking",
         "credit-concentration",
         "credit-fundamentals",
         "credit-data-cuts",
@@ -352,6 +374,46 @@ def test_credit_fundamentals_route_renders_entry_vs_exit_current(credit_round_tr
     assert "Revenue by Fund" in body
     assert "Deal Detail" in body
     assert "Current Invested Capital" in body
+
+
+def test_credit_benchmarking_route_renders_pe_style_table(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Credit Benchmark Render Firm")
+    _seed_credit_benchmark_thresholds(team_id)
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-benchmarking?benchmark_asset_class=Private+Credit")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Fund Benchmarking Table" in body
+    assert "Benchmark Asset Class" in body
+    assert "Net IRR Benchmark" in body
+    assert "Net TVPI Benchmark" in body
+    assert "Net DPI Benchmark" in body
+    assert "Benchmark Threshold Appendix" in body
+
+
+def test_credit_benchmarking_api_payload_shape(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Credit Benchmark API Firm")
+    _seed_credit_benchmark_thresholds(team_id)
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/api/analysis/credit-benchmarking/series?benchmark_asset_class=Private+Credit")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["page"] == "credit-benchmarking"
+    payload = body["payload"]
+    assert "meta" in payload
+    assert "kpis" in payload
+    assert "rank_distribution" in payload
+    assert "fund_rows" in payload
+    assert "threshold_rows" in payload
+    assert payload["meta"]["benchmark_asset_class"] == "Private Credit"
 
 
 def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):

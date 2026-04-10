@@ -108,6 +108,7 @@ from services.metrics import (
     run_chart_query,
 )
 from services.metrics.credit import (
+    compute_credit_benchmarking_analysis,
     compute_credit_concentration,
     compute_credit_data_cuts,
     compute_credit_fundamentals,
@@ -281,6 +282,10 @@ CREDIT_ANALYSIS_PAGES = {
         "title": "Credit Track Record",
         "description": "Deal-level track record grouped by fund with gross loan metrics and net fund performance.",
     },
+    "credit-benchmarking": {
+        "title": "Credit Benchmarking Analysis",
+        "description": "Benchmark uploaded credit fund net performance against quartile thresholds using the credit workbook fund data.",
+    },
     "credit-concentration": {
         "title": "Credit Concentration",
         "description": "Sector, geography, sponsor, and security type breakdowns sized by total value with HHI.",
@@ -297,6 +302,7 @@ CREDIT_ANALYSIS_PAGES = {
 
 CREDIT_SIDEBAR_ITEMS = [
     {"page_key": "credit-track-record", "label": "Track Record", "icon": "bi bi-table"},
+    {"page_key": "credit-benchmarking", "label": "Benchmarking", "icon": "bi bi-bar-chart-steps"},
     {"page_key": "credit-concentration", "label": "Concentration", "icon": "bi bi-pie-chart"},
     {"page_key": "credit-fundamentals", "label": "Fundamentals", "icon": "bi bi-bar-chart-line"},
     {"page_key": "credit-data-cuts", "label": "Data Cuts", "icon": "bi bi-sliders"},
@@ -4281,6 +4287,19 @@ def credit_analysis_page(page):
             abort(403)
         team_id = membership.team_id
         firm_id = _active_firm_id_from_session()
+        benchmark_asset_classes = _benchmark_asset_classes_for_team(team_id)
+        benchmark_session_key = "selected_benchmark_asset_class"
+        requested_benchmark = request.args.get("benchmark_asset_class")
+        if requested_benchmark is not None:
+            current_benchmark_asset_class = (requested_benchmark or "").strip()
+            if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+                current_benchmark_asset_class = ""
+            session[benchmark_session_key] = current_benchmark_asset_class
+        else:
+            current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+            if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+                current_benchmark_asset_class = ""
+                session[benchmark_session_key] = ""
 
         # Check TeamFirmAccess
         if firm_id:
@@ -4306,6 +4325,16 @@ def credit_analysis_page(page):
             payload = compute_credit_track_record(
                 loans, metrics_by_id, fund_performance=fund_performance
             )
+        elif page == "credit-benchmarking":
+            payload = compute_credit_benchmarking_analysis(
+                loans,
+                fund_performance=fund_performance,
+                benchmark_thresholds=_load_team_benchmark_thresholds(
+                    team_id,
+                    current_benchmark_asset_class,
+                ),
+                benchmark_asset_class=current_benchmark_asset_class,
+            )
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)
         elif page == "credit-fundamentals":
@@ -4323,6 +4352,7 @@ def credit_analysis_page(page):
 
         template_map = {
             "credit-track-record": "analysis_credit_track_record.html",
+            "credit-benchmarking": "analysis_credit_benchmarking.html",
             "credit-concentration": "analysis_credit_concentration.html",
             "credit-fundamentals": "analysis_credit_fundamentals.html",
             "credit-data-cuts": "analysis_credit_data_cuts.html",
@@ -4338,6 +4368,8 @@ def credit_analysis_page(page):
             filter_options=ctx["filter_options"],
             active_filters=filters,
             loan_count=ctx["loan_count"],
+            benchmark_asset_classes=benchmark_asset_classes,
+            current_benchmark_asset_class=current_benchmark_asset_class,
         )
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, f"Credit analysis page '{page}' failed")
@@ -4357,6 +4389,19 @@ def credit_analysis_series_api(page):
             return jsonify({"error": "Not authenticated"}), 403
         team_id = membership.team_id
         firm_id = _active_firm_id_from_session()
+        benchmark_asset_classes = _benchmark_asset_classes_for_team(team_id)
+        benchmark_session_key = "selected_benchmark_asset_class"
+        requested_benchmark = request.args.get("benchmark_asset_class")
+        if requested_benchmark is not None:
+            current_benchmark_asset_class = (requested_benchmark or "").strip()
+            if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+                current_benchmark_asset_class = ""
+            session[benchmark_session_key] = current_benchmark_asset_class
+        else:
+            current_benchmark_asset_class = (session.get(benchmark_session_key, "") or "").strip()
+            if current_benchmark_asset_class and current_benchmark_asset_class not in benchmark_asset_classes:
+                current_benchmark_asset_class = ""
+                session[benchmark_session_key] = ""
         # Strip empty-string values (from unselected form dropdowns) so they
         # don't get applied as filter criteria that would match zero rows.
         filters = {}
@@ -4373,6 +4418,16 @@ def credit_analysis_series_api(page):
         if page == "credit-track-record":
             payload = compute_credit_track_record(
                 loans, metrics_by_id, fund_performance=fund_performance
+            )
+        elif page == "credit-benchmarking":
+            payload = compute_credit_benchmarking_analysis(
+                loans,
+                fund_performance=fund_performance,
+                benchmark_thresholds=_load_team_benchmark_thresholds(
+                    team_id,
+                    current_benchmark_asset_class,
+                ),
+                benchmark_asset_class=current_benchmark_asset_class,
             )
         elif page == "credit-concentration":
             payload = compute_credit_concentration(loans, metrics_by_id)

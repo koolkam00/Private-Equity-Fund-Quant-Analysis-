@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% from "_macros.html" import credit_firm_banner, fmt_currency_symbol, fmt_currency_unit_symbol_label, fmt_date_mdy, fmt_multiple, fmt_pct_1dp with context %}
+{% block title %}{{ page_meta.title }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ page_meta.title }}{% endblock %}
+{% block page_subtitle %}{{ page_meta.description }}{% endblock %}
+
+{% block page_actions %}
+<button
+    type="button"
+    id="benchPreviewToggle"
+    class="btn-upload btn-secondary bench-preview-btn"
+    aria-pressed="false"
+>
+    <i class="bi bi-layout-text-window"></i> Preview Print Layout
+</button>
+<button type="button" class="btn-upload btn-secondary bench-print-btn" onclick="window.print()">
+    <i class="bi bi-file-earmark-pdf"></i> Download / Print PDF
+</button>
+{% endblock %}
+
+{% block content %}
+{% macro rank_chip(rank_obj) -%}
+{% set rank = rank_obj or {} %}
+<span class="benchmark-rank benchmark-rank-{{ rank.get('rank_code', 'na') }}">{{ rank.get('label', 'N/A') }}</span>
+{%- endmacro %}
+
+{% macro metric_or_na(value, conflict, kind='pct') -%}
+{% if conflict or value is none -%}
+N/A
+{% elif kind == 'multiple' -%}
+{{ fmt_multiple(value) }}
+{% else -%}
+{{ fmt_pct_1dp(value) }}
+{% endif %}
+{%- endmacro %}
+
+{{ credit_firm_banner() }}
+
+{% set current_fund = (active_filters.get('fund_name') or [''])|first %}
+{% set current_status = (active_filters.get('status') or [''])|first %}
+{% set current_sector = (active_filters.get('sector') or [''])|first %}
+{% set geography_options = filter_options.get('location') or filter_options.get('geography') or [] %}
+{% set geography_key = 'location' if filter_options.get('location') else 'geography' %}
+{% set current_geography = (active_filters.get(geography_key) or [''])|first %}
+{% set current_vintage = (active_filters.get('vintage_year') or [''])|first %}
+{% set bench_filter_summary = [
+    "Fund: " ~ (current_fund or "All"),
+    "Status: " ~ (current_status or "All"),
+    "Sector: " ~ (current_sector or "All"),
+    "Geography: " ~ (current_geography or "All"),
+    "Vintage: " ~ (current_vintage or "All"),
+    "Benchmark Asset Class: " ~ (current_benchmark_asset_class or "Not Selected")
+]|join(" | ") %}
+
+<div class="benchmark-ic-root">
+    <div class="panel panel-tight filter-panel">
+        <form class="filter-form" method="GET" action="{{ url_for('credit_analysis_page', page=page_key) }}">
+            <div class="filter-grid">
+                <label class="filter-field">
+                    <span>Fund</span>
+                    <select name="fund_name">
+                        <option value="">All Funds</option>
+                        {% for f in filter_options.get('fund_name', []) %}<option value="{{ f }}" {% if current_fund == f %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Status</span>
+                    <select name="status">
+                        <option value="">All Statuses</option>
+                        {% for s in filter_options.get('status', []) %}<option value="{{ s }}" {% if current_status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Sector</span>
+                    <select name="sector">
+                        <option value="">All Sectors</option>
+                        {% for s in filter_options.get('sector', []) %}<option value="{{ s }}" {% if current_sector == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Geography</span>
+                    <select name="{{ geography_key }}">
+                        <option value="">All Geographies</option>
+                        {% for g in geography_options %}<option value="{{ g }}" {% if current_geography == g %}selected{% endif %}>{{ g }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Vintage</span>
+                    <select name="vintage_year">
+                        <option value="">All Vintages</option>
+                        {% for y in filter_options.get('vintage_year', []) %}<option value="{{ y }}" {% if current_vintage == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="filter-field">
+                    <span>Benchmark Asset Class</span>
+                    <select name="benchmark_asset_class">
+                        <option value="">No Benchmark</option>
+                        {% for ac in benchmark_asset_classes %}<option value="{{ ac }}" {% if current_benchmark_asset_class == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn-upload btn-filter-apply">
+                    <i class="bi bi-funnel"></i> Apply Filters
+                </button>
+                {% if current_fund or current_status or current_sector or current_geography or current_vintage or current_benchmark_asset_class %}
+                <a class="btn-upload btn-filter-clear" href="{{ url_for('credit_analysis_page', page=page_key) }}">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <div class="bench-screen-layout">
+        <div class="panel bench-intro-panel">
+            <p class="subtitle">{{ page_meta.description }}</p>
+            <p class="tiny">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} • {{ fmt_currency_unit_symbol_label() }}</p>
+            <p class="tiny bench-filter-summary">{{ bench_filter_summary }}</p>
+            <p class="tiny">{{ analysis.meta.coverage_note }}</p>
+        </div>
+
+        <div class="kpi-grid bench-kpi-grid">
+            <div class="kpi-card"><span>Funds in Scope</span><strong>{{ analysis.kpis.fund_count }}</strong></div>
+            <div class="kpi-card"><span>Any Benchmark Coverage</span><strong>{{ fmt_pct_1dp(analysis.kpis.any_coverage_pct) }}</strong></div>
+            <div class="kpi-card"><span>Full Benchmark Coverage</span><strong>{{ fmt_pct_1dp(analysis.kpis.full_coverage_pct) }}</strong></div>
+            <div class="kpi-card"><span>Average Composite Score</span><strong>{{ "%.2f / 5.00"|format(analysis.kpis.avg_composite_score) if analysis.kpis.avg_composite_score is not none else "—" }}</strong></div>
+        </div>
+
+        <div class="panel bench-fund-panel">
+            <div class="bench-section-head">
+                <h3>Fund Benchmarking Table</h3>
+                <p class="tiny">Credit fund net performance ranked against uploaded benchmark quartiles.</p>
+            </div>
+            <div class="track-record-scroll bench-fund-table-scroll">
+                <table class="data-table compact bench-fund-table">
+                    <colgroup>
+                        <col class="bench-col-fund">
+                        <col class="bench-col-vintage">
+                        <col class="bench-col-fund-size">
+                        <col class="bench-col-net-irr">
+                        <col class="bench-col-net-moic">
+                        <col class="bench-col-net-dpi">
+                        <col class="bench-col-bench-irr">
+                        <col class="bench-col-bench-moic">
+                        <col class="bench-col-bench-dpi">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Fund</th>
+                            <th class="num">Vintage Year</th>
+                            <th class="num">Fund Size</th>
+                            <th class="num">Net IRR</th>
+                            <th class="num">Net TVPI</th>
+                            <th class="num">Net DPI</th>
+                            <th>Net IRR Benchmark</th>
+                            <th>Net TVPI Benchmark</th>
+                            <th>Net DPI Benchmark</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in analysis.fund_rows %}
+                        <tr>
+                            <td class="bench-fund-name">{{ row.fund_name }}</td>
+                            <td class="num bench-vintage">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                            <td class="num">{% if row.fund_size_conflict %}N/A{% else %}{{ fmt_currency_symbol(row.fund_size) }}{% endif %}</td>
+                            <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
+                            <td class="num">{{ metric_or_na(row.net_tvpi, row.net_moic_conflict, 'multiple') }}</td>
+                            <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                            <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_irr) }}</td>
+                            <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_moic) }}</td>
+                            <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_dpi) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr class="bench-empty-row"><td colspan="9" class="num">No fund rows available in this filter scope.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>Benchmark Threshold Appendix</h3>
+            <table class="data-table compact bench-threshold-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="num">Vintage</th>
+                        <th colspan="4" class="num">Net IRR</th>
+                        <th colspan="4" class="num">Net TVPI</th>
+                        <th colspan="4" class="num">Net DPI</th>
+                    </tr>
+                    <tr>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in analysis.threshold_rows %}
+                    <tr>
+                        <td class="num">{{ row.vintage_year }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_median) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_top_5) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_median) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_top_5) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_median) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_top_5) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="13" class="num">No benchmark threshold rows available.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="bench-print-layout">
+        <section class="bench-print-page bench-print-page-funds">
+            <div class="bench-print-header">
+                <h4>{{ page_meta.title }}</h4>
+                <p class="bench-print-meta">As of {{ fmt_date_mdy(analysis.meta.as_of_date) }} | {{ fmt_currency_unit_symbol_label() }} | Benchmark Asset Class: {{ current_benchmark_asset_class or "Not Selected" }}</p>
+                <p class="bench-print-meta">{{ bench_filter_summary }}</p>
+            </div>
+
+            <h5>Fund Benchmarking Table</h5>
+            <table class="bench-print-table bench-print-fund-table">
+                <colgroup>
+                    <col class="bench-col-fund">
+                    <col class="bench-col-vintage">
+                    <col class="bench-col-fund-size">
+                    <col class="bench-col-net-irr">
+                    <col class="bench-col-net-moic">
+                    <col class="bench-col-net-dpi">
+                    <col class="bench-col-bench-irr">
+                    <col class="bench-col-bench-moic">
+                    <col class="bench-col-bench-dpi">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Fund</th>
+                        <th class="num">Vintage Year</th>
+                        <th class="num">Fund Size</th>
+                        <th class="num">Net IRR</th>
+                        <th class="num">Net TVPI</th>
+                        <th class="num">Net DPI</th>
+                        <th>Net IRR Benchmark</th>
+                        <th>Net TVPI Benchmark</th>
+                        <th>Net DPI Benchmark</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in analysis.fund_rows %}
+                    <tr>
+                        <td class="bench-fund-name">{{ row.fund_name }}</td>
+                        <td class="num bench-vintage">{{ row.vintage_year if row.vintage_year is not none else "—" }}</td>
+                        <td class="num">{% if row.fund_size_conflict %}N/A{% else %}{{ fmt_currency_symbol(row.fund_size) }}{% endif %}</td>
+                        <td class="num">{{ metric_or_na(row.net_irr, row.net_irr_conflict, 'pct') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_tvpi, row.net_moic_conflict, 'multiple') }}</td>
+                        <td class="num">{{ metric_or_na(row.net_dpi, row.net_dpi_conflict, 'multiple') }}</td>
+                        <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_irr) }}</td>
+                        <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_moic) }}</td>
+                        <td class="bench-benchmark-cell">{{ rank_chip(row.benchmark_net_dpi) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr class="bench-empty-row"><td colspan="9" class="num">No fund rows available in this filter scope.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="bench-print-page bench-print-page-summary">
+            <h5>Executive Summary</h5>
+            <table class="bench-print-kpi-table">
+                <tbody>
+                    <tr>
+                        <th>Funds in Scope</th>
+                        <td class="num">{{ analysis.kpis.fund_count }}</td>
+                        <th>Any Benchmark Coverage</th>
+                        <td class="num">{{ fmt_pct_1dp(analysis.kpis.any_coverage_pct) }}</td>
+                    </tr>
+                    <tr>
+                        <th>Full Benchmark Coverage</th>
+                        <td class="num">{{ fmt_pct_1dp(analysis.kpis.full_coverage_pct) }}</td>
+                        <th>Average Composite Score</th>
+                        <td class="num">{{ "%.2f / 5.00"|format(analysis.kpis.avg_composite_score) if analysis.kpis.avg_composite_score is not none else "—" }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="bench-print-note">{{ analysis.meta.coverage_note }}</p>
+        </section>
+
+        <section class="bench-print-page bench-print-page-appendix">
+            <h5>Appendix: Benchmark Threshold Matrix</h5>
+            <table class="bench-print-table bench-print-threshold-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="num">Vintage</th>
+                        <th colspan="4" class="num">Net IRR</th>
+                        <th colspan="4" class="num">Net TVPI</th>
+                        <th colspan="4" class="num">Net DPI</th>
+                    </tr>
+                    <tr>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                        <th class="num">LQ</th>
+                        <th class="num">Median</th>
+                        <th class="num">UQ</th>
+                        <th class="num">Top 5%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in analysis.threshold_rows %}
+                    <tr>
+                        <td class="num">{{ row.vintage_year }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_median) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_pct_1dp(row.net_irr_top_5) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_median) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_moic_top_5) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_lower_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_median) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_upper_quartile) }}</td>
+                        <td class="num">{{ fmt_multiple(row.net_dpi_top_5) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="13" class="num">No benchmark threshold rows available.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </div>
+</div>
+
+<script>
+(() => {
+    const root = document.querySelector(".benchmark-ic-root");
+    const previewBtn = document.getElementById("benchPreviewToggle");
+    if (!root || !previewBtn) return;
+
+    const PREVIEW_CLASS = "bench-preview-print";
+
+    function applyPreviewState(enabled) {
+        root.classList.toggle(PREVIEW_CLASS, enabled);
+        previewBtn.setAttribute("aria-pressed", enabled ? "true" : "false");
+        previewBtn.innerHTML = enabled
+            ? '<i class="bi bi-layout-text-window"></i> Exit Print Preview'
+            : '<i class="bi bi-layout-text-window"></i> Preview Print Layout';
+    }
+
+    previewBtn.addEventListener("click", () => {
+        applyPreviewState(!root.classList.contains(PREVIEW_CLASS));
+    });
+
+    window.addEventListener("afterprint", () => applyPreviewState(false));
+})();
+</script>
+{% endblock %}
