@@ -1773,19 +1773,27 @@ def compute_credit_stress_scenarios(loans, scenario):
 
 def compute_credit_concentration(loans, metrics_by_id=None):
     """Sector, geography, sponsor, security type breakdowns with HHI."""
-    total_hold = sum(_credit_position_amount(l) for l in loans)
+    total_value = sum(_credit_track_value_components(l)["total_value"] for l in loans)
 
     def _build_breakdown(loans, attr):
-        groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
+        groups = defaultdict(lambda: {"value": 0.0, "count": 0})
         for loan in loans:
             key = getattr(loan, attr, None) or "Unknown"
-            hold = _credit_position_amount(loan)
-            groups[key]["hold"] += hold
+            value = _credit_track_value_components(loan)["total_value"]
+            groups[key]["value"] += value
             groups[key]["count"] += 1
         result = []
-        for key, val in sorted(groups.items(), key=lambda x: -x[1]["hold"]):
-            pct = safe_divide(val["hold"], total_hold, 0.0)
-            result.append({"name": key, "hold": val["hold"], "count": val["count"], "pct": pct})
+        for key, val in sorted(groups.items(), key=lambda x: -x[1]["value"]):
+            pct = safe_divide(val["value"], total_value, 0.0)
+            result.append(
+                {
+                    "name": key,
+                    "value": val["value"],
+                    "hold": val["value"],  # back-compat alias
+                    "count": val["count"],
+                    "pct": pct,
+                }
+            )
         return result
 
     def _hhi(breakdown):
@@ -1799,10 +1807,16 @@ def compute_credit_concentration(loans, metrics_by_id=None):
 
     # Top-N single-name exposure
     loan_exposures = sorted(
-        [{"company": l.company_name, "hold": _credit_position_amount(l),
-          "pct": safe_divide(_credit_position_amount(l), total_hold, 0.0)}
-         for l in loans],
-        key=lambda x: -(x.get("hold") or 0),
+        [
+            {
+                "company": l.company_name,
+                "value": _credit_track_value_components(l)["total_value"],
+                "hold": _credit_track_value_components(l)["total_value"],  # back-compat alias
+                "pct": safe_divide(_credit_track_value_components(l)["total_value"], total_value, 0.0),
+            }
+            for l in loans
+        ],
+        key=lambda x: -(x.get("value") or 0),
     )
 
     # Location (merged with geography)
@@ -1816,18 +1830,27 @@ def compute_credit_concentration(loans, metrics_by_id=None):
     has_public = any(getattr(l, 'is_public', None) is not None for l in loans)
     by_public = []
     if has_public:
-        groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
+        groups = defaultdict(lambda: {"value": 0.0, "count": 0})
         for loan in loans:
             key = "Public" if getattr(loan, 'is_public', None) else "Private"
-            hold = _credit_position_amount(loan)
-            groups[key]["hold"] += hold
+            value = _credit_track_value_components(loan)["total_value"]
+            groups[key]["value"] += value
             groups[key]["count"] += 1
-        for key, val in sorted(groups.items(), key=lambda x: -x[1]["hold"]):
-            pct = safe_divide(val["hold"], total_hold, 0.0)
-            by_public.append({"name": key, "hold": val["hold"], "count": val["count"], "pct": pct})
+        for key, val in sorted(groups.items(), key=lambda x: -x[1]["value"]):
+            pct = safe_divide(val["value"], total_value, 0.0)
+            by_public.append(
+                {
+                    "name": key,
+                    "value": val["value"],
+                    "hold": val["value"],  # back-compat alias
+                    "count": val["count"],
+                    "pct": pct,
+                }
+            )
 
     return {
-        "total_hold": total_hold,
+        "total_value": total_value,
+        "total_hold": total_value,  # back-compat alias
         "by_sector": by_sector,
         "by_geography": by_geography,
         "by_sponsor": by_sponsor,
@@ -2139,6 +2162,38 @@ def _credit_hold_years(loan, as_of_date=None):
     return delta_days / 365.25
 
 
+def _credit_track_value_components(loan, fx=1.0):
+    """Loan-level value components used by track record and concentration."""
+    realized_value = (
+        getattr(loan, "realized_proceeds", None)
+        if getattr(loan, "realized_proceeds", None) is not None
+        else getattr(loan, "realized_value", None)
+    )
+    realized_value = (realized_value or 0.0) * fx
+
+    ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
+    uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
+    fair_value = getattr(loan, "fair_value", None)
+    tv_col = getattr(loan, "total_value", None)
+
+    if ulv or uwev:
+        unrealized_loan_value = ulv
+    elif tv_col is not None:
+        unrealized_loan_value = max((tv_col * fx) - realized_value - uwev, 0.0)
+    elif fair_value is not None:
+        unrealized_loan_value = fair_value * fx
+    else:
+        unrealized_loan_value = 0.0
+
+    total_value = realized_value + unrealized_loan_value + uwev
+    return {
+        "realized_value": realized_value,
+        "unrealized_value": unrealized_loan_value,
+        "unrealized_warrant_equity_value": uwev,
+        "total_value": total_value,
+    }
+
+
 def _credit_empty_track_totals():
     return {
         "deal_count": 0,
@@ -2316,28 +2371,12 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
         fx = loan.fx_rate_to_usd or 1.0
         hold_size = _credit_hold_amount(loan, fx)
         invested = _credit_position_amount(loan, fx)
-
-        realized_value = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
-        ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
-        uwev = (getattr(loan, "unrealized_warrant_equity_value", None) or 0.0) * fx
-        fair_value = getattr(loan, "fair_value", None)
-        tv_col = getattr(loan, "total_value", None)
-
-        # Track record shows unrealized loan value and warrant/equity value as
-        # separate columns. When the workbook only provides total/fair value,
-        # treat the residual as the loan value so the displayed components
-        # still reconcile to total value.
-        if ulv or uwev:
-            unrealized_loan_value = ulv
-        elif fair_value is not None:
-            unrealized_loan_value = fair_value * fx
-        elif tv_col is not None:
-            unrealized_loan_value = max((tv_col * fx) - realized_value - uwev, 0.0)
-        else:
-            unrealized_loan_value = 0.0
-
+        values = _credit_track_value_components(loan, fx)
+        realized_value = values["realized_value"]
+        unrealized_loan_value = values["unrealized_value"]
+        uwev = values["unrealized_warrant_equity_value"]
+        total_value = values["total_value"]
         unrealized_total_value = unrealized_loan_value + uwev
-        total_value = realized_value + unrealized_total_value
 
         issue_size = (loan.issue_size or 0.0) * fx
         facility_pct = safe_divide(hold_size, issue_size)
@@ -2355,6 +2394,7 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             # "deal_id" alias so any shared rendering code keeps working.
             "deal_id": loan.id,
             "company_name": loan.company_name or "Unknown Company",
+            "sector": getattr(loan, "sector", None),
             "status": status,
             "investment_date": loan.close_date,
             "exit_date": loan.exit_date,

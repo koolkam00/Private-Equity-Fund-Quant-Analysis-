@@ -358,6 +358,8 @@ def test_credit_track_record_route_renders_net_tvpi_not_net_moic(credit_round_tr
     assert "Unrealized Value" in body
     assert "Unrealized Warrant/Equity Value" in body
     assert "Total Value" in body
+    assert "% of Facility" not in body
+    assert "Software" in body
     assert "Net TVPI:" in body
     assert "Net DPI:" in body
     assert "Net MOIC:" not in body

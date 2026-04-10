@@ -701,13 +701,14 @@ class TestCreditRiskMetrics:
 class TestConcentration:
     def test_concentration_hhi(self):
         loans = [
-            _make_loan(id=1, sector="Software", hold_size=50),
-            _make_loan(id=2, sector="Healthcare", hold_size=30),
-            _make_loan(id=3, sector="Software", hold_size=20),
+            _make_loan(id=1, sector="Software", total_value=50.0),
+            _make_loan(id=2, sector="Healthcare", total_value=30.0),
+            _make_loan(id=3, sector="Software", total_value=20.0),
         ]
         result = compute_credit_concentration(loans)
         assert result["hhi_sector"] > 0
         assert result["by_sector"][0]["name"] == "Software"
+        assert result["total_value"] == pytest.approx(100.0)
         assert len(result["top_5"]) == 3
         assert len(result["top_10"]) == 3
 
@@ -723,24 +724,34 @@ class TestConcentration:
         assert len(result["by_sourcing"]) == 2
         assert len(result["by_public"]) == 2
 
-    def test_concentration_uses_current_invested_capital(self):
-        """LP data: concentration should size the book off current invested capital."""
+    def test_concentration_uses_total_value(self):
+        """LP data: concentration should size the book off total value."""
         loans = [
             _make_lp_loan(
                 id=100,
                 hold_size=None,
                 entry_loan_amount=100.0,
                 current_invested_capital=25.0,
+                total_value=40.0,
+                realized_proceeds=0.0,
+                unrealized_loan_value=35.0,
+                unrealized_warrant_equity_value=5.0,
             ),
             _make_lp_loan(
                 id=101,
                 hold_size=None,
                 entry_loan_amount=5.0,
                 current_invested_capital=15.0,
+                total_value=10.0,
+                realized_proceeds=0.0,
+                unrealized_loan_value=10.0,
+                unrealized_warrant_equity_value=0.0,
             ),
         ]
         result = compute_credit_concentration(loans)
-        assert result["total_hold"] == pytest.approx(40.0, abs=0.1)
+        assert result["total_value"] == pytest.approx(50.0, abs=0.1)
+        assert result["total_hold"] == pytest.approx(50.0, abs=0.1)
+        assert result["top_10"][0]["value"] == pytest.approx(40.0, abs=0.1)
 
 
 # ---------------------------------------------------------------------------

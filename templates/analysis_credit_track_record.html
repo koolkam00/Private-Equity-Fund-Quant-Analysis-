@@ -67,7 +67,6 @@
                     <th>Close Date</th>
                     <th>Exit Date</th>
                     <th class="num">Hold Period</th>
-                    <th class="num">% of Facility</th>
                     <th class="num">% of Fund Invested</th>
                     <th class="num">% of Fund Size</th>
                     <th class="num">Current Invested Capital</th>
@@ -84,7 +83,7 @@
             <tbody>
                 {% for fund in analysis.funds %}
                 <tr class="tr-fund-header">
-                    <td colspan="18">
+                    <td colspan="17">
                         {{ fund.fund_name }}
                         {% if fund.vintage_year %} · Vintage {{ fund.vintage_year }}{% endif %}
                         {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
@@ -94,12 +93,11 @@
                 {% for row in fund.rows %}
                 <tr class="tr-detail">
                     <td class="num">{{ row.row_num }}</td>
-                    <td>{{ row.company_name }}{% if row.currency and row.currency != 'USD' %} <span class="currency-badge" title="{{ row.currency }} @{{ '%.4f'|format(row.fx_rate_to_usd or 0) }}">{{ row.currency }}</span>{% endif %}</td>
+                    <td>{{ row.company_name }}{% if row.sector %} <span style="color: var(--ink-muted); font-size: 12px;">· {{ row.sector }}</span>{% endif %}{% if row.currency and row.currency != 'USD' %} <span class="currency-badge" title="{{ row.currency }} @{{ '%.4f'|format(row.fx_rate_to_usd or 0) }}">{{ row.currency }}</span>{% endif %}</td>
                     <td>{{ row.status }}</td>
                     <td>{{ fmt_date_monyy(row.investment_date) }}</td>
                     <td>{{ fmt_date_monyy(row.exit_date) }}</td>
                     <td class="num">{{ fmt_years_1dp(row.hold_period) }}</td>
-                    <td class="num">{{ fmt_pct_1dp(row.facility_pct) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.pct_total_invested) }}</td>
                     <td class="num">{{ fmt_pct_1dp(row.pct_fund_size) }}</td>
                     <td class="num">{{ fmt_currency(row.current_invested_capital) }}</td>
@@ -120,7 +118,6 @@
                     <td>—</td>
                     <td>—</td>
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
@@ -141,7 +138,6 @@
                     <td>—</td>
                     <td>—</td>
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
@@ -157,7 +153,7 @@
                 {% endfor %}
 
                 <tr class="tr-net">
-                    <td colspan="14"><strong>{{ fund.fund_name }} Net Performance</strong></td>
+                    <td colspan="13"><strong>{{ fund.fund_name }} Net Performance</strong></td>
                     <td class="num"><strong>Net IRR:</strong></td>
                     <td class="num">
                         {% if fund.net_performance.net_irr is none %}N/A{% else %}{{ fmt_pct_1dp(fund.net_performance.net_irr) }}{% endif %}
@@ -168,7 +164,7 @@
                     </td>
                 </tr>
                 <tr class="tr-net tr-net-second">
-                    <td colspan="14"></td>
+                    <td colspan="13"></td>
                     <td class="num"><strong>Net DPI:</strong></td>
                     <td class="num">
                         {% if fund.net_performance.net_dpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_dpi) }}{% endif %}
@@ -176,11 +172,11 @@
                     <td colspan="2"></td>
                 </tr>
 
-                <tr class="tr-gap"><td colspan="18"></td></tr>
+                <tr class="tr-gap"><td colspan="17"></td></tr>
                 {% endfor %}
 
                 <tr class="tr-fund-header tr-overall-header">
-                    <td colspan="18">All Funds Summary</td>
+                    <td colspan="17">All Funds Summary</td>
                 </tr>
                 {% for rollup in analysis.overall.status_rollups %}
                 <tr class="tr-rollup tr-rollup-status">
@@ -188,7 +184,6 @@
                     <td>—</td>
                     <td>—</td>
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
@@ -209,7 +204,6 @@
                     <td>—</td>
                     <td>—</td>
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
-                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
@@ -230,7 +224,7 @@
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
     Gross metrics are loan-level, hold-weighted. Net metrics are fund-level, populated from the <em>Fund Performance</em> sheet in the credit upload template.
-    <strong>% of Facility</strong> is hold size ÷ issue size (what portion of each loan this manager holds). <strong>Gross MOIC</strong> is calculated as (Realized Value + Unrealized Value + Unrealized Warrant/Equity Value) ÷ Current Invested Capital. If only Net MOIC is uploaded on the fund sheet, the page reuses it as Net TVPI.
+    <strong>Gross MOIC</strong> is calculated as (Realized Value + Unrealized Value + Unrealized Warrant/Equity Value) ÷ Current Invested Capital. If only Net MOIC is uploaded on the fund sheet, the page reuses it as Net TVPI.
 </p>
 
 {% else %}
