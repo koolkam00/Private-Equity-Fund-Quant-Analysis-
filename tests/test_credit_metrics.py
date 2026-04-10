@@ -282,9 +282,9 @@ class TestCreditLoanMetrics:
         loan = _make_lp_loan()
         m = compute_credit_loan_metrics(loan)
         assert m["total_return_mtm"] is not None
-        assert m["total_return_mtm"] == pytest.approx(27.5 / 25.0 - 1.0, abs=0.01)
+        assert m["total_return_mtm"] == pytest.approx(27.5 / 24.5 - 1.0, abs=0.01)
         assert m["warrant_upside"] is not None
-        assert m["warrant_upside"] == pytest.approx(1.5 / 25.0, abs=0.01)
+        assert m["warrant_upside"] == pytest.approx(1.5 / 24.5, abs=0.01)
         assert m["revenue_growth"] is not None
         assert m["revenue_growth"] == pytest.approx(55.0 / 50.0 - 1.0, abs=0.01)
         assert m["deployment_pct"] is not None
@@ -432,15 +432,30 @@ class TestPortfolioAnalytics:
         assert result["traffic_lights"]["portfolio_signal"] == "red"
 
     def test_portfolio_analytics_lp_fields(self):
-        """LP data: aggregation includes committed, IRR, MOIC, warrants."""
+        """LP data: aggregation weights off current invested capital."""
         loans = [
-            _make_lp_loan(id=100, committed_amount=30.0, entry_loan_amount=25.0, gross_irr=0.12, moic=1.2),
-            _make_lp_loan(id=101, committed_amount=20.0, entry_loan_amount=15.0, gross_irr=0.10, moic=1.1),
+            _make_lp_loan(
+                id=100,
+                committed_amount=30.0,
+                entry_loan_amount=25.0,
+                current_invested_capital=24.5,
+                gross_irr=0.12,
+                moic=1.2,
+            ),
+            _make_lp_loan(
+                id=101,
+                committed_amount=20.0,
+                entry_loan_amount=15.0,
+                current_invested_capital=14.5,
+                gross_irr=0.10,
+                moic=1.1,
+            ),
         ]
         result = compute_credit_portfolio_analytics(loans)
         assert result["has_new_fields"] is True
         assert result["total_committed"] == pytest.approx(50.0, abs=0.1)
-        assert result["total_entry_loan"] == pytest.approx(40.0, abs=0.1)
+        assert result["total_entry_loan"] == pytest.approx(39.0, abs=0.1)
+        assert result["total_current_invested"] == pytest.approx(39.0, abs=0.1)
         assert result["weighted_avg_irr"] is not None
         assert result["weighted_avg_moic"] is not None
         assert result["total_warrant_value"] is not None
@@ -635,11 +650,21 @@ class TestCreditRiskMetrics:
         assert result["covenant_breach_count"] == 0
         assert result["loans_with_covenant_data"] == 0
 
-    def test_risk_metrics_lp_fields_use_entry_loan_weight(self):
-        """Hold-weight convention: entry_loan_amount > 0 else hold_size."""
+    def test_risk_metrics_lp_fields_use_current_invested_weight(self):
+        """Current invested capital should drive risk-page weighting."""
         loans = [
-            _make_lp_loan(id=100, entry_loan_amount=50.0, interest_coverage_ratio=1.0),
-            _make_lp_loan(id=101, entry_loan_amount=50.0, interest_coverage_ratio=3.0),
+            _make_lp_loan(
+                id=100,
+                entry_loan_amount=10.0,
+                current_invested_capital=50.0,
+                interest_coverage_ratio=1.0,
+            ),
+            _make_lp_loan(
+                id=101,
+                entry_loan_amount=90.0,
+                current_invested_capital=50.0,
+                interest_coverage_ratio=3.0,
+            ),
         ]
         result = compute_credit_risk_metrics(loans)
         # Equal weights: (1.0 + 3.0) / 2 = 2.0
@@ -698,11 +723,21 @@ class TestConcentration:
         assert len(result["by_sourcing"]) == 2
         assert len(result["by_public"]) == 2
 
-    def test_concentration_entry_loan_fallback(self):
-        """LP data: uses entry_loan_amount when hold_size is None."""
+    def test_concentration_uses_current_invested_capital(self):
+        """LP data: concentration should size the book off current invested capital."""
         loans = [
-            _make_lp_loan(id=100, hold_size=None, entry_loan_amount=25.0),
-            _make_lp_loan(id=101, hold_size=None, entry_loan_amount=15.0),
+            _make_lp_loan(
+                id=100,
+                hold_size=None,
+                entry_loan_amount=100.0,
+                current_invested_capital=25.0,
+            ),
+            _make_lp_loan(
+                id=101,
+                hold_size=None,
+                entry_loan_amount=5.0,
+                current_invested_capital=15.0,
+            ),
         ]
         result = compute_credit_concentration(loans)
         assert result["total_hold"] == pytest.approx(40.0, abs=0.1)
@@ -1646,6 +1681,104 @@ class TestCreditTrackRecord:
         )
         row = result["funds"][0]["rows"][0]
         assert row["pct_fund_size"] == pytest.approx(0.10)
+
+    def test_current_invested_capital_drives_track_record_weighting(self):
+        loan = self._make_track_loan(
+            id=1,
+            fund_name="F1",
+            fund_size=200.0,
+            hold_size=0.0,
+            entry_loan_amount=25.0,
+            current_invested_capital=40.0,
+            realized_proceeds=10.0,
+            unrealized_loan_value=50.0,
+            unrealized_warrant_equity_value=0.0,
+            total_value=60.0,
+        )
+
+        result = compute_credit_track_record([loan])
+        fund = result["funds"][0]
+        row = fund["rows"][0]
+
+        assert fund["fund_size"] == pytest.approx(200.0)
+        assert row["invested_equity"] == pytest.approx(40.0)
+        assert row["pct_total_invested"] == pytest.approx(1.0)
+        assert row["pct_fund_size"] == pytest.approx(0.20)
+        assert row["gross_moic"] == pytest.approx(1.5)
+        assert row["realized_gross_moic"] == pytest.approx(0.25)
+        assert row["unrealized_gross_moic"] == pytest.approx(1.25)
+
+    def test_net_tvpi_falls_back_to_net_moic_when_missing(self):
+        loan = self._make_track_loan(id=1, fund_name="F1")
+        fund_perf = SimpleNamespace(
+            fund_name="F1",
+            fund_size=500.0,
+            vintage_year=2020,
+            net_irr=0.12,
+            net_moic=1.41,
+            net_dpi=0.52,
+            net_tvpi=None,
+            net_rvpi=None,
+            called_capital=None,
+            distributed_capital=None,
+            nav=None,
+        )
+
+        result = compute_credit_track_record([loan], fund_performance={"F1": fund_perf})
+        np = result["funds"][0]["net_performance"]
+
+        assert np["net_moic"] == pytest.approx(1.41)
+        assert np["net_tvpi"] == pytest.approx(1.41)
+
+    def test_overall_pct_fund_size_uses_all_fund_sizes(self):
+        loans = [
+            self._make_track_loan(
+                id=1,
+                fund_name="F1",
+                fund_size=200.0,
+                current_invested_capital=40.0,
+                hold_size=0.0,
+                entry_loan_amount=10.0,
+            ),
+            self._make_track_loan(
+                id=2,
+                fund_name="F2",
+                fund_size=300.0,
+                current_invested_capital=60.0,
+                hold_size=0.0,
+                entry_loan_amount=15.0,
+            ),
+        ]
+
+        result = compute_credit_track_record(loans)
+
+        assert result["overall"]["totals"]["pct_fund_size"] == pytest.approx(0.20)
+        assert result["overall"]["summary_rollups"][-1]["totals"]["pct_fund_size"] == pytest.approx(0.20)
+
+    def test_summary_rollup_hold_period_weighted_by_current_invested_capital(self):
+        loan_short = self._make_track_loan(
+            id=1,
+            fund_name="F1",
+            current_invested_capital=80.0,
+            hold_size=0.0,
+            entry_loan_amount=10.0,
+            close_date=date(2023, 1, 1),
+            exit_date=date(2024, 1, 1),
+        )
+        loan_long = self._make_track_loan(
+            id=2,
+            fund_name="F1",
+            current_invested_capital=20.0,
+            hold_size=0.0,
+            entry_loan_amount=10.0,
+            close_date=date(2020, 1, 1),
+            exit_date=date(2024, 1, 1),
+        )
+
+        result = compute_credit_track_record([loan_short, loan_long])
+        overall_fund_rollup = result["funds"][0]["summary_rollups"][-1]["totals"]
+
+        assert overall_fund_rollup["hold_period"] == pytest.approx(1.6, abs=0.1)
 
     def test_fx_conversion(self):
         loan = self._make_track_loan(

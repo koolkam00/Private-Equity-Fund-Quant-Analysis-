@@ -158,21 +158,18 @@
                     <td class="num">
                         {% if fund.net_performance.net_irr is none %}N/A{% else %}{{ fmt_pct_1dp(fund.net_performance.net_irr) }}{% endif %}
                     </td>
-                    <td class="num"><strong>Net MOIC:</strong></td>
+                    <td class="num"><strong>Net TVPI:</strong></td>
                     <td class="num">
-                        {% if fund.net_performance.net_moic is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_moic) }}{% endif %}
+                        {% if fund.net_performance.net_tvpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_tvpi) }}{% endif %}
                     </td>
                 </tr>
                 <tr class="tr-net tr-net-second">
                     <td colspan="13"></td>
-                    <td class="num"><strong>DPI:</strong></td>
+                    <td class="num"><strong>Net DPI:</strong></td>
                     <td class="num">
                         {% if fund.net_performance.net_dpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_dpi) }}{% endif %}
                     </td>
-                    <td class="num"><strong>TVPI:</strong></td>
-                    <td class="num">
-                        {% if fund.net_performance.net_tvpi is none %}N/A{% else %}{{ fmt_multiple(fund.net_performance.net_tvpi) }}{% endif %}
-                    </td>
+                    <td colspan="2"></td>
                 </tr>
 
                 <tr class="tr-gap"><td colspan="17"></td></tr>
@@ -189,7 +186,7 @@
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
-                    <td class="num">—</td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
@@ -209,7 +206,7 @@
                     <td class="num"><strong>{{ fmt_years_1dp(rollup.totals.hold_period) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.ownership_pct) }}</strong></td>
                     <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_total_invested) }}</strong></td>
-                    <td class="num">—</td>
+                    <td class="num"><strong>{{ fmt_pct_1dp(rollup.totals.pct_fund_size) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.invested_equity) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.realized_value) }}</strong></td>
                     <td class="num"><strong>{{ fmt_currency(rollup.totals.unrealized_value) }}</strong></td>
@@ -227,7 +224,7 @@
 
 <p class="track-record-footnote" style="color: var(--ink-muted); font-size: 12px; margin-top: 12px; font-family: var(--font-sans);">
     Gross metrics are loan-level, hold-weighted. Net metrics are fund-level, populated from the <em>Fund Performance</em> sheet in the credit upload template.
-    <strong>% of Facility</strong> is hold size ÷ issue size (what portion of each loan this manager holds).
+    <strong>% of Facility</strong> is hold size ÷ issue size (what portion of each loan this manager holds). If only Net MOIC is uploaded on the fund sheet, the page reuses it as Net TVPI.
 </p>
 
 {% else %}

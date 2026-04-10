@@ -176,6 +176,38 @@ def test_credit_reupload_replaces_old_snapshots_for_same_team_and_fund(app_conte
     assert snapshots[0].credit_loan_id == active_loans[0].id
 
 
+def test_credit_upload_backfills_weight_basis_from_current_invested_capital(app_context):
+    team_one, _, firm = _create_shared_credit_context()
+
+    workbook = _build_credit_workbook(
+        loans={
+            "Company Name": ["Weighted Borrower"],
+            "Fund Name": ["Weighted Fund"],
+            "Entry Date": ["2024-01-01"],
+            "Hold Size": [0.0],
+            "Entry Loan Amount": [0.0],
+            "Current Invested Capital": [12.5],
+        }
+    )
+
+    parse_credit_loan_tape(
+        workbook,
+        firm_name=firm.name,
+        firm_id=firm.id,
+        team_id=team_one.id,
+    )
+
+    loan = CreditLoan.query.filter_by(
+        firm_id=firm.id,
+        team_id=team_one.id,
+        company_name="Weighted Borrower",
+    ).one()
+
+    assert loan.current_invested_capital == pytest.approx(12.5)
+    assert loan.entry_loan_amount == pytest.approx(12.5)
+    assert loan.hold_size == pytest.approx(12.5)
+
+
 def test_credit_upload_requires_valid_entry_date(app_context):
     workbook = _build_credit_workbook(
         loans={

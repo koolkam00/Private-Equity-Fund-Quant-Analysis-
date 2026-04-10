@@ -46,6 +46,50 @@ WATCHLIST_LOW_FLOOR_THRESHOLD = 0.02         # Floor below 2% is vulnerable to r
 # ---------------------------------------------------------------------------
 
 
+def _credit_position_amount(loan, fx=1.0):
+    """Current invested capital first, with legacy fallbacks for older uploads."""
+    for field in ("current_invested_capital", "entry_loan_amount", "hold_size"):
+        value = getattr(loan, field, None)
+        if value is not None and value > 0:
+            return value * fx
+
+    total_value = getattr(loan, "total_value", None)
+    moic = getattr(loan, "moic", None)
+    if total_value is not None and moic is not None and moic > 0:
+        derived = total_value / moic
+        if derived > 0:
+            return derived * fx
+
+    return 0.0
+
+
+def _credit_hold_amount(loan, fx=1.0):
+    """Best available current hold/exposure for weighting and concentration."""
+    for field in ("hold_size", "current_invested_capital", "entry_loan_amount"):
+        value = getattr(loan, field, None)
+        if value is not None and value > 0:
+            return value * fx
+
+    total_value = getattr(loan, "total_value", None)
+    moic = getattr(loan, "moic", None)
+    if total_value is not None and moic is not None and moic > 0:
+        derived = total_value / moic
+        if derived > 0:
+            return derived * fx
+
+    return 0.0
+
+
+def _credit_resolve_scalar(values, tolerance=1e-9):
+    clean = [float(v) for v in values if v is not None]
+    if not clean:
+        return {"value": None, "conflict": False}
+    base = clean[0]
+    if any(abs(v - base) > tolerance for v in clean[1:]):
+        return {"value": None, "conflict": True}
+    return {"value": base, "conflict": False}
+
+
 def compute_credit_loan_metrics(loan, as_of_date=None):
     """Compute per-loan return and risk metrics for a single CreditLoan.
 
@@ -104,14 +148,14 @@ def compute_credit_loan_metrics(loan, as_of_date=None):
 
     # --- NEW: Mark-to-market metrics (when LP provides total_value/entry_loan_amount) ---
     total_return_mtm = None
-    entry_amt = loan.entry_loan_amount if hasattr(loan, 'entry_loan_amount') else None
+    entry_amt = _credit_position_amount(loan)
     tv = loan.total_value if hasattr(loan, 'total_value') else None
-    if entry_amt is not None and entry_amt > 0 and tv is not None:
+    if entry_amt > 0 and tv is not None:
         total_return_mtm = safe_divide(tv, entry_amt) - 1.0
 
     warrant_upside = None
     uwev = getattr(loan, 'unrealized_warrant_equity_value', None)
-    if uwev is not None and entry_amt is not None and entry_amt > 0:
+    if uwev is not None and entry_amt > 0:
         warrant_upside = safe_divide(uwev, entry_amt)
 
     revenue_growth = None
@@ -169,7 +213,7 @@ def _loan_traffic_light(loan):
     moic_val = loan.moic
     irr_val = loan.gross_irr
     tv = getattr(loan, "total_value", None)
-    entry_amt = getattr(loan, "entry_loan_amount", None) or loan.hold_size
+    entry_amt = _credit_position_amount(loan)
     est_irr = getattr(loan, "estimated_irr_at_entry", None)
 
     # ----- Hard reds -----
@@ -180,7 +224,7 @@ def _loan_traffic_light(loan):
     if cov is not None and cov < 1.0:
         return "red"
     # Underwater: total_value < 80% of entry amount
-    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.8:
+    if tv is not None and entry_amt > 0 and tv < entry_amt * 0.8:
         return "red"
     if moic_val is not None and moic_val < 0.8:
         return "red"
@@ -201,7 +245,7 @@ def _loan_traffic_light(loan):
     if irr_val is not None and est_irr is not None and irr_val < est_irr * 0.5:
         return "yellow"
     # Slightly underwater (total_value < entry)
-    if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt:
+    if tv is not None and entry_amt > 0 and tv < entry_amt:
         return "yellow"
 
     # ----- Greens -----
@@ -232,7 +276,7 @@ def compute_traffic_lights(loans):
 
     for loan in loans:
         signal = _loan_traffic_light(loan)
-        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+        hold = _credit_position_amount(loan)
         lights[signal] += hold
         total_hold += hold
         per_loan.append({"loan_id": loan.id, "company": loan.company_name, "signal": signal})
@@ -267,10 +311,10 @@ def compute_traffic_lights(loans):
 def compute_top_concerns(loans, metrics_by_id=None, limit=5):
     """Auto-generate top concerns ranked by severity."""
     concerns = []
-    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
+    total_hold = sum(_credit_position_amount(l) for l in loans)
 
     for loan in loans:
-        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0
+        hold = _credit_position_amount(loan)
         hold_pct = safe_divide(hold, total_hold, 0.0) if total_hold > 0 else 0.0
 
         # Severity 1: Default or Restructured
@@ -316,10 +360,11 @@ def compute_top_concerns(loans, metrics_by_id=None, limit=5):
                 })
 
         # Severity 5: Large PIK accrual
-        if loan.pik_toggle and loan.pik_rate and loan.hold_size:
+        hold_size = _credit_position_amount(loan)
+        if loan.pik_toggle and loan.pik_rate and hold_size > 0:
             m = (metrics_by_id or {}).get(loan.id, {})
             pik_acc = m.get("pik_accrual", 0)
-            if loan.hold_size > 0 and pik_acc > 0.20 * loan.hold_size:
+            if pik_acc > 0.20 * hold_size:
                 concerns.append({
                     "company": loan.company_name,
                     "severity": 5,
@@ -329,10 +374,9 @@ def compute_top_concerns(loans, metrics_by_id=None, limit=5):
                 })
 
         # NEW: Severity 1 - Underwater (total_value < entry_loan_amount)
-        entry_amt = getattr(loan, 'entry_loan_amount', None) or loan.hold_size
+        entry_amt = _credit_position_amount(loan)
         tv = getattr(loan, 'total_value', None)
-        if tv is not None and entry_amt is not None and entry_amt > 0 and tv < entry_amt * 0.9:
-            shortfall_pct = safe_divide(entry_amt - tv, entry_amt, 0.0)
+        if tv is not None and entry_amt > 0 and tv < entry_amt * 0.9:
             concerns.append({
                 "company": loan.company_name,
                 "severity": 1,
@@ -401,7 +445,7 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        hold = (loan.hold_size or 0.0) * fx
+        hold = _credit_position_amount(loan, fx)
         issue = (loan.issue_size or 0.0) * fx
 
         total_issue += issue
@@ -456,9 +500,7 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        entry_amt = (getattr(loan, 'entry_loan_amount', None) or 0.0) * fx
-        hold = (loan.hold_size or 0.0) * fx
-        weight = entry_amt if entry_amt > 0 else hold
+        weight = _credit_position_amount(loan, fx)
 
         committed = (getattr(loan, 'committed_amount', None) or 0.0) * fx
         cur_inv = (getattr(loan, 'current_invested_capital', None) or 0.0) * fx
@@ -469,7 +511,7 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
         eq_inv = (getattr(loan, 'equity_investment', None) or 0.0) * fx
 
         total_committed += committed
-        total_entry_loan += entry_amt
+        total_entry_loan += weight
         total_current_invested += cur_inv
         total_realized_proceeds += rp
         total_unrealized_loan += ulv
@@ -491,7 +533,10 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
             cash_margin_denom += weight
             cash_margin_count += 1
 
-        if any(getattr(loan, f, None) is not None for f in ('entry_loan_amount', 'total_value', 'committed_amount')):
+        if any(
+            getattr(loan, f, None) is not None
+            for f in ('entry_loan_amount', 'current_invested_capital', 'total_value', 'committed_amount')
+        ):
             has_new_fields = True
 
     return {
@@ -582,12 +627,11 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
-        hold = (loan.hold_size or 0.0) * fx
-        weight = entry_amt if entry_amt > 0 else hold
+        hold = _credit_position_amount(loan, fx)
+        weight = _credit_position_amount(loan, fx)
 
         total_hold += hold
-        total_entry_loan += entry_amt
+        total_entry_loan += weight
         total_total_value += (getattr(loan, "total_value", None) or 0.0) * fx
 
         if loan.current_ltv is not None and weight > 0:
@@ -631,7 +675,10 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
         if loan.internal_credit_rating is not None:
             rating_dist[loan.internal_credit_rating] += 1
 
-        if any(getattr(loan, f, None) is not None for f in ("entry_loan_amount", "total_value", "committed_amount")):
+        if any(
+            getattr(loan, f, None) is not None
+            for f in ("entry_loan_amount", "current_invested_capital", "total_value", "committed_amount")
+        ):
             has_new_fields = True
 
     # Collateral, coverage ratio, equity cushion aggregations
@@ -648,9 +695,7 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
-        hold = (loan.hold_size or 0.0) * fx
-        weight = entry_amt if entry_amt > 0 else hold
+        weight = _credit_position_amount(loan, fx)
 
         cur_coll = getattr(loan, "current_collateral", None)
         if cur_coll is not None:
@@ -1033,9 +1078,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        entry_amt = (loan.entry_loan_amount or 0.0) * fx
-        hold = (loan.hold_size or 0.0) * fx
-        weight = entry_amt if entry_amt > 0 else hold
+        weight = _credit_position_amount(loan, fx)
 
         rev_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_revenue")
         ebitda_trend = _snapshot_trend(snapshots_by_loan, loan.id, "current_ebitda")
@@ -1386,7 +1429,7 @@ def compute_credit_watchlist(
         scored = _score_loan(loan, snapshots_by_loan, metrics_by_id, sponsor_history)
 
         fx = loan.fx_rate_to_usd or 1.0
-        hold = (loan.hold_size or 0.0) * fx
+        hold = _credit_position_amount(loan, fx)
 
         rows.append({
             "loan_id": loan.id,
@@ -1490,7 +1533,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        entry_amt = (getattr(loan, 'entry_loan_amount', None) or 0.0) * fx
+        entry_amt = _credit_position_amount(loan, fx)
         cm = getattr(loan, 'cash_margin', None)
         pm = getattr(loan, 'pik_margin', None)
         cf = getattr(loan, 'closing_fee', None)
@@ -1530,7 +1573,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        hold = (loan.hold_size or 0.0) * fx
+        hold = _credit_position_amount(loan, fx)
         yield_total_hold += hold
         rate_type = (getattr(loan, "fixed_or_floating", None) or "").lower()
         if rate_type == "fixed":
@@ -1563,7 +1606,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
         if (getattr(loan, "fixed_or_floating", None) or "").lower() != "floating":
             continue
         fx = loan.fx_rate_to_usd or 1.0
-        hold = (loan.hold_size or 0.0) * fx
+        hold = _credit_position_amount(loan, fx)
         floating_loans_count += 1
         floating_hold_total += hold
 
@@ -1647,7 +1690,7 @@ def compute_credit_stress_scenarios(loans, scenario):
 
     sorted_loans = sorted(loans, key=_stress_sort_key)
 
-    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
+    total_hold = sum(_credit_position_amount(l) for l in loans)
     target_default_amount = total_hold * default_shock
 
     base_nav = 0.0
@@ -1656,7 +1699,7 @@ def compute_credit_stress_scenarios(loans, scenario):
     impacted_loans = []
 
     for loan in sorted_loans:
-        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+        hold = _credit_position_amount(loan)
         fv = loan.fair_value if loan.fair_value is not None else (getattr(loan, 'total_value', None) or hold)
         base_nav += fv
 
@@ -1695,7 +1738,7 @@ def compute_credit_stress_scenarios(loans, scenario):
     fixed_count = 0
     fixed_hold = 0.0
     for loan in loans:
-        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        hold = _credit_position_amount(loan)
         rate_type = (getattr(loan, "fixed_or_floating", None) or "").lower()
         if rate_type == "floating":
             floating_count += 1
@@ -1730,13 +1773,13 @@ def compute_credit_stress_scenarios(loans, scenario):
 
 def compute_credit_concentration(loans, metrics_by_id=None):
     """Sector, geography, sponsor, security type breakdowns with HHI."""
-    total_hold = sum((l.hold_size or getattr(l, 'entry_loan_amount', None) or 0) for l in loans)
+    total_hold = sum(_credit_position_amount(l) for l in loans)
 
     def _build_breakdown(loans, attr):
         groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
         for loan in loans:
             key = getattr(loan, attr, None) or "Unknown"
-            hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+            hold = _credit_position_amount(loan)
             groups[key]["hold"] += hold
             groups[key]["count"] += 1
         result = []
@@ -1756,8 +1799,8 @@ def compute_credit_concentration(loans, metrics_by_id=None):
 
     # Top-N single-name exposure
     loan_exposures = sorted(
-        [{"company": l.company_name, "hold": l.hold_size or getattr(l, 'entry_loan_amount', None) or 0,
-          "pct": safe_divide(l.hold_size or getattr(l, 'entry_loan_amount', None) or 0, total_hold, 0.0)}
+        [{"company": l.company_name, "hold": _credit_position_amount(l),
+          "pct": safe_divide(_credit_position_amount(l), total_hold, 0.0)}
          for l in loans],
         key=lambda x: -(x.get("hold") or 0),
     )
@@ -1776,7 +1819,7 @@ def compute_credit_concentration(loans, metrics_by_id=None):
         groups = defaultdict(lambda: {"hold": 0.0, "count": 0})
         for loan in loans:
             key = "Public" if getattr(loan, 'is_public', None) else "Private"
-            hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+            hold = _credit_position_amount(loan)
             groups[key]["hold"] += hold
             groups[key]["count"] += 1
         for key, val in sorted(groups.items(), key=lambda x: -x[1]["hold"]):
@@ -1926,7 +1969,7 @@ def compute_credit_maturity_profile(loans):
     today = date.today()
 
     for loan in loans:
-        hold = loan.hold_size or getattr(loan, 'entry_loan_amount', None) or 0.0
+        hold = _credit_position_amount(loan)
         total_hold += hold
 
         mat_date = loan.maturity_date
@@ -1992,7 +2035,7 @@ def _wavg_term_years(loans):
             tm = float(raw_tm) if raw_tm is not None else None
         except (TypeError, ValueError):
             tm = None
-        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        hold = _credit_position_amount(loan)
         if tm is not None and hold > 0:
             num += tm * hold
             den += hold
@@ -2014,7 +2057,7 @@ def _compute_term_distribution(loans):
     }
     total_hold = 0.0
     for loan in loans:
-        hold = loan.hold_size or getattr(loan, "entry_loan_amount", None) or 0.0
+        hold = _credit_position_amount(loan)
         total_hold += hold
         raw_tm = getattr(loan, "term_years", None)
         try:
@@ -2207,19 +2250,25 @@ def _credit_fund_net_performance(fund_perf):
             # shared template macros/logic don't need to branch on asset class.
             "conflicts": {"net_irr": False, "net_moic": False, "net_dpi": False},
         }
+    net_moic = getattr(fund_perf, "net_moic", None)
+    net_tvpi = getattr(fund_perf, "net_tvpi", None)
+    if net_tvpi is None and net_moic is not None:
+        net_tvpi = net_moic
+    if net_moic is None and net_tvpi is not None:
+        net_moic = net_tvpi
     return {
         "net_irr": getattr(fund_perf, "net_irr", None),
-        "net_moic": getattr(fund_perf, "net_moic", None),
+        "net_moic": net_moic,
         "net_dpi": getattr(fund_perf, "net_dpi", None),
-        "net_tvpi": getattr(fund_perf, "net_tvpi", None),
+        "net_tvpi": net_tvpi,
         "net_rvpi": getattr(fund_perf, "net_rvpi", None),
         "called_capital": getattr(fund_perf, "called_capital", None),
         "distributed_capital": getattr(fund_perf, "distributed_capital", None),
         "nav": getattr(fund_perf, "nav", None),
         "fund_size": getattr(fund_perf, "fund_size", None),
         "has_data": any(
-            getattr(fund_perf, f, None) is not None
-            for f in ("net_irr", "net_moic", "net_dpi", "net_tvpi", "net_rvpi")
+            value is not None
+            for value in (getattr(fund_perf, "net_irr", None), net_moic, getattr(fund_perf, "net_dpi", None), net_tvpi, getattr(fund_perf, "net_rvpi", None))
         ),
         "conflicts": {"net_irr": False, "net_moic": False, "net_dpi": False},
     }
@@ -2258,12 +2307,8 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        hold_size = (loan.hold_size or 0.0) * fx
-        entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
-        # "Invested" in credit = entry_loan_amount if available, else hold_size.
-        # This mirrors the weighting convention used by
-        # compute_credit_portfolio_analytics so the numbers reconcile.
-        invested = entry_amt if entry_amt > 0 else hold_size
+        hold_size = _credit_hold_amount(loan, fx)
+        invested = _credit_position_amount(loan, fx)
 
         realized_value = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
         # For unrealized value, prefer explicit unrealized_loan_value +
@@ -2316,6 +2361,7 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             "gross_moic": gross_moic,
             "realized_gross_moic": realized_moic,
             "unrealized_gross_moic": unrealized_moic,
+            "fund_size": getattr(loan, "fund_size", None),
             "currency": getattr(loan, "currency", None),
             "fx_rate_to_usd": loan.fx_rate_to_usd,
             # Backward compatibility aliases mirroring PE rows.
@@ -2343,6 +2389,8 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
         key=lambda fn: _credit_fund_sort_key(fn, fund_performance),
     )
 
+    overall_fund_size_total = 0.0
+
     for fund in sorted_funds:
         fund_rows = sorted(
             grouped[fund],
@@ -2369,9 +2417,15 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             if row["status"] == "Unrealized":
                 _credit_update_track_totals(overall_unrealized_totals, row)
 
-        # Fund size: prefer the fund_performance table; fall back to None.
+        # Fund size: prefer Fund Performance, but fall back to the loan sheet.
         fund_perf = fund_performance.get(fund)
-        fund_size = getattr(fund_perf, "fund_size", None) if fund_perf is not None else None
+        perf_fund_size = getattr(fund_perf, "fund_size", None) if fund_perf is not None else None
+        fund_size_meta = _credit_resolve_scalar(
+            [row.get("fund_size") for row in fund_rows] + [perf_fund_size]
+        )
+        fund_size = perf_fund_size if perf_fund_size is not None else fund_size_meta["value"]
+        if fund_size is not None and fund_size > 0:
+            overall_fund_size_total += fund_size
         fund_invested_total = fund_totals["invested_equity"]
 
         for idx, row in enumerate(fund_rows, start=1):
@@ -2430,7 +2484,7 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             {
                 "fund_name": fund,
                 "fund_size": fund_size,
-                "fund_size_conflict": False,  # credit reads from a single row, no reconciliation
+                "fund_size_conflict": fund_size_meta["conflict"],
                 "vintage_year": getattr(fund_perf, "vintage_year", None) if fund_perf else None,
                 "rows": fund_rows,
                 "status_rollups": status_rollups,
@@ -2446,7 +2500,9 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
     overall_status_rollups = []
     for status in CREDIT_TRACK_RECORD_STATUS_ORDER:
         totals = _credit_finalize_track_totals(
-            overall_status_totals[status], invested_total=overall_invested_total
+            overall_status_totals[status],
+            invested_total=overall_invested_total,
+            fund_size=overall_fund_size_total or None,
         )
         if totals["deal_count"] == 0:
             continue
@@ -2460,7 +2516,9 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             {
                 "label": f"All {overall_realized_totals['deal_count']} Fully and Partially Realized Loans",
                 "totals": _credit_finalize_track_totals(
-                    overall_realized_totals, invested_total=overall_invested_total
+                    overall_realized_totals,
+                    invested_total=overall_invested_total,
+                    fund_size=overall_fund_size_total or None,
                 ),
             }
         )
@@ -2469,14 +2527,20 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             {
                 "label": f"All {overall_unrealized_totals['deal_count']} Unrealized Loans",
                 "totals": _credit_finalize_track_totals(
-                    overall_unrealized_totals, invested_total=overall_invested_total
+                    overall_unrealized_totals,
+                    invested_total=overall_invested_total,
+                    fund_size=overall_fund_size_total or None,
                 ),
             }
         )
     overall_summary_rollups.append(
         {
             "label": f"All {overall_totals['deal_count']} Loans",
-            "totals": _credit_finalize_track_totals(overall_totals, invested_total=overall_invested_total),
+            "totals": _credit_finalize_track_totals(
+                overall_totals,
+                invested_total=overall_invested_total,
+                fund_size=overall_fund_size_total or None,
+            ),
         }
     )
 
@@ -2487,7 +2551,9 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
             "summary_rollups": overall_summary_rollups,
             "status_groups": overall_status_rollups,  # back-compat alias
             "totals": _credit_finalize_track_totals(
-                overall_totals, invested_total=overall_invested_total
+                overall_totals,
+                invested_total=overall_invested_total,
+                fund_size=overall_fund_size_total or None,
             ),
         },
         "loan_count": overall_totals["deal_count"],
@@ -2595,9 +2661,8 @@ def _credit_dc_new_bucket():
 
 
 def _credit_dc_add(bucket, loan, fx=1.0):
-    hold = (loan.hold_size or 0.0) * fx
-    entry_amt = (getattr(loan, "entry_loan_amount", None) or 0.0) * fx
-    invested = entry_amt if entry_amt > 0 else hold
+    hold = _credit_position_amount(loan, fx)
+    invested = _credit_position_amount(loan, fx)
 
     rp = (getattr(loan, "realized_proceeds", None) or 0.0) * fx
     ulv = (getattr(loan, "unrealized_loan_value", None) or 0.0) * fx
@@ -2956,7 +3021,7 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
 
     for loan in loans:
         fx = loan.fx_rate_to_usd or 1.0
-        hold = (loan.hold_size or 0.0) * fx
+        hold = _credit_position_amount(loan, fx)
         total_hold += hold
         m = metrics_by_id.get(loan.id, {})
 

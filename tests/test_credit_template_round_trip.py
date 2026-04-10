@@ -343,6 +343,22 @@ def test_all_credit_routes_render_no_500(credit_round_trip_client):
     assert not failures, f"Credit analysis pages crashed: {failures}"
 
 
+def test_credit_track_record_route_renders_net_tvpi_not_net_moic(credit_round_trip_client):
+    client, team_id = credit_round_trip_client
+    firm_id = _seed_template_loans(client, team_id, firm_name="Track Record Render Firm")
+
+    with client.session_transaction() as sess:
+        sess["active_firm_id"] = firm_id
+
+    resp = client.get("/credit/analysis/credit-track-record")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Net TVPI:" in body
+    assert "Net DPI:" in body
+    assert "Net MOIC:" not in body
+    assert "All Funds Summary" in body
+
+
 def test_template_round_trip_fund_performance_sheet(credit_round_trip_client):
     """Fund Performance sheet in the template round-trips through the parser
     and creates CreditFundPerformance rows with correct net return fields."""

@@ -765,10 +765,20 @@ def parse_credit_loan_tape(
         )
 
         # Cross-populate old/new field pairs for backward compatibility
-        if loan.entry_loan_amount is not None and loan.hold_size is None:
+        if loan.entry_loan_amount is not None and loan.entry_loan_amount > 0 and (
+            loan.hold_size is None or loan.hold_size <= 0
+        ):
             loan.hold_size = loan.entry_loan_amount
-        elif loan.hold_size is not None and loan.entry_loan_amount is None:
+        elif loan.hold_size is not None and loan.hold_size > 0 and (
+            loan.entry_loan_amount is None or loan.entry_loan_amount <= 0
+        ):
             loan.entry_loan_amount = loan.hold_size
+
+        if loan.current_invested_capital is not None and loan.current_invested_capital > 0:
+            if loan.entry_loan_amount is None or loan.entry_loan_amount <= 0:
+                loan.entry_loan_amount = loan.current_invested_capital
+            if loan.hold_size is None or loan.hold_size <= 0:
+                loan.hold_size = loan.current_invested_capital
 
         if loan.location is not None and loan.geography is None:
             loan.geography = loan.location
