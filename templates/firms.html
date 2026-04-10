@@ -14,6 +14,7 @@
                 <th>Currency</th>
                 <th class="num">Fund Count</th>
                 <th class="num">Deal Count</th>
+                <th class="num">Credit Loans</th>
                 <th>Last Updated</th>
                 <th class="num">Actions</th>
             </tr>
@@ -26,8 +27,9 @@
                 <td>{{ firm.base_currency or "USD" }}</td>
                 <td class="num">{{ stats.get("fund_count", 0) }}</td>
                 <td class="num">{{ stats.get("deal_count", 0) }}</td>
+                <td class="num">{{ stats.get("credit_count", 0) }}</td>
                 <td>{{ fmt_date_monyy(stats.get("last_updated")) if stats.get("last_updated") else "—" }}</td>
-                <td class="num">
+                <td class="num" style="display: flex; gap: 6px; align-items: center; justify-content: flex-end;">
                     <a href="{{ url_for('export_firm_excel', firm_id=firm.id) }}"
                        class="btn-upload btn-secondary btn-sm"
                        title="Download all data as Excel">Export</a>
@@ -36,6 +38,11 @@
                         <button type="submit" class="btn-upload btn-secondary btn-sm">
                             {% if active_firm_id == firm.id %}Selected{% else %}Select{% endif %}
                         </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_firm', firm_id=firm.id) }}" class="inline-form"
+                          onsubmit="return confirm('Delete {{ firm.name }} and ALL its data (deals, loans, snapshots, memos)? This cannot be undone.');">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn-upload btn-sm" style="background: var(--danger); color: #fff;">Delete</button>
                     </form>
                 </td>
             </tr>

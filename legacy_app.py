@@ -365,6 +365,7 @@ ROUTE_BLUEPRINTS = {
     "firms": "scope",
     "export_firm_excel": "scope",
     "select_firm_scope": "scope",
+    "delete_firm": "scope",
     "funds": "scope",
     "select_fund_scope": "scope",
     "delete_fund": "scope",
@@ -3773,9 +3774,11 @@ def firms():
             .all()
         )
         fund_count = len({d.fund_number for d in deal_rows if d.fund_number})
+        credit_count = db.session.query(CreditLoan).filter_by(firm_id=firm.id).count()
         stats[firm.id] = {
             "deal_count": len(deal_rows),
             "fund_count": fund_count,
+            "credit_count": credit_count,
             "last_updated": deal_rows[0].created_at if deal_rows else None,
         }
 
@@ -3828,6 +3831,71 @@ def select_firm_scope(firm_id):
     _set_active_firm_scope(firm.id)
     flash(f"Switched active firm to {firm.name}.", "success")
     return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/firms/<int:firm_id>/delete", methods=["POST"])
+@login_required
+def delete_firm(firm_id):
+    """Delete a firm and ALL associated data across every table."""
+    membership = _require_team_scope()
+    team_id = membership.team_id
+    accessible_ids = {f.id for f in _accessible_firms_for_team(team_id)}
+    if firm_id not in accessible_ids:
+        flash("You do not have access to this firm.", "danger")
+        return redirect(url_for("firms"))
+
+    firm = db.session.get(Firm, firm_id)
+    if firm is None:
+        flash("Firm not found.", "danger")
+        return redirect(url_for("firms"))
+
+    firm_name = firm.name
+    try:
+        # Credit: snapshots first (FK to credit_loans), then loans, then fund perf
+        CreditLoanSnapshot.query.filter(
+            CreditLoanSnapshot.credit_loan_id.in_(
+                db.session.query(CreditLoan.id).filter_by(firm_id=firm_id)
+            )
+        ).delete(synchronize_session=False)
+        CreditLoan.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        CreditFundPerformance.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        # PE: deal-level children first, then deals
+        deal_ids = db.session.query(Deal.id).filter_by(firm_id=firm_id)
+        DealCashflowEvent.query.filter(DealCashflowEvent.deal_id.in_(deal_ids)).delete(synchronize_session=False)
+        DealQuarterSnapshot.query.filter(DealQuarterSnapshot.deal_id.in_(deal_ids)).delete(synchronize_session=False)
+        DealUnderwriteBaseline.query.filter(DealUnderwriteBaseline.deal_id.in_(deal_ids)).delete(synchronize_session=False)
+        Deal.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        # Fund-level data
+        FundQuarterSnapshot.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        FundMetadata.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        FundCashflow.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        # Memo data
+        MemoDocumentChunk.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        MemoGenerationRun.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        MemoDocument.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        # Upload issues
+        UploadIssue.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+
+        # Access record and the firm itself
+        TeamFirmAccess.query.filter_by(firm_id=firm_id).delete(synchronize_session=False)
+        db.session.delete(firm)
+        db.session.commit()
+
+        # If the deleted firm was the active scope, clear it
+        if session.get("active_firm_id") == firm_id:
+            session.pop("active_firm_id", None)
+
+        flash(f"Deleted firm '{firm_name}' and all associated data.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        root = _root_db_error(exc)
+        flash(f"Delete failed: {type(root).__name__}: {str(root)[:200]}", "danger")
+
+    return redirect(url_for("firms"))
 
 
 @app.route("/funds")
