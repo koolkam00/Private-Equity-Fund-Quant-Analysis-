@@ -5,8 +5,8 @@
 {% block page_subtitle %}Slice credit portfolio performance by any dimension, with LTV, coverage ratio, and equity cushion shown on an entry basis.{% endblock %}
 
 {% set a = analysis %}
-{% set current_dim = request.args.get('dim', 'sector') %}
-{% set current_dim2 = request.args.get('dim2', '') %}
+{% set current_dim = a.primary_dim %}
+{% set current_dim2 = a.secondary_dim or '' %}
 {% set current_metric = request.args.get('metric', 'weighted_moic') %}
 
 {% block content %}
@@ -20,18 +20,24 @@
             <label class="filter-field">
                 <span>Group by</span>
                 <select name="dim">
+                    {% if a.dimension_labels %}
                     {% for key, label in a.dimension_labels.items() %}
                     <option value="{{ key }}" {% if current_dim == key %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}
+                    {% else %}
+                    <option value="">No dimensions with data</option>
+                    {% endif %}
                 </select>
             </label>
             <label class="filter-field">
                 <span>Cross-tab by (optional)</span>
                 <select name="dim2">
                     <option value="">— None —</option>
+                    {% if a.dimension_labels %}
                     {% for key, label in a.dimension_labels.items() %}
                     <option value="{{ key }}" {% if current_dim2 == key %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}
+                    {% endif %}
                 </select>
             </label>
             <label class="filter-field">

@@ -4122,6 +4122,19 @@ def _credit_dc_validate_dim(dim, default="sector"):
     return default
 
 
+def credit_data_cuts_available_dimension_keys(loans):
+    available = []
+    for dim_key, cfg in CREDIT_DIMENSIONS.items():
+        fallback = cfg.get("fallback", "Unknown")
+        has_real_data = any(
+            (_credit_dc_resolve_dim(loan, dim_key) not in (None, "", fallback))
+            for loan in loans
+        )
+        if has_real_data:
+            available.append(dim_key)
+    return available
+
+
 def _credit_dc_sort_groups(groups, dim_key):
     fallback = CREDIT_DIMENSIONS.get(dim_key, {}).get("fallback", "Unknown")
     if dim_key == "vintage_year":
@@ -4159,9 +4172,20 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
 
     Mirrors compute_data_cuts_analytics for PE deals.
     """
+    available_dimension_keys = credit_data_cuts_available_dimension_keys(loans)
+    available_dimension_labels = {
+        key: CREDIT_DIMENSION_LABELS[key]
+        for key in available_dimension_keys
+    }
+
     primary_dim = _credit_dc_validate_dim(primary_dim, "sector")
+    if available_dimension_keys and primary_dim not in available_dimension_keys:
+        primary_dim = "sector" if "sector" in available_dimension_keys else available_dimension_keys[0]
+
     if secondary_dim:
         secondary_dim = _credit_dc_validate_dim(secondary_dim, None)
+        if available_dimension_keys and secondary_dim not in available_dimension_keys:
+            secondary_dim = None
         if secondary_dim == primary_dim:
             secondary_dim = None
 
@@ -4300,7 +4324,7 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
         "chart_datasets": chart_datasets,
         "chart_secondary": chart_secondary,
         "dimensions": CREDIT_DIMENSIONS,
-        "dimension_labels": CREDIT_DIMENSION_LABELS,
+        "dimension_labels": available_dimension_labels,
         "allowed_metrics": CREDIT_ALLOWED_METRICS,
         "data_quality_warning": data_quality_warning,
         "deal_count": totals["loan_count"],

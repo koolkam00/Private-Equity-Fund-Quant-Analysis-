@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 from services.metrics.credit import (
+    credit_data_cuts_available_dimension_keys,
     compute_credit_benchmarking_analysis,
     compute_credit_data_cuts,
     compute_credit_fundamentals,
@@ -2734,11 +2735,12 @@ class TestCreditDataCuts:
 
     def test_data_quality_warning_when_many_unknown(self):
         loans = [
-            _make_loan(id=i, sector=None, hold_size=10.0) for i in range(5)
+            *[_make_loan(id=i, sector=None, hold_size=10.0) for i in range(5)],
+            _make_loan(id=99, sector="Tech", hold_size=10.0),
         ]
         result = compute_credit_data_cuts(loans, primary_dim="sector")
         assert result["data_quality_warning"] is not None
-        assert result["data_quality_warning"]["pct"] == pytest.approx(1.0)
+        assert result["data_quality_warning"]["pct"] == pytest.approx(5 / 6)
 
     def test_no_data_quality_warning_when_few_unknown(self):
         loans = [
@@ -2838,7 +2840,22 @@ class TestCreditDataCuts:
 
     def test_all_dimensions_valid(self):
         """Each dimension key in the registry resolves without error."""
-        loan = _make_loan(id=1, hold_size=10.0, sourcing_channel="Direct", fixed_or_floating="Floating")
+        loan = _make_loan(
+            id=1,
+            hold_size=10.0,
+            fund_name="Fund I",
+            sector="Software",
+            geography="North America",
+            sponsor="Apollo",
+            instrument="Unitranche",
+            tranche="First Lien",
+            security_type="Senior Secured",
+            status="Unrealized",
+            vintage_year=2023,
+            sourcing_channel="Direct",
+            fixed_or_floating="Floating",
+            term_years=5.0,
+        )
         from services.metrics.credit import CREDIT_DIMENSIONS
         for dim_key in CREDIT_DIMENSIONS:
             result = compute_credit_data_cuts([loan], primary_dim=dim_key)
@@ -2855,6 +2872,77 @@ class TestCreditDataCuts:
         from services.metrics.credit import CREDIT_ALLOWED_METRICS
         for mk in CREDIT_ALLOWED_METRICS:
             assert mk in result["chart_datasets"]
+
+    def test_dimension_dropdown_excludes_unknown_only_fields_and_primary_falls_back(self):
+        loans = [
+            _make_loan(
+                id=1,
+                sector="Software",
+                sponsor=None,
+                geography=None,
+                hold_size=10.0,
+            )
+        ]
+
+        result = compute_credit_data_cuts(loans, primary_dim="sponsor", secondary_dim="geography")
+
+        assert result["primary_dim"] == "sector"
+        assert result["secondary_dim"] is None
+        assert "sector" in result["dimension_labels"]
+        assert "sponsor" not in result["dimension_labels"]
+        assert "geography" not in result["dimension_labels"]
+
+    def test_available_dimension_helper_only_returns_dimensions_with_real_data(self):
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Fund I",
+                sector="Software",
+                sponsor=None,
+                geography=None,
+                hold_size=10.0,
+            )
+        ]
+
+        keys = credit_data_cuts_available_dimension_keys(loans)
+
+        assert "fund_name" in keys
+        assert "sector" in keys
+        assert "sponsor" not in keys
+        assert "geography" not in keys
+
+    def test_credit_data_cuts_pdf_payload_skips_unknown_only_dimensions(self):
+        from legacy_app import _credit_pdf_payload_for_page
+
+        loans = [
+            _make_loan(
+                id=1,
+                fund_name="Fund I",
+                sector="Software",
+                sponsor=None,
+                geography=None,
+                hold_size=10.0,
+            )
+        ]
+
+        payload = _credit_pdf_payload_for_page(
+            "credit-data-cuts",
+            {
+                "ctx": {
+                    "loans": loans,
+                    "metrics_by_id": {},
+                    "snapshots_by_loan": {},
+                    "fund_performance": {},
+                },
+                "membership": SimpleNamespace(team_id=1),
+                "benchmark_asset_class": "",
+            },
+        )
+
+        assert "fund_name" in payload["all_cuts"]
+        assert "sector" in payload["all_cuts"]
+        assert "sponsor" not in payload["all_cuts"]
+        assert "geography" not in payload["all_cuts"]
 
     def test_pct_of_invested(self):
         loans = [

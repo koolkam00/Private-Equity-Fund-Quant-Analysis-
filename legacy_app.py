@@ -110,6 +110,7 @@ from services.metrics import (
 from services.metrics.credit import (
     CREDIT_DIMENSIONS,
     CREDIT_DIMENSION_LABELS,
+    credit_data_cuts_available_dimension_keys,
     compute_credit_benchmarking_analysis,
     compute_credit_concentration,
     compute_credit_data_cuts,
@@ -3456,7 +3457,16 @@ def _build_credit_data_cuts_summary_pdf(
         Spacer(1, 8),
     ]
 
-    dim_keys = list(CREDIT_DIMENSIONS.keys())
+    dim_keys = list(all_cuts.keys())
+    if not dim_keys:
+        return _build_empty_report_pdf(
+            report_title,
+            as_of_date=as_of_date,
+            currency_code=currency_code,
+            note="No credit data-cut dimensions have populated qualitative data for export.",
+            pagesize=landscape(legal),
+        )
+
     for idx, dim_key in enumerate(dim_keys):
         payload = all_cuts.get(dim_key) or {}
         groups = payload.get("groups") or []
@@ -3604,10 +3614,11 @@ def _credit_pdf_payload_for_page(page, export_ctx):
     if page == "credit-underwrite-outcome":
         return compute_credit_underwrite_outcome(loans, metrics_by_id, snapshots_by_loan=snapshots_by_loan)
     if page == "credit-data-cuts":
+        available_dim_keys = credit_data_cuts_available_dimension_keys(loans)
         return {
             "all_cuts": {
                 dim_key: compute_credit_data_cuts(loans, metrics_by_id, primary_dim=dim_key)
-                for dim_key in CREDIT_DIMENSIONS
+                for dim_key in available_dim_keys
             }
         }
     raise KeyError(page)
