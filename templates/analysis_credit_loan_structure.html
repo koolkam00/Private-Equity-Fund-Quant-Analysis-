@@ -340,7 +340,7 @@
                         <div>
                             <div style="font-size: 11px; font-weight: 600; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Structure</div>
                             <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Payment freq:</span> {{ r.payment_frequency or '—' }}</div>
-                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Term:</span> {% if r.term_months is not none %}{{ "%.0f"|format(r.term_months) }}mo ({{ "%.1f"|format(r.term_months / 12) }}yr){% else %}—{% endif %}</div>
+                            <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Term:</span> {% if r.term_years is not none %}{{ "%.1f"|format(r.term_years) }} years{% else %}—{% endif %}</div>
                             <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Issue size:</span> {% if r.issue_size is not none %}{{ fmt_currency_symbol(r.issue_size) }}{% else %}—{% endif %}</div>
                             <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Original par:</span> {% if r.original_par is not none %}{{ fmt_currency_symbol(r.original_par) }}{% else %}—{% endif %}</div>
                             <div style="margin-bottom: 4px;"><span style="color: var(--ink-muted);">Outstanding:</span> {% if r.current_outstanding is not none %}{{ fmt_currency_symbol(r.current_outstanding) }}{% else %}—{% endif %}</div>

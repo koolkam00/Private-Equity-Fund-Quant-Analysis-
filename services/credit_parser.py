@@ -228,9 +228,10 @@ CREDIT_COLUMN_MAP = {
     "pik coupon": "pik_margin",
     "closing fee": "closing_fee",
     "loan term": "loan_term",
-    "term (months)": "term_months",
-    "term months": "term_months",
-    "loan term (months)": "term_months",
+    "term (years)": "term_years",
+    "term years": "term_years",
+    "term": "term_years",
+    "loan term (years)": "term_years",
     "prepayment protection": "prepayment_protection",
     # Warrants (entirely new)
     "equity investment": "equity_investment",
@@ -305,7 +306,7 @@ FLOAT_FIELDS = {
     "cash_margin", "pik_margin", "closing_fee",
     "equity_investment", "warrant_strike_entry", "warrant_strike_current",
     "ttm_revenue_entry", "ttm_revenue_current",
-    "term_months",
+    "term_years",
     "entry_collateral", "current_collateral",
     "entry_coverage_ratio", "current_coverage_ratio",
     "entry_equity_cushion", "current_equity_cushion",
@@ -372,25 +373,22 @@ def _clean_date(val):
         return None
 
 
-def _parse_term_to_months(val):
-    """Parse a loan term value into months (float).
+def _parse_term_to_years(val):
+    """Parse a loan term value into years (float).
 
     Accepts:
-      - Numeric: 60 (treated as months), 5.0 (if <= 30 treated as years)
+      - Numeric: always treated as years (e.g., 5 = 5 years)
       - Text: "5 years", "60 months", "5Y", "3-5 years", "18M", "18mo"
-    Returns float months or None.
+    Returns float years or None.
     """
     if val is None or (isinstance(val, float) and math.isnan(val)):
         return None
 
-    # Already numeric
+    # Already numeric — always treated as years
     if isinstance(val, (int, float)):
         f = float(val)
         if f <= 0:
             return None
-        # Heuristic: if <= 30, assume years; otherwise months
-        if f <= 30:
-            return f * 12.0
         return f
 
     s = str(val).strip().lower()
@@ -400,33 +398,29 @@ def _parse_term_to_months(val):
     # "5 years" or "5yr" or "5y"
     m = re.match(r'^(\d+(?:\.\d+)?)\s*(?:years?|yr?s?)$', s)
     if m:
-        return float(m.group(1)) * 12.0
+        return float(m.group(1))
 
-    # "60 months" or "60m" or "18mo"
+    # "60 months" or "60m" or "18mo" — convert to years
     m = re.match(r'^(\d+(?:\.\d+)?)\s*(?:months?|mos?|m)$', s)
     if m:
-        return float(m.group(1))
+        return float(m.group(1)) / 12.0
 
     # "3-5 years" (range, use midpoint)
     m = re.match(r'^(\d+)-(\d+)\s*(?:years?|yr?s?)$', s)
     if m:
-        avg = (float(m.group(1)) + float(m.group(2))) / 2
-        return avg * 12.0
+        return (float(m.group(1)) + float(m.group(2))) / 2
 
     # "3-5" bare range (assume years)
     m = re.match(r'^(\d+)-(\d+)$', s)
     if m:
-        avg = (float(m.group(1)) + float(m.group(2))) / 2
-        if avg <= 30:
-            return avg * 12.0
-        return avg
+        return (float(m.group(1)) + float(m.group(2))) / 2
 
-    # Try plain numeric as fallback
+    # Try plain numeric as fallback — always years
     try:
         f = float(re.sub(r'[,$%]', '', s))
         if f <= 0:
             return None
-        return f * 12.0 if f <= 30 else f
+        return f
     except (ValueError, TypeError):
         return None
 
@@ -685,7 +679,7 @@ def parse_credit_loan_tape(
             warrant_term=_clean_str(row.get("warrant_term")),
             ttm_revenue_entry=_clean_float(row.get("ttm_revenue_entry")),
             ttm_revenue_current=_clean_float(row.get("ttm_revenue_current")),
-            term_months=_clean_float(row.get("term_months")),
+            term_years=_clean_float(row.get("term_years")),
             entry_collateral=_clean_float(row.get("entry_collateral")),
             current_collateral=_clean_float(row.get("current_collateral")),
             entry_coverage_ratio=_clean_float(row.get("entry_coverage_ratio")),
@@ -729,9 +723,9 @@ def parse_credit_loan_tape(
         if loan.unrealized_loan_value is not None and loan.unrealized_value is None:
             loan.unrealized_value = loan.unrealized_loan_value
 
-        # Auto-compute term_months from loan_term string if not provided directly
-        if loan.term_months is None and loan.loan_term is not None:
-            loan.term_months = _parse_term_to_months(loan.loan_term)
+        # Auto-compute term_years from loan_term string if not provided directly
+        if loan.term_years is None and loan.loan_term is not None:
+            loan.term_years = _parse_term_to_years(loan.loan_term)
 
         # Compute realization status from realized/unrealized values.
         # Overrides whatever the user uploaded — the data tells the truth.

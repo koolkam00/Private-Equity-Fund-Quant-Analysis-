@@ -151,8 +151,8 @@
     <div class="panel">
         <h3>Term distribution</h3>
         <p style="font-size: 13px; color: var(--ink-muted); margin: 4px 0 16px 0;">
-            Portfolio by original loan term. {% if analysis.wavg_term_months.value is not none %}Wtd avg term: {{ "%.0f"|format(analysis.wavg_term_months.value) }} months ({{ "%.1f"|format(analysis.wavg_term_months.value / 12) }}yr).{% endif %}
-            {% if analysis.wavg_term_months.coverage < analysis.wavg_term_months.total %}<span style="color: var(--accent-2);">{{ analysis.wavg_term_months.total - analysis.wavg_term_months.coverage }} loan{{ 's' if analysis.wavg_term_months.total - analysis.wavg_term_months.coverage != 1 }} not provided.</span>{% endif %}
+            Portfolio by original loan term. {% if analysis.wavg_term_years.value is not none %}Wtd avg term: {{ "%.1f"|format(analysis.wavg_term_years.value) }} years.{% endif %}
+            {% if analysis.wavg_term_years.coverage < analysis.wavg_term_years.total %}<span style="color: var(--accent-2);">{{ analysis.wavg_term_years.total - analysis.wavg_term_years.coverage }} loan{{ 's' if analysis.wavg_term_years.total - analysis.wavg_term_years.coverage != 1 }} not provided.</span>{% endif %}
         </p>
         <table class="data-table">
             <thead><tr><th>Bucket</th><th style="text-align: right;">Loans</th><th style="text-align: right;">Hold</th><th style="text-align: right;">%</th></tr></thead>
@@ -168,19 +168,18 @@
             </tbody>
         </table>
     </div>
-    {% if analysis.wavg_term_months.value is not none %}
+    {% if analysis.wavg_term_years.value is not none %}
     <div class="panel">
         <h3>Term summary</h3>
         <div class="kpi-grid" style="margin-top: 16px;">
             <div class="kpi-card">
                 <div class="kpi-label">Wtd avg term</div>
-                <div class="kpi-value">{{ "%.0f"|format(analysis.wavg_term_months.value) }}<span style="font-size: 14px; font-weight: 400;">mo</span></div>
-                <div class="kpi-sublabel">{{ "%.1f"|format(analysis.wavg_term_months.value / 12) }} years</div>
+                <div class="kpi-value">{{ "%.1f"|format(analysis.wavg_term_years.value) }}<span style="font-size: 14px; font-weight: 400;">yr</span></div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Loans with term data</div>
-                <div class="kpi-value">{{ analysis.wavg_term_months.coverage }}</div>
-                <div class="kpi-sublabel">of {{ analysis.wavg_term_months.total }}</div>
+                <div class="kpi-value">{{ analysis.wavg_term_years.coverage }}</div>
+                <div class="kpi-sublabel">of {{ analysis.wavg_term_years.total }}</div>
             </div>
         </div>
     </div>

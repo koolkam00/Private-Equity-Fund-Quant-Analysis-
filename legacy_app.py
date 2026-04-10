@@ -4529,7 +4529,7 @@ def download_credit_template():
         "Fixed or Floating", "Reference Rate",
         "PIK", "PIK Rate",
         "OID", "Upfront Fee", "Exit Fee",
-        "Maturity Date", "Loan Term", "Term (months)",
+        "Maturity Date", "Loan Term", "Term (years)",
         "Amortization Type", "Payment Frequency",
         # Protections
         "Call Protection (months)", "Make-Whole Premium",
@@ -4589,7 +4589,7 @@ def download_credit_template():
         "Floating", "SOFR",
         "No", None,
         0.02, 0.50, None,
-        "2028-06-15", "5 years", 60,
+        "2028-06-15", "5 years", 5,
         "Bullet", "Quarterly",
         # Protections
         12, None,
