@@ -102,6 +102,7 @@ from services.metrics import (
     compute_value_creation_mix,
     compute_valuation_quality_analysis,
     compute_vca_addons_analysis,
+    compute_vca_addons_revenue_analysis,
     compute_vca_ebitda_analysis,
     compute_vca_revenue_analysis,
     compute_vintage_series,
@@ -214,6 +215,10 @@ ANALYSIS_PAGES = {
         "title": "Value Creation Analysis - with Add-Ons",
         "description": "PDF-style value creation table with fund blocks, add-on operating data, and organic versus add-on EBITDA attribution.",
     },
+    "vca-addons-revenue": {
+        "title": "Value Creation Analysis - with Add-Ons by Revenue",
+        "description": "PDF-style value creation table with fund blocks, add-on revenue data, and organic versus add-on revenue attribution.",
+    },
     "benchmarking": {
         "title": "Benchmarking Analysis (IC PDF)",
         "description": "IC-focused benchmark quartile analysis by fund with print-ready executive summaries.",
@@ -259,6 +264,7 @@ WORKFLOW_SIDEBAR_ITEMS = [
     {"endpoint": "analysis_page", "page_key": "vca-ebitda", "label": "Value Creation (EBITDA)", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-revenue", "label": "Value Creation (Revenue)", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-addons", "label": "Value Creation (Add-Ons)", "icon": "bi bi-table"},
+    {"endpoint": "analysis_page", "page_key": "vca-addons-revenue", "label": "Value Creation (Add-Ons Revenue)", "icon": "bi bi-table"},
     {"endpoint": "ic_memo", "label": "IC Memo", "icon": "bi bi-file-earmark-richtext"},
     {"endpoint": "deals", "label": "Deals", "icon": "bi bi-buildings"},
     {"endpoint": "live_ic_pdf_pack", "label": "Download 4 Analysis PDFs", "icon": "bi bi-file-earmark-zip"},
@@ -1051,7 +1057,7 @@ def _scale_analysis_payload(page, payload, scale):
         summary_metrics["gross_profit"] = _scale_money(summary_metrics.get("gross_profit"), scale)
         return
 
-    if page == "vca-addons":
+    if page in {"vca-addons", "vca-addons-revenue"}:
         money_keys = (
             "fund_initial_cost",
             "fund_total_cost",
@@ -1061,6 +1067,8 @@ def _scale_analysis_payload(page, payload, scale):
             "gross_profit",
             "vc_organic_ebitda_growth_dollar",
             "vc_add_on_ebitda_dollar",
+            "vc_organic_revenue_growth_dollar",
+            "vc_add_on_revenue_dollar",
             "vc_multiple_dollar",
             "vc_debt_dollar",
             "vc_total_dollar",
@@ -4290,6 +4298,8 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         return compute_vca_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "vca-addons":
         return compute_vca_addons_analysis(filtered_deals, metrics_by_id=metrics_by_id)
+    if page == "vca-addons-revenue":
+        return compute_vca_addons_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "organic-growth":
         return compute_organic_growth_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "data-cuts":
@@ -5424,6 +5434,8 @@ def analysis_page(page):
     elif page == "vca-revenue":
         template_name = "analysis_vca_revenue.html"
     elif page == "vca-addons":
+        template_name = "analysis_vca_ebitda.html"
+    elif page == "vca-addons-revenue":
         template_name = "analysis_vca_ebitda.html"
     elif page == "benchmarking":
         template_name = "analysis_benchmarking.html"

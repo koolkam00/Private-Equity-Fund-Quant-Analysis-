@@ -707,3 +707,540 @@ def compute_vca_addons_analysis(deals, metrics_by_id=None):
             },
         },
     }
+
+
+REVENUE_COLUMN_KEYS = (
+    "row_num",
+    "platform",
+    "sector",
+    "geography",
+    "exit_type",
+    "close_date",
+    "final_exit_date",
+    "hold_period",
+    "status",
+    "fund_initial_cost",
+    "fund_total_cost",
+    "realized_proceeds",
+    "unrealized_value",
+    "total_value",
+    "gross_profit",
+    "gross_profit_pct_of_total",
+    "gross_irr",
+    "realized_moic",
+    "gross_moic",
+    "organic_revenue_cagr",
+    "organic_revenue_cumulative_growth",
+    "vc_organic_revenue_growth_pct",
+    "vc_add_on_revenue_pct",
+    "vc_multiple_pct",
+    "vc_debt_pct",
+    "vc_total_pct",
+    "vc_organic_revenue_growth_dollar",
+    "vc_add_on_revenue_dollar",
+    "vc_multiple_dollar",
+    "vc_debt_dollar",
+    "vc_total_dollar",
+    "entry_ltm_revenue",
+    "entry_tev",
+    "entry_ev_revenue",
+    "entry_net_debt",
+    "entry_net_debt_revenue",
+    "entry_net_debt_ev",
+    "acquired_revenue",
+    "acquired_ev_revenue",
+    "blended_ev_revenue_with_addons",
+    "exit_ltm_revenue",
+    "exit_tev",
+    "exit_ev_revenue",
+    "exit_net_debt",
+    "exit_net_debt_revenue",
+    "exit_net_debt_ev",
+    "diff_revenue",
+    "diff_tev",
+    "diff_ev_revenue",
+    "diff_net_debt",
+    "diff_net_debt_revenue",
+    "diff_net_debt_ev",
+)
+
+REVENUE_NUMERIC_SUMMARY_KEYS = tuple(
+    key
+    for key in REVENUE_COLUMN_KEYS
+    if key not in {"row_num", "platform", "sector", "geography", "exit_type", "close_date", "final_exit_date", "status"}
+)
+
+REVENUE_VCA_COLUMNS = [
+    {"key": "row_num", "label": "#", "numeric": True},
+    {"key": "platform", "label": "Platform", "numeric": False},
+    {"key": "sector", "label": "Sector", "numeric": False},
+    {"key": "geography", "label": "Geography", "numeric": False},
+    {"key": "exit_type", "label": "Exit Type", "numeric": False},
+    {"key": "close_date", "label": "Close Date", "numeric": False},
+    {"key": "final_exit_date", "label": "Final Sale Date", "numeric": False},
+    {"key": "hold_period", "label": "Hold Period*", "numeric": True},
+    {"key": "status", "label": "Status", "numeric": False},
+    {"key": "fund_initial_cost", "label": "Fund Initial Cost", "numeric": True},
+    {"key": "fund_total_cost", "label": "Fund Total Cost", "numeric": True},
+    {"key": "realized_proceeds", "label": "Realized Proceeds", "numeric": True},
+    {"key": "unrealized_value", "label": "Unrealized Value", "numeric": True},
+    {"key": "total_value", "label": "Total Value", "numeric": True},
+    {"key": "gross_profit", "label": "Gross Profit", "numeric": True},
+    {"key": "gross_profit_pct_of_total", "label": "Gross Profit % of Total", "numeric": True},
+    {"key": "gross_irr", "label": "Gross IRR", "numeric": True},
+    {"key": "realized_moic", "label": "Realized MOIC", "numeric": True},
+    {"key": "gross_moic", "label": "Gross MOIC", "numeric": True},
+    {"key": "organic_revenue_cagr", "label": "Organic Revenue CAGR*", "numeric": True},
+    {"key": "organic_revenue_cumulative_growth", "label": "Organic Revenue Cumulative Growth*", "numeric": True},
+    {"key": "vc_organic_revenue_growth_pct", "label": "Organic Revenue Growth", "numeric": True},
+    {"key": "vc_add_on_revenue_pct", "label": "Revenue Growth Through Add-Ons", "numeric": True},
+    {"key": "vc_multiple_pct", "label": "Multiple Expansion", "numeric": True},
+    {"key": "vc_debt_pct", "label": "Debt Reduction/(Increase)", "numeric": True},
+    {"key": "vc_total_pct", "label": "Total", "numeric": True},
+    {"key": "vc_organic_revenue_growth_dollar", "label": "Organic Revenue Growth", "numeric": True},
+    {"key": "vc_add_on_revenue_dollar", "label": "Revenue Growth Through Add-Ons", "numeric": True},
+    {"key": "vc_multiple_dollar", "label": "Multiple Expansion", "numeric": True},
+    {"key": "vc_debt_dollar", "label": "Debt Reduction/(Increase)", "numeric": True},
+    {"key": "vc_total_dollar", "label": "Total", "numeric": True},
+    {"key": "entry_ltm_revenue", "label": "Entry LTM Revenue", "numeric": True},
+    {"key": "entry_tev", "label": "Entry TEV", "numeric": True},
+    {"key": "entry_ev_revenue", "label": "Entry EV/Revenue*", "numeric": True},
+    {"key": "entry_net_debt", "label": "Entry Net Debt", "numeric": True},
+    {"key": "entry_net_debt_revenue", "label": "Entry Net Debt/Revenue*", "numeric": True},
+    {"key": "entry_net_debt_ev", "label": "Entry Net Debt/EV", "numeric": True},
+    {"key": "acquired_revenue", "label": "Acquired Revenue", "numeric": True},
+    {"key": "acquired_ev_revenue", "label": "Acquired EV/Revenue*", "numeric": True},
+    {"key": "blended_ev_revenue_with_addons", "label": "Blended EV/Revenue With Add-Ons", "numeric": True},
+    {"key": "exit_ltm_revenue", "label": "Exit/Current LTM Revenue", "numeric": True},
+    {"key": "exit_tev", "label": "Exit/Current TEV", "numeric": True},
+    {"key": "exit_ev_revenue", "label": "Exit/Current EV/Revenue*", "numeric": True},
+    {"key": "exit_net_debt", "label": "Exit/Current Net Debt", "numeric": True},
+    {"key": "exit_net_debt_revenue", "label": "Exit/Current Net Debt/Revenue*", "numeric": True},
+    {"key": "exit_net_debt_ev", "label": "Exit/Current Net Debt/EV", "numeric": True},
+    {"key": "diff_revenue", "label": "Difference Revenue", "numeric": True},
+    {"key": "diff_tev", "label": "Difference TEV", "numeric": True},
+    {"key": "diff_ev_revenue", "label": "Difference EV/Revenue*", "numeric": True},
+    {"key": "diff_net_debt", "label": "Difference Net Debt", "numeric": True},
+    {"key": "diff_net_debt_revenue", "label": "Difference Net Debt/Revenue*", "numeric": True},
+    {"key": "diff_net_debt_ev", "label": "Difference Net Debt/EV", "numeric": True},
+]
+
+REVENUE_VCA_HEADER_GROUPS = [
+    {"label": "Deal Profile", "span": 9},
+    {"label": "Fund Performance", "span": 10},
+    {"label": "Organic Revenue Growth During Hold Period", "span": 2},
+    {"label": "Value Creation (%)", "span": 5},
+    {"label": "Value Creation ($)", "span": 5},
+    {"label": "Company Op. Metrics At Entry", "span": 6},
+    {"label": "Add-Ons", "span": 3},
+    {"label": "Company Op. Metrics At Exit / Current", "span": 6},
+    {"label": "Difference Exit/Current vs Entry", "span": 6},
+]
+
+REVENUE_FORMULA_LEGEND = {
+    "hold_period": "(Exit - Close) / 365.25",
+    "total_value": "C = A + B",
+    "gross_profit": "D = C - Cost",
+    "gross_profit_pct_of_total": "E = D / Total GP",
+    "realized_moic": "F = Realized / Cost",
+    "gross_moic": "G = Total / Cost",
+    "organic_revenue_cagr": "H = ((Organic Exit Revenue/Entry Revenue)^(1/Hold))-1",
+    "organic_revenue_cumulative_growth": "I = Organic Exit Revenue/Entry Revenue - 1",
+    "vc_organic_revenue_growth_pct": "J = Organic Revenue $ / D",
+    "vc_add_on_revenue_pct": "K = Add-On Revenue $ / D",
+    "vc_multiple_pct": "L = Multiple $ / D",
+    "vc_debt_pct": "M = Debt $ / D",
+    "vc_total_pct": "N = J + K + L + M",
+    "vc_total_dollar": "S = O + P + Q + R",
+    "acquired_ev_revenue": "Acq TEV / Acq Revenue",
+    "blended_ev_revenue_with_addons": "(Entry TEV + Acq TEV) / (Entry Revenue + Acq Revenue)",
+    "diff_revenue": "Exit - Entry",
+    "diff_tev": "Exit - Entry",
+    "diff_ev_revenue": "Exit - Entry",
+    "diff_net_debt": "Exit - Entry",
+    "diff_net_debt_revenue": "Exit - Entry",
+    "diff_net_debt_ev": "Exit - Entry",
+}
+
+
+def _blank_revenue_row(row_kind="detail", platform=None):
+    row = {key: None for key in REVENUE_COLUMN_KEYS}
+    row["platform"] = platform
+    row["row_kind"] = row_kind
+    return row
+
+
+def _normalize_displayed_revenue_vca_percentages(row):
+    gross_profit = row.get("gross_profit")
+    component_keys = (
+        ("vc_organic_revenue_growth_dollar", "vc_organic_revenue_growth_pct"),
+        ("vc_add_on_revenue_dollar", "vc_add_on_revenue_pct"),
+        ("vc_multiple_dollar", "vc_multiple_pct"),
+        ("vc_debt_dollar", "vc_debt_pct"),
+    )
+    if gross_profit in (None, 0):
+        for _, pct_key in component_keys:
+            row[pct_key] = None
+        row["vc_total_pct"] = None
+        return row
+
+    component_dollars = [row.get(dollar_key) for dollar_key, _ in component_keys]
+    if all(value is None for value in component_dollars):
+        for _, pct_key in component_keys:
+            row[pct_key] = None
+        row["vc_total_pct"] = None
+        return row
+
+    raw_units = []
+    for value in component_dollars:
+        ratio = safe_divide(0.0 if value is None else value, gross_profit)
+        raw_units.append((ratio or 0.0) * DISPLAY_PERCENT_UNITS)
+
+    reconciled_units = _reconciled_display_percent_units(raw_units)
+    for (_, pct_key), units in zip(component_keys, reconciled_units):
+        row[pct_key] = units / DISPLAY_PERCENT_UNITS
+    row["vc_total_pct"] = 1.0
+    return row
+
+
+def _clear_revenue_summary_value_creation_fields(row):
+    for key in (
+        "vc_organic_revenue_growth_pct",
+        "vc_add_on_revenue_pct",
+        "vc_multiple_pct",
+        "vc_debt_pct",
+        "vc_total_pct",
+        "vc_organic_revenue_growth_dollar",
+        "vc_add_on_revenue_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+        "vc_total_dollar",
+    ):
+        row[key] = None
+    return row
+
+
+def _revenue_add_on_bridge_values(deal, metric, gross_profit):
+    bridge = metric.get("bridge_additive_fund") or {}
+    drivers = bridge.get("drivers_dollar") or {}
+    ownership = _ownership_for_deal(deal, metric)
+
+    entry_multiple = metric.get("entry_tev_revenue")
+    organic_exit_revenue = _organic_exit_value(metric.get("exit_revenue"), metric.get("acquired_revenue"))
+    organic_growth = _difference(organic_exit_revenue, metric.get("entry_revenue"))
+    acquired_revenue = metric.get("acquired_revenue") or 0.0
+
+    organic_dollar = None
+    add_on_dollar = None
+    if entry_multiple is not None and ownership is not None:
+        if organic_growth is not None:
+            organic_dollar = organic_growth * entry_multiple * ownership
+        add_on_dollar = acquired_revenue * entry_multiple * ownership
+
+    debt_dollar = drivers.get("leverage")
+    if debt_dollar is None and deal.entry_net_debt is not None and deal.exit_net_debt is not None and ownership is not None:
+        debt_dollar = (deal.entry_net_debt - deal.exit_net_debt) * ownership
+
+    total_dollar = gross_profit
+    multiple_dollar = (
+        total_dollar - organic_dollar - add_on_dollar - debt_dollar
+        if total_dollar is not None and organic_dollar is not None and add_on_dollar is not None and debt_dollar is not None
+        else drivers.get("multiple")
+    )
+    if total_dollar is None:
+        total_dollar = _sum_present([organic_dollar, add_on_dollar, multiple_dollar, debt_dollar])
+
+    return {
+        "vc_organic_revenue_growth_dollar": organic_dollar,
+        "vc_add_on_revenue_dollar": add_on_dollar,
+        "vc_multiple_dollar": multiple_dollar,
+        "vc_debt_dollar": debt_dollar,
+        "vc_total_dollar": total_dollar,
+        "vc_organic_revenue_growth_pct": safe_divide(organic_dollar, gross_profit),
+        "vc_add_on_revenue_pct": safe_divide(add_on_dollar, gross_profit),
+        "vc_multiple_pct": safe_divide(multiple_dollar, gross_profit),
+        "vc_debt_pct": safe_divide(debt_dollar, gross_profit),
+        "vc_total_pct": safe_divide(total_dollar, gross_profit),
+    }
+
+
+def _row_revenue_operating_fields(row, metric):
+    entry_revenue = metric.get("entry_revenue")
+    entry_tev = metric.get("entry_enterprise_value")
+    entry_net_debt = metric.get("entry_net_debt")
+    exit_revenue = metric.get("exit_revenue")
+    exit_tev = metric.get("exit_enterprise_value")
+    exit_net_debt = metric.get("exit_net_debt")
+    acquired_revenue = metric.get("acquired_revenue")
+    acquired_tev = metric.get("acquired_tev")
+
+    blended_tev = _sum_present([entry_tev, acquired_tev])
+    blended_revenue = _sum_present([entry_revenue, acquired_revenue])
+
+    row.update(
+        {
+            "entry_ltm_revenue": entry_revenue,
+            "entry_tev": entry_tev,
+            "entry_ev_revenue": safe_divide(entry_tev, entry_revenue),
+            "entry_net_debt": entry_net_debt,
+            "entry_net_debt_revenue": safe_divide(entry_net_debt, entry_revenue),
+            "entry_net_debt_ev": safe_divide(entry_net_debt, entry_tev),
+            "acquired_revenue": acquired_revenue,
+            "acquired_ev_revenue": safe_divide(acquired_tev, acquired_revenue),
+            "blended_ev_revenue_with_addons": safe_divide(blended_tev, blended_revenue),
+            "exit_ltm_revenue": exit_revenue,
+            "exit_tev": exit_tev,
+            "exit_ev_revenue": safe_divide(exit_tev, exit_revenue),
+            "exit_net_debt": exit_net_debt,
+            "exit_net_debt_revenue": safe_divide(exit_net_debt, exit_revenue),
+            "exit_net_debt_ev": safe_divide(exit_net_debt, exit_tev),
+        }
+    )
+    row["diff_revenue"] = _difference(row["exit_ltm_revenue"], row["entry_ltm_revenue"])
+    row["diff_tev"] = _difference(row["exit_tev"], row["entry_tev"])
+    row["diff_ev_revenue"] = _difference(row["exit_ev_revenue"], row["entry_ev_revenue"])
+    row["diff_net_debt"] = _difference(row["exit_net_debt"], row["entry_net_debt"])
+    row["diff_net_debt_revenue"] = _difference(row["exit_net_debt_revenue"], row["entry_net_debt_revenue"])
+    row["diff_net_debt_ev"] = _difference(row["exit_net_debt_ev"], row["entry_net_debt_ev"])
+    return row
+
+
+def _aggregate_revenue_operating_fields(deals_subset):
+    row = {}
+    for key, attr in (
+        ("entry_revenue", "entry_revenue"),
+        ("entry_enterprise_value", "entry_enterprise_value"),
+        ("entry_net_debt", "entry_net_debt"),
+        ("exit_revenue", "exit_revenue"),
+        ("exit_enterprise_value", "exit_enterprise_value"),
+        ("exit_net_debt", "exit_net_debt"),
+        ("acquired_revenue", "acquired_revenue"),
+        ("acquired_tev", "acquired_tev"),
+    ):
+        row[key] = _sum_present(getattr(deal, attr, None) for deal in deals_subset)
+
+    output = {}
+    _row_revenue_operating_fields(output, row)
+    return output
+
+
+def build_vca_addon_revenue_row(deal, metric, row_num, gross_profit_denominator):
+    row = _blank_revenue_row(row_kind="deal", platform=deal.company_name or "Unknown")
+    row["row_num"] = row_num
+    row["sector"] = deal.sector
+    row["geography"] = deal.geography
+    row["exit_type"] = getattr(deal, "exit_type", None)
+    row["close_date"] = deal.investment_date
+    row["final_exit_date"] = deal.exit_date
+    row["hold_period"] = metric.get("hold_period")
+    row["status"] = _normalize_status(deal.status)
+
+    row["fund_initial_cost"] = metric.get("equity")
+    row["fund_total_cost"] = metric.get("equity")
+    row["realized_proceeds"] = metric.get("realized")
+    row["unrealized_value"] = metric.get("unrealized")
+    row["total_value"] = metric.get("value_total")
+    row["gross_profit"] = metric.get("value_created")
+    row["gross_profit_pct_of_total"] = safe_divide(row["gross_profit"], gross_profit_denominator)
+
+    row["gross_irr"] = deal.irr
+    row["realized_moic"] = metric.get("realized_moic")
+    row["gross_moic"] = metric.get("moic")
+
+    organic_exit_revenue = _organic_exit_value(metric.get("exit_revenue"), metric.get("acquired_revenue"))
+    row["organic_revenue_cagr"] = _cagr_pct(organic_exit_revenue, metric.get("entry_revenue"), metric.get("hold_period"))
+    row["organic_revenue_cumulative_growth"] = _growth_pct(organic_exit_revenue, metric.get("entry_revenue"))
+
+    row.update(_revenue_add_on_bridge_values(deal, metric, row["gross_profit"]))
+    _row_revenue_operating_fields(row, metric)
+    return _normalize_displayed_revenue_vca_percentages(row)
+
+
+def build_vca_addon_revenue_subtotal(label, deals_subset, metrics_by_id=None, gross_profit_denominator=None):
+    metrics_by_id = metrics_by_id or {deal.id: compute_deal_metrics(deal) for deal in deals_subset}
+    if not deals_subset:
+        return None
+
+    row = _blank_revenue_row(row_kind="subtotal", platform=label)
+    component_rows = [
+        build_vca_addon_revenue_row(deal, metrics_by_id[deal.id], idx, gross_profit_denominator)
+        for idx, deal in enumerate(deals_subset, start=1)
+    ]
+
+    row["status"] = ""
+    for key in (
+        "fund_initial_cost",
+        "fund_total_cost",
+        "realized_proceeds",
+        "unrealized_value",
+        "total_value",
+        "gross_profit",
+    ):
+        row[key] = _sum_present(r.get(key) for r in component_rows)
+    row["gross_profit_pct_of_total"] = safe_divide(row["gross_profit"], gross_profit_denominator)
+    row["gross_irr"] = _weighted_average((r.get("gross_irr"), r.get("fund_total_cost")) for r in component_rows)
+    row["realized_moic"] = safe_divide(row["realized_proceeds"], row["fund_total_cost"])
+    row["gross_moic"] = safe_divide(row["total_value"], row["fund_total_cost"])
+    row["hold_period"] = _weighted_average((r.get("hold_period"), r.get("fund_total_cost")) for r in component_rows)
+    row["organic_revenue_cagr"] = _weighted_average((r.get("organic_revenue_cagr"), r.get("fund_total_cost")) for r in component_rows)
+    row["organic_revenue_cumulative_growth"] = _weighted_average((r.get("organic_revenue_cumulative_growth"), r.get("fund_total_cost")) for r in component_rows)
+
+    for key in (
+        "vc_organic_revenue_growth_dollar",
+        "vc_add_on_revenue_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+    ):
+        row[key] = _sum_present(r.get(key) for r in component_rows)
+    row["vc_total_dollar"] = _sum_present(
+        row.get(key)
+        for key in (
+            "vc_organic_revenue_growth_dollar",
+            "vc_add_on_revenue_dollar",
+            "vc_multiple_dollar",
+            "vc_debt_dollar",
+        )
+    )
+
+    row.update(_aggregate_revenue_operating_fields(deals_subset))
+    return _normalize_displayed_revenue_vca_percentages(row)
+
+
+def build_vca_addon_revenue_summary_rows(deal_rows):
+    output = []
+    summary_modes = ("Average", "Median", "Weighted Average")
+
+    for label in summary_modes:
+        row = _blank_revenue_row(row_kind="summary", platform=label)
+        row["status"] = ""
+        for key in REVENUE_NUMERIC_SUMMARY_KEYS:
+            values = [r.get(key) for r in deal_rows if r.get(key) is not None]
+            if label == "Average":
+                row[key] = _mean(values)
+                continue
+            if label == "Median":
+                row[key] = median(values) if values else None
+                continue
+            weighted_pairs = [(r.get(key), r.get("fund_total_cost")) for r in deal_rows if r.get(key) is not None]
+            row[key] = _weighted_average(weighted_pairs)
+        output.append(_clear_revenue_summary_value_creation_fields(row))
+
+    return output
+
+
+def compute_vca_addons_revenue_analysis(deals, metrics_by_id=None):
+    metrics_by_id = metrics_by_id or {deal.id: compute_deal_metrics(deal) for deal in deals}
+    by_fund = defaultdict(list)
+
+    for deal in deals:
+        fund_name = deal.fund_number or "Unknown Fund"
+        by_fund[fund_name].append(deal)
+
+    grand_gross_profit = sum((metrics_by_id[deal.id].get("value_created") or 0.0) for deal in deals)
+    fund_blocks = []
+    all_deal_rows = []
+
+    for fund_name in sorted(by_fund.keys(), key=_fund_sort_key):
+        ordered_deals = _ordered_deals_for_fund(by_fund[fund_name])
+        fund_gross_profit = sum((metrics_by_id[deal.id].get("value_created") or 0.0) for deal in ordered_deals)
+        fund_size_values = [deal.fund_size for deal in ordered_deals if deal.fund_size is not None]
+        fund_size = fund_size_values[0] if fund_size_values else None
+        fund_size_conflict = any(abs(value - fund_size) > 1e-9 for value in fund_size_values[1:]) if fund_size is not None else False
+
+        deal_rows = []
+        for idx, deal in enumerate(ordered_deals, start=1):
+            row = build_vca_addon_revenue_row(
+                deal,
+                metrics_by_id[deal.id],
+                row_num=idx,
+                gross_profit_denominator=fund_gross_profit,
+            )
+            row["deal_id"] = deal.id
+            deal_rows.append(row)
+
+        subtotal_rows = []
+        for label, subset in _subtotal_deal_sets(fund_name, ordered_deals):
+            subset_metrics = {deal.id: metrics_by_id[deal.id] for deal in subset}
+            subtotal = build_vca_addon_revenue_subtotal(
+                label,
+                subset,
+                metrics_by_id=subset_metrics,
+                gross_profit_denominator=fund_gross_profit,
+            )
+            if subtotal is not None:
+                subtotal_rows.append(subtotal)
+
+        summary_rows = build_vca_addon_revenue_summary_rows(deal_rows)
+        all_subtotal = subtotal_rows[-1] if subtotal_rows else None
+        fund_blocks.append(
+            {
+                "fund_name": fund_name,
+                "fund_size": fund_size,
+                "fund_size_conflict": fund_size_conflict,
+                "net_performance": _fund_net_performance(ordered_deals),
+                "print_sort_metrics": {
+                    "gross_profit": all_subtotal.get("gross_profit") if all_subtotal else None,
+                    "gross_moic": all_subtotal.get("gross_moic") if all_subtotal else None,
+                    "gross_irr": all_subtotal.get("gross_irr") if all_subtotal else None,
+                    "status_rank": _dominant_status_rank(deal_rows),
+                    "fund_name_norm": (fund_name or "").lower(),
+                },
+                "deal_rows": deal_rows,
+                "subtotal_rows": subtotal_rows,
+                "summary_rows": summary_rows,
+            }
+        )
+        all_deal_rows.extend(deal_rows)
+
+    ordered_all_deals = []
+    for fund_name in sorted(by_fund.keys(), key=_fund_sort_key):
+        ordered_all_deals.extend(_ordered_deals_for_fund(by_fund[fund_name]))
+
+    overall_subtotals = []
+    for label, subset in _overall_subtotal_deal_sets(ordered_all_deals):
+        subset_metrics = {deal.id: metrics_by_id[deal.id] for deal in subset}
+        subtotal = build_vca_addon_revenue_subtotal(
+            label,
+            subset,
+            metrics_by_id=subset_metrics,
+            gross_profit_denominator=grand_gross_profit,
+        )
+        if subtotal is not None:
+            overall_subtotals.append(subtotal)
+
+    overall_summary = build_vca_addon_revenue_summary_rows(all_deal_rows)
+    grand_total_row = overall_subtotals[-1] if overall_subtotals else None
+    formula_row = [REVENUE_FORMULA_LEGEND.get(column["key"], "") for column in REVENUE_VCA_COLUMNS]
+
+    return {
+        "meta": {
+            "title": "Value Creation Analysis - with Add-Ons by Revenue",
+            "as_of_date": resolve_analysis_as_of_date(deals),
+            "currency_unit_label": "USD $M",
+            "footnotes": [
+                "* Hold period and CAGR calculations use year fractions with a 365.25-day basis.",
+                "Organic Revenue excludes uploaded Acquired Revenue from Exit/Current Revenue before calculating organic growth.",
+                "Revenue Growth Through Add-Ons uses uploaded Acquired Revenue at the entry EV/Revenue multiple and fund ownership.",
+                "Acquired EV/Revenue and blended EV/Revenue use uploaded Acquired TEV.",
+                "Fund Initial Cost mirrors Fund Total Cost until a separate add-on equity cost upload field is available.",
+            ],
+            "formula_legend": REVENUE_FORMULA_LEGEND,
+        },
+        "header": {
+            "groups": REVENUE_VCA_HEADER_GROUPS,
+            "columns": REVENUE_VCA_COLUMNS,
+            "formula_row": formula_row,
+        },
+        "fund_blocks": fund_blocks,
+        "overall_block": {
+            "subtotal_rows": overall_subtotals,
+            "summary_rows": overall_summary,
+            "summary_metrics": {
+                "gross_profit": grand_total_row.get("gross_profit") if grand_total_row else None,
+                "gross_moic": grand_total_row.get("gross_moic") if grand_total_row else None,
+                "gross_irr": grand_total_row.get("gross_irr") if grand_total_row else None,
+                "deal_count": len(ordered_all_deals),
+                "fund_count": len(fund_blocks),
+            },
+        },
+    }
