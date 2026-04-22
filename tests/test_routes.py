@@ -1866,9 +1866,61 @@ def test_analysis_vca_addons_api_payload_shape(client):
     assert row["vc_add_on_ebitda_dollar"] is not None
     assert "print_sort_metrics" in payload["fund_blocks"][0]
     assert "summary_metrics" in payload["overall_block"]
-    assert any(col.get("key") == "acquired_revenue" for col in payload["header"]["columns"])
-    assert any(col.get("key") == "acquired_tev" for col in payload["header"]["columns"])
-    assert any(col.get("key") == "vc_add_on_ebitda_dollar" for col in payload["header"]["columns"])
+    assert [group["span"] for group in payload["header"]["groups"]] == [9, 10, 2, 5, 5, 6, 2, 1, 6, 6]
+    assert [col["key"] for col in payload["header"]["columns"]] == [
+        "row_num",
+        "platform",
+        "sector",
+        "geography",
+        "exit_type",
+        "close_date",
+        "final_exit_date",
+        "hold_period",
+        "status",
+        "fund_initial_cost",
+        "fund_total_cost",
+        "realized_proceeds",
+        "unrealized_value",
+        "total_value",
+        "gross_profit",
+        "gross_profit_pct_of_total",
+        "gross_irr",
+        "realized_moic",
+        "gross_moic",
+        "organic_ebitda_cagr",
+        "organic_ebitda_cumulative_growth",
+        "vc_organic_ebitda_growth_pct",
+        "vc_add_on_ebitda_pct",
+        "vc_multiple_pct",
+        "vc_debt_pct",
+        "vc_total_pct",
+        "vc_organic_ebitda_growth_dollar",
+        "vc_add_on_ebitda_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+        "vc_total_dollar",
+        "entry_ltm_ebitda",
+        "entry_ebitda_margin",
+        "entry_ev_ebitda",
+        "entry_net_debt",
+        "entry_net_debt_ebitda",
+        "entry_net_debt_ev",
+        "acquired_ebitda",
+        "acquired_ev_ebitda",
+        "blended_ev_ebitda_with_addons",
+        "exit_ltm_ebitda",
+        "exit_ebitda_margin",
+        "exit_ev_ebitda",
+        "exit_net_debt",
+        "exit_net_debt_ebitda",
+        "exit_net_debt_ev",
+        "diff_ebitda",
+        "diff_ebitda_margin",
+        "diff_ev_ebitda",
+        "diff_net_debt",
+        "diff_net_debt_ebitda",
+        "diff_net_debt_ev",
+    ]
 
 
 def test_analysis_vca_addons_revenue_api_payload_shape(client):
@@ -1912,9 +1964,58 @@ def test_analysis_vca_addons_revenue_api_payload_shape(client):
     assert row["vc_add_on_revenue_dollar"] is not None
     assert "print_sort_metrics" in payload["fund_blocks"][0]
     assert "summary_metrics" in payload["overall_block"]
-    assert any(col.get("key") == "organic_revenue_cagr" for col in payload["header"]["columns"])
-    assert any(col.get("key") == "blended_ev_revenue_with_addons" for col in payload["header"]["columns"])
-    assert any(col.get("key") == "vc_add_on_revenue_dollar" for col in payload["header"]["columns"])
+    assert [group["span"] for group in payload["header"]["groups"]] == [9, 10, 2, 5, 5, 5, 2, 1, 5, 5]
+    assert [col["key"] for col in payload["header"]["columns"]] == [
+        "row_num",
+        "platform",
+        "sector",
+        "geography",
+        "exit_type",
+        "close_date",
+        "final_exit_date",
+        "hold_period",
+        "status",
+        "fund_initial_cost",
+        "fund_total_cost",
+        "realized_proceeds",
+        "unrealized_value",
+        "total_value",
+        "gross_profit",
+        "gross_profit_pct_of_total",
+        "gross_irr",
+        "realized_moic",
+        "gross_moic",
+        "organic_revenue_cagr",
+        "organic_revenue_cumulative_growth",
+        "vc_organic_revenue_growth_pct",
+        "vc_add_on_revenue_pct",
+        "vc_multiple_pct",
+        "vc_debt_pct",
+        "vc_total_pct",
+        "vc_organic_revenue_growth_dollar",
+        "vc_add_on_revenue_dollar",
+        "vc_multiple_dollar",
+        "vc_debt_dollar",
+        "vc_total_dollar",
+        "entry_ltm_revenue",
+        "entry_ev_revenue",
+        "entry_net_debt",
+        "entry_net_debt_revenue",
+        "entry_net_debt_ev",
+        "acquired_revenue",
+        "acquired_ev_revenue",
+        "blended_ev_revenue_with_addons",
+        "exit_ltm_revenue",
+        "exit_ev_revenue",
+        "exit_net_debt",
+        "exit_net_debt_revenue",
+        "exit_net_debt_ev",
+        "diff_revenue",
+        "diff_ev_revenue",
+        "diff_net_debt",
+        "diff_net_debt_revenue",
+        "diff_net_debt_ev",
+    ]
 
 
 def test_analysis_benchmarking_api_payload_shape(client):
@@ -2161,9 +2262,9 @@ def test_analysis_vca_addons_page_renders_group_headers_with_data(client):
     assert response.status_code == 200
     assert b"Organic EBITDA Growth During Hold Period" in response.data
     assert b"Add-Ons" in response.data
-    assert b"Acquired Revenue" in response.data
     assert b"Acquired EBITDA" in response.data
-    assert b"Acquired TEV" in response.data
+    assert b"Acquired EV/EBITDA" in response.data
+    assert b"Blended EV/EBITDA With Add-Ons" in response.data
     assert b"Add-On EBITDA" in response.data
     assert b"Value Creation (%)" in response.data
     assert b"Value Creation ($)" in response.data
