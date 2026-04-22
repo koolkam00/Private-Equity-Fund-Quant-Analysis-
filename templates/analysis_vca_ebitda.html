@@ -96,27 +96,45 @@
 {{ value or "—" }}
 {% elif key in [
     "fund_total_cost",
+    "fund_initial_cost",
     "realized_proceeds",
     "unrealized_value",
     "total_value",
     "gross_profit",
     "vc_ebitda_growth_dollar",
+    "vc_organic_ebitda_growth_dollar",
+    "vc_add_on_ebitda_dollar",
     "vc_multiple_dollar",
     "vc_debt_dollar",
     "vc_total_dollar",
+    "entry_ltm_revenue",
     "entry_ltm_ebitda",
+    "entry_tev",
+    "entry_net_debt",
+    "acquired_revenue",
+    "acquired_ebitda",
+    "acquired_tev",
+    "exit_ltm_revenue",
     "exit_ltm_ebitda",
-    "diff_ebitda"
+    "exit_tev",
+    "exit_net_debt",
+    "diff_revenue",
+    "diff_ebitda",
+    "diff_tev",
+    "diff_net_debt"
 ] -%}
 {{ fmt_currency_symbol(value) }}
 {% elif key in [
     "gross_profit_pct_of_total",
     "gross_irr",
     "vc_ebitda_growth_pct",
+    "vc_organic_ebitda_growth_pct",
+    "vc_add_on_ebitda_pct",
     "vc_multiple_pct",
     "vc_debt_pct",
     "vc_total_pct",
     "entry_net_debt_ev",
+    "add_on_tev_pct_of_exit",
     "exit_net_debt_ev",
     "diff_net_debt_ev"
 ] -%}
@@ -124,6 +142,8 @@
 {% elif key in [
     "ebitda_cagr",
     "ebitda_cumulative_growth",
+    "organic_ebitda_cagr",
+    "organic_ebitda_cumulative_growth",
     "entry_ebitda_margin",
     "exit_ebitda_margin",
     "diff_ebitda_margin"
@@ -132,10 +152,15 @@
 {% elif key in [
     "realized_moic",
     "gross_moic",
+    "entry_ev_revenue",
     "entry_ev_ebitda",
     "entry_net_debt_ebitda",
+    "acquired_ev_revenue",
+    "acquired_ev_ebitda",
+    "exit_ev_revenue",
     "exit_ev_ebitda",
     "exit_net_debt_ebitda",
+    "diff_ev_revenue",
     "diff_ev_ebitda",
     "diff_net_debt_ebitda"
 ] -%}
@@ -151,17 +176,27 @@
 {% set sign_keys = [
     "ebitda_cagr",
     "ebitda_cumulative_growth",
+    "organic_ebitda_cagr",
+    "organic_ebitda_cumulative_growth",
     "vc_ebitda_growth_pct",
+    "vc_organic_ebitda_growth_pct",
+    "vc_add_on_ebitda_pct",
     "vc_multiple_pct",
     "vc_debt_pct",
     "vc_total_pct",
     "vc_ebitda_growth_dollar",
+    "vc_organic_ebitda_growth_dollar",
+    "vc_add_on_ebitda_dollar",
     "vc_multiple_dollar",
     "vc_debt_dollar",
     "vc_total_dollar",
+    "diff_revenue",
     "diff_ebitda",
     "diff_ebitda_margin",
+    "diff_tev",
+    "diff_ev_revenue",
     "diff_ev_ebitda",
+    "diff_net_debt",
     "diff_net_debt_ebitda",
     "diff_net_debt_ev"
 ] %}
@@ -246,7 +281,35 @@ N/A
     "diff_ebitda_margin": "Diff Margin",
     "diff_ev_ebitda": "Diff EV/EBITDA*",
     "diff_net_debt_ebitda": "Diff ND/EBITDA*",
-    "diff_net_debt_ev": "Diff ND/EV"
+    "diff_net_debt_ev": "Diff ND/EV",
+    "sector": "Sector",
+    "geography": "Geography",
+    "exit_type": "Exit Type",
+    "fund_initial_cost": "Initial Cost",
+    "organic_ebitda_cagr": "Org EBITDA CAGR*",
+    "organic_ebitda_cumulative_growth": "Org EBITDA Cum*",
+    "vc_organic_ebitda_growth_pct": "Org EBITDA %",
+    "vc_add_on_ebitda_pct": "Add-On %",
+    "vc_organic_ebitda_growth_dollar": "Org EBITDA $",
+    "vc_add_on_ebitda_dollar": "Add-On $",
+    "entry_ltm_revenue": "Ent Revenue",
+    "entry_tev": "Ent TEV",
+    "entry_ev_revenue": "Ent EV/Revenue*",
+    "entry_net_debt": "Ent Net Debt",
+    "acquired_revenue": "Acq Revenue",
+    "acquired_ebitda": "Acq EBITDA",
+    "acquired_tev": "Acq TEV",
+    "acquired_ev_revenue": "Acq EV/Revenue*",
+    "acquired_ev_ebitda": "Acq EV/EBITDA*",
+    "add_on_tev_pct_of_exit": "Acq TEV % Exit",
+    "exit_ltm_revenue": "Exit Revenue",
+    "exit_tev": "Exit TEV",
+    "exit_ev_revenue": "Exit EV/Revenue*",
+    "exit_net_debt": "Exit Net Debt",
+    "diff_revenue": "Diff Revenue",
+    "diff_tev": "Diff TEV",
+    "diff_ev_revenue": "Diff EV/Revenue*",
+    "diff_net_debt": "Diff Net Debt"
 } %}
 {% set vca_filter_summary = "Filters: Fund " ~ (current_fund or "All Funds") ~ " | Status " ~ (current_status or "All Statuses") ~ " | Sector " ~ (current_sector or "All Sectors") ~ " | Geography " ~ (current_geography or "All Geographies") ~ " | Vintage " ~ (current_vintage or "All Vintages") ~ " | Exit Type " ~ (current_exit_type or "All Exit Types") %}
 {% set vca_legend_summary = "Legend: Cost=Fund Total Cost | GP%Tot=Gross Profit % of Total | Ent=Entry | Exit=Exit/Current | Diff=Exit-Entry | ND=Net Debt" %}

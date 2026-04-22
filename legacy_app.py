@@ -101,6 +101,7 @@ from services.metrics import (
     compute_underwrite_outcome_analysis,
     compute_value_creation_mix,
     compute_valuation_quality_analysis,
+    compute_vca_addons_analysis,
     compute_vca_ebitda_analysis,
     compute_vca_revenue_analysis,
     compute_vintage_series,
@@ -209,6 +210,10 @@ ANALYSIS_PAGES = {
         "title": "Value Creation Analysis - by Revenue",
         "description": "PDF-style value creation table with fund blocks, subtotal rollups, and operating deltas.",
     },
+    "vca-addons": {
+        "title": "Value Creation Analysis - with Add-Ons",
+        "description": "PDF-style value creation table with fund blocks, add-on operating data, and organic versus add-on EBITDA attribution.",
+    },
     "benchmarking": {
         "title": "Benchmarking Analysis (IC PDF)",
         "description": "IC-focused benchmark quartile analysis by fund with print-ready executive summaries.",
@@ -253,6 +258,7 @@ WORKFLOW_SIDEBAR_ITEMS = [
     {"endpoint": "track_record", "label": "Track Record", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-ebitda", "label": "Value Creation (EBITDA)", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-revenue", "label": "Value Creation (Revenue)", "icon": "bi bi-table"},
+    {"endpoint": "analysis_page", "page_key": "vca-addons", "label": "Value Creation (Add-Ons)", "icon": "bi bi-table"},
     {"endpoint": "ic_memo", "label": "IC Memo", "icon": "bi bi-file-earmark-richtext"},
     {"endpoint": "deals", "label": "Deals", "icon": "bi bi-buildings"},
     {"endpoint": "live_ic_pdf_pack", "label": "Download 4 Analysis PDFs", "icon": "bi bi-file-earmark-zip"},
@@ -1025,6 +1031,54 @@ def _scale_analysis_payload(page, payload, scale):
             "exit_tev",
             "diff_revenue",
             "diff_tev",
+        )
+
+        for fund in payload.get("fund_blocks") or []:
+            fund["fund_size"] = _scale_money(fund.get("fund_size"), scale)
+            sort_metrics = fund.get("print_sort_metrics") or {}
+            sort_metrics["gross_profit"] = _scale_money(sort_metrics.get("gross_profit"), scale)
+            for key in ("deal_rows", "subtotal_rows", "summary_rows"):
+                for row in fund.get(key) or []:
+                    for money_key in money_keys:
+                        row[money_key] = _scale_money(row.get(money_key), scale)
+
+        overall = payload.get("overall_block") or {}
+        for key in ("subtotal_rows", "summary_rows"):
+            for row in overall.get(key) or []:
+                for money_key in money_keys:
+                    row[money_key] = _scale_money(row.get(money_key), scale)
+        summary_metrics = overall.get("summary_metrics") or {}
+        summary_metrics["gross_profit"] = _scale_money(summary_metrics.get("gross_profit"), scale)
+        return
+
+    if page == "vca-addons":
+        money_keys = (
+            "fund_initial_cost",
+            "fund_total_cost",
+            "realized_proceeds",
+            "unrealized_value",
+            "total_value",
+            "gross_profit",
+            "vc_organic_ebitda_growth_dollar",
+            "vc_add_on_ebitda_dollar",
+            "vc_multiple_dollar",
+            "vc_debt_dollar",
+            "vc_total_dollar",
+            "entry_ltm_revenue",
+            "entry_ltm_ebitda",
+            "entry_tev",
+            "entry_net_debt",
+            "acquired_revenue",
+            "acquired_ebitda",
+            "acquired_tev",
+            "exit_ltm_revenue",
+            "exit_ltm_ebitda",
+            "exit_tev",
+            "exit_net_debt",
+            "diff_revenue",
+            "diff_ebitda",
+            "diff_tev",
+            "diff_net_debt",
         )
 
         for fund in payload.get("fund_blocks") or []:
@@ -4234,6 +4288,8 @@ def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, be
         return compute_vca_ebitda_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "vca-revenue":
         return compute_vca_revenue_analysis(filtered_deals, metrics_by_id=metrics_by_id)
+    if page == "vca-addons":
+        return compute_vca_addons_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "organic-growth":
         return compute_organic_growth_analysis(filtered_deals, metrics_by_id=metrics_by_id)
     if page == "data-cuts":
@@ -5367,6 +5423,8 @@ def analysis_page(page):
         template_name = "analysis_vca_ebitda.html"
     elif page == "vca-revenue":
         template_name = "analysis_vca_revenue.html"
+    elif page == "vca-addons":
+        template_name = "analysis_vca_ebitda.html"
     elif page == "benchmarking":
         template_name = "analysis_benchmarking.html"
     elif page == "nav-at-risk":

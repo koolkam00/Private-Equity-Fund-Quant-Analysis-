@@ -153,6 +153,7 @@ def test_sidebar_primary_order_and_analysis_grouping(client):
         "Track Record",
         "Value Creation (EBITDA)",
         "Value Creation (Revenue)",
+        "Value Creation (Add-Ons)",
         "IC Memo",
         "Deals",
         "Download 4 Analysis PDFs",
@@ -1657,6 +1658,7 @@ def test_analysis_pages_render(client):
         "lp-due-diligence-memo": b"LP Due Diligence Memo",
         "vca-ebitda": b"Value Creation Analysis - by EBITDA",
         "vca-revenue": b"Value Creation Analysis - by Revenue",
+        "vca-addons": b"Value Creation Analysis - with Add-Ons",
         "benchmarking": b"Benchmarking Analysis (IC PDF)",
     }
     for page, marker in pages.items():
@@ -1670,7 +1672,7 @@ def test_analysis_pages_render(client):
             assert b"Expected Hold (Yrs)" in response.data
             assert b"Delay (Years)" not in response.data
             assert b"Print / Save PDF" in response.data
-        if page in {"vca-ebitda", "vca-revenue", "benchmarking"}:
+        if page in {"vca-ebitda", "vca-revenue", "vca-addons", "benchmarking"}:
             assert b"Download / Print PDF" in response.data
             assert b"Preview Print Layout" in response.data
 
@@ -1721,6 +1723,7 @@ def test_analysis_api_series_schema(client):
         "lp-due-diligence-memo",
         "vca-ebitda",
         "vca-revenue",
+        "vca-addons",
         "benchmarking",
     ):
         response = client.get(f"/api/analysis/{page}/series")
@@ -1813,11 +1816,56 @@ def test_analysis_vca_revenue_api_payload_shape(client):
     assert "fund_blocks" in payload
     assert "overall_block" in payload
     assert "net_performance" in payload["fund_blocks"][0]
-    assert "print_sort_metrics" in payload["fund_blocks"][0]
-    assert "summary_metrics" in payload["overall_block"]
     assert any(col.get("key") == "revenue_cagr" for col in payload["header"]["columns"])
     assert any(col.get("key") == "entry_ev_revenue" for col in payload["header"]["columns"])
     assert not any(col.get("key") == "entry_ev_ebitda" for col in payload["header"]["columns"])
+
+
+def test_analysis_vca_addons_api_payload_shape(client):
+    deal = Deal(
+        company_name="VCA Add-On API Co",
+        fund_number="Fund VCA Add",
+        status="Fully Realized",
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=190,
+        unrealized_value=0,
+        entry_revenue=50,
+        exit_revenue=95,
+        entry_ebitda=10,
+        exit_ebitda=20,
+        entry_enterprise_value=120,
+        exit_enterprise_value=240,
+        entry_net_debt=35,
+        exit_net_debt=20,
+        acquired_revenue=15,
+        acquired_ebitda=3,
+        acquired_tev=45,
+        irr=0.22,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/api/analysis/vca-addons/series")
+    assert response.status_code == 200
+    body = response.get_json()
+    payload = body["payload"]
+    assert body["page"] == "vca-addons"
+    assert "meta" in payload
+    assert "header" in payload
+    assert "fund_blocks" in payload
+    assert "overall_block" in payload
+    row = payload["fund_blocks"][0]["deal_rows"][0]
+    assert row["acquired_revenue"] == 15
+    assert row["acquired_ebitda"] == 3
+    assert row["acquired_tev"] == 45
+    assert row["vc_add_on_ebitda_dollar"] is not None
+    assert "print_sort_metrics" in payload["fund_blocks"][0]
+    assert "summary_metrics" in payload["overall_block"]
+    assert any(col.get("key") == "acquired_revenue" for col in payload["header"]["columns"])
+    assert any(col.get("key") == "acquired_tev" for col in payload["header"]["columns"])
+    assert any(col.get("key") == "vc_add_on_ebitda_dollar" for col in payload["header"]["columns"])
 
 
 def test_analysis_benchmarking_api_payload_shape(client):
@@ -2030,6 +2078,54 @@ def test_analysis_vca_revenue_page_renders_group_headers_with_data(client):
     assert b"Net IRR" not in response.data
     assert b"Net MOIC" not in response.data
     assert b"Net DPI" not in response.data
+    assert b"| $M" in response.data
+    assert b"| USD $M" not in response.data
+
+
+def test_analysis_vca_addons_page_renders_group_headers_with_data(client):
+    deal = Deal(
+        company_name="VCA Add-On Page Co",
+        fund_number="Fund VCA Add",
+        status="Fully Realized",
+        investment_date=date(2019, 1, 1),
+        exit_date=date(2024, 1, 1),
+        equity_invested=100,
+        realized_value=175,
+        unrealized_value=0,
+        entry_revenue=55,
+        exit_revenue=100,
+        entry_ebitda=11,
+        exit_ebitda=22,
+        entry_enterprise_value=132,
+        exit_enterprise_value=260,
+        entry_net_debt=40,
+        exit_net_debt=25,
+        acquired_revenue=18,
+        acquired_ebitda=4,
+        acquired_tev=55,
+        irr=0.2,
+    )
+    db.session.add(_with_active_scope(deal))
+    db.session.commit()
+
+    response = client.get("/analysis/vca-addons")
+    assert response.status_code == 200
+    assert b"Organic EBITDA Growth During Hold Period" in response.data
+    assert b"Add-Ons" in response.data
+    assert b"Acquired Revenue" in response.data
+    assert b"Acquired EBITDA" in response.data
+    assert b"Acquired TEV" in response.data
+    assert b"Add-On EBITDA" in response.data
+    assert b"Value Creation (%)" in response.data
+    assert b"Value Creation ($)" in response.data
+    assert b"Difference Exit/Current vs Entry" in response.data
+    assert b"vca-print-layout" in response.data
+    assert b"vca-print-book" in response.data
+    assert response.data.count(b"vca-print-fund-page") >= 1
+    assert b"vca-print-overall-page" in response.data
+    assert b'id="vcaPrintSort"' in response.data
+    assert b'id="vcaDensityToggle"' in response.data
+    assert b'id="vcaModeToggle"' in response.data
     assert b"| $M" in response.data
     assert b"| USD $M" not in response.data
 

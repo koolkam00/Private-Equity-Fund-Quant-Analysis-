@@ -45,6 +45,7 @@ from services.metrics import (
     compute_valuation_quality_analysis,
     compute_vca_ebitda_analysis,
     compute_vca_revenue_analysis,
+    compute_vca_addons_analysis,
     compute_value_creation_mix,
     safe_divide,
     safe_log,
@@ -1151,6 +1152,59 @@ def test_vca_revenue_displayed_pct_columns_total_to_one():
         _assert_vca_summary_value_creation_fields_are_blank(
             row, "vc_revenue_growth_pct", "vc_revenue_growth_dollar"
         )
+
+
+def test_vca_addons_rows_use_uploaded_acquired_fields():
+    deal = _make_deal(
+        id=305,
+        company_name="Add-On Platform",
+        fund_number="Fund Add",
+        status="Fully Realized",
+        equity_invested=100,
+        realized_value=240,
+        unrealized_value=0,
+        ownership_pct=1.0,
+        entry_revenue=50,
+        exit_revenue=100,
+        entry_ebitda=10,
+        exit_ebitda=24,
+        entry_enterprise_value=120,
+        exit_enterprise_value=260,
+        entry_net_debt=30,
+        exit_net_debt=20,
+        acquired_revenue=20,
+        acquired_ebitda=4,
+        acquired_tev=60,
+        irr=0.25,
+    )
+    metrics = {deal.id: compute_deal_metrics(deal)}
+    payload = compute_vca_addons_analysis([deal], metrics_by_id=metrics)
+
+    row = payload["fund_blocks"][0]["deal_rows"][0]
+    assert payload["meta"]["title"] == "Value Creation Analysis - with Add-Ons"
+    assert row["acquired_revenue"] == 20
+    assert row["acquired_ebitda"] == 4
+    assert row["acquired_tev"] == 60
+    assert row["acquired_ev_revenue"] == 3
+    assert row["acquired_ev_ebitda"] == 15
+    assert row["organic_ebitda_cumulative_growth"] == 100
+    assert abs(row["vc_add_on_ebitda_dollar"] - 48) < 1e-9
+    assert row["vc_add_on_ebitda_pct"] is not None
+
+    fund_total = next(r for r in payload["fund_blocks"][0]["subtotal_rows"] if r["platform"] == "Fund Add - All")
+    assert fund_total["acquired_revenue"] == 20
+    assert fund_total["acquired_ebitda"] == 4
+    assert fund_total["acquired_tev"] == 60
+    assert fund_total["vc_add_on_ebitda_dollar"] == row["vc_add_on_ebitda_dollar"]
+
+    summary = {row["platform"]: row for row in payload["fund_blocks"][0]["summary_rows"]}
+    assert set(summary.keys()) == {"Average", "Median", "Weighted Average"}
+    for row in summary.values():
+        _assert_vca_summary_value_creation_fields_are_blank(
+            row, "vc_organic_ebitda_growth_pct", "vc_organic_ebitda_growth_dollar"
+        )
+        assert row["vc_add_on_ebitda_pct"] is None
+        assert row["vc_add_on_ebitda_dollar"] is None
 
 def _add_db_deal(**kwargs):
     defaults = {
