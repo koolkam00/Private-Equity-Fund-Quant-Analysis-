@@ -1,8 +1,21 @@
 {% extends "base.html" %}
 {% from "_macros.html" import fmt_currency, fmt_currency_unit_label, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_pp_1dp, fmt_growth_pct, fmt_years_1dp  with context %}
-{% block title %}Deals — PE Portfolio Lab{% endblock %}
-{% block page_title %}Deals{% endblock %}
-{% block page_actions %}<span class="record-count">{{ deals|length }} deals</span>{% endblock %}
+{% block title %}{{ deals_page_title|default("Deals") }} — PE Portfolio Lab{% endblock %}
+{% block page_title %}{{ deals_page_title|default("Deals") }}{% endblock %}
+{% block page_subtitle %}
+{% if selection_enabled %}
+Toggle deals in or out of this analysis scenario without changing the underlying portfolio data.
+{% else %}
+Institutional diligence workflow for fund benchmarking, liquidity, value creation, and reporting quality.
+{% endif %}
+{% endblock %}
+{% block page_actions %}
+{% if selection_enabled %}
+<span class="record-count">{{ selected_deal_count }} of {{ total_deal_count }} included</span>
+{% else %}
+<span class="record-count">{{ deals|length }} deals</span>
+{% endif %}
+{% endblock %}
 
 {% macro render_rollup_row(rollup, row_class="") -%}
 {% set detail = rollup_details.get(rollup.row_key) if rollup and rollup.row_key else none %}
@@ -196,11 +209,26 @@
 
 {% block content %}
 {% if deals %}
+{% set table_track_record = display_track_record if selection_enabled and display_track_record is defined else track_record %}
+{% if selection_enabled %}
+<div class="panel deals-selection-panel" data-deal-selection-summary>
+    <div>
+        <h3>Scenario Inclusion</h3>
+        <p class="tiny">Checked deals are included in the rollups, subtotals, rollup detail tables, and aggregate bridges on this page.</p>
+    </div>
+    <div class="deals-selection-actions">
+        <span class="record-count">{{ selected_deal_count }} included / {{ total_deal_count }} total</span>
+        <button type="button" class="btn-upload btn-secondary btn-sm" data-deal-selection-include-all>
+            <i class="bi bi-check2-square"></i> Include All
+        </button>
+    </div>
+</div>
+{% endif %}
 <div class="panel">
     <table class="data-table deals-grouped-table" id="deals-table">
         <thead>
             <tr>
-                <th></th>
+                <th>{% if selection_enabled %}Include{% endif %}</th>
                 <th>Company</th>
                 <th>Status</th>
                 <th>Investment Date</th>
@@ -217,7 +245,8 @@
             </tr>
         </thead>
         <tbody>
-            {% for fund in track_record.funds %}
+            {% for fund in table_track_record.funds %}
+            {% set calc_fund = selected_track_record_funds_by_name.get(fund.fund_name) if selection_enabled else fund %}
             <tr class="deals-fund-header">
                 <td colspan="14">{{ fund.fund_name }}</td>
             </tr>
@@ -226,8 +255,24 @@
             {% set deal = deals_by_id.get(row.deal_id) %}
             {% if deal %}
             {% set m = deal_metrics[row.deal_id] %}
-            <tr class="deal-row" data-deal-id="{{ deal.id }}">
-                <td><button class="expand-btn" onclick="toggleDetail(this)"><i class="bi bi-chevron-right"></i></button></td>
+            {% set is_included = (not selection_enabled) or (deal.id in included_deal_ids) %}
+            <tr class="deal-row{% if selection_enabled and not is_included %} deal-row-excluded{% endif %}" data-deal-id="{{ deal.id }}" data-deal-included="{{ '1' if is_included else '0' }}">
+                <td>
+                    <div class="deal-row-controls">
+                        <button class="expand-btn" onclick="toggleDetail(this)"><i class="bi bi-chevron-right"></i></button>
+                        {% if selection_enabled %}
+                        <label class="deal-include-toggle" title="Include this deal in the analysis calculations">
+                            <input
+                                type="checkbox"
+                                class="deal-include-checkbox"
+                                data-deal-id="{{ deal.id }}"
+                                aria-label="Include {{ deal.company_name or 'deal' }} in analysis calculations"
+                                {% if is_included %}checked{% endif %}
+                            >
+                        </label>
+                        {% endif %}
+                    </div>
+                </td>
                 <td>{{ deal.company_name }}</td>
                 {% set status_norm = (deal.status or "Unrealized")|lower|replace(' ', '-') %}
                 <td><span class="status-badge status-{{ status_norm }}">{{ deal.status or "Unrealized" }}</span></td>
@@ -307,7 +352,8 @@
             {% endfor %}
 
             {% set fund_rollup_dedupe = namespace(seen_labels=[]) %}
-            {% for rollup in fund.status_rollups %}
+            {% if calc_fund %}
+            {% for rollup in calc_fund.status_rollups %}
             {% set rollup_key = (rollup.label or "")|trim|lower %}
             {% if rollup_key not in fund_rollup_dedupe.seen_labels %}
             {{ render_rollup_row(rollup, "deals-rollup-status") }}
@@ -315,13 +361,18 @@
             {% endif %}
             {% endfor %}
 
-            {% for rollup in fund.summary_rollups %}
+            {% for rollup in calc_fund.summary_rollups %}
             {% set rollup_key = (rollup.label or "")|trim|lower %}
             {% if rollup_key not in fund_rollup_dedupe.seen_labels %}
             {{ render_rollup_row(rollup, "deals-rollup-summary") }}
             {% set fund_rollup_dedupe.seen_labels = fund_rollup_dedupe.seen_labels + [rollup_key] %}
             {% endif %}
             {% endfor %}
+            {% elif selection_enabled %}
+            <tr class="deals-selection-empty">
+                <td colspan="14">No included deals selected in {{ fund.fund_name }}.</td>
+            </tr>
+            {% endif %}
             {% endfor %}
 
             <tr class="deals-overall-header">

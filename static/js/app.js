@@ -649,6 +649,40 @@ function attachDealBridgeControls() {
     });
 }
 
+function attachDealSelectionControls() {
+    const checkboxes = Array.from(document.querySelectorAll('.deal-include-checkbox'));
+    if (!checkboxes.length) return;
+
+    const applySelection = () => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('include_deal');
+        url.searchParams.delete('included_deal');
+        url.searchParams.delete('exclude_deal');
+        url.searchParams.delete('excluded_deal');
+        checkboxes.forEach((checkbox) => {
+            if (!checkbox.checked && checkbox.dataset.dealId) {
+                url.searchParams.append('excluded_deal', checkbox.dataset.dealId);
+            }
+        });
+        window.location.href = url.toString();
+    };
+
+    checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', applySelection);
+    });
+
+    document.querySelectorAll('[data-deal-selection-include-all]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('include_deal');
+            url.searchParams.delete('included_deal');
+            url.searchParams.delete('exclude_deal');
+            url.searchParams.delete('excluded_deal');
+            window.location.href = url.toString();
+        });
+    });
+}
+
 function attachRollupBridgeControls() {
     document.querySelectorAll('.rollup-bridge-unit').forEach((el) => {
         if (el.dataset.bound === '1') return;
@@ -4047,6 +4081,7 @@ document.addEventListener('DOMContentLoaded', () => {
     attachDropZone();
     attachFlashDismiss();
     attachDealBridgeControls();
+    attachDealSelectionControls();
     attachRollupBridgeControls();
     attachDashboardFilterAutoApply();
     attachValueCreationMixControls();

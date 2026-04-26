@@ -638,6 +638,48 @@ def test_deals_page_grouped_subtotals_and_detail_contract(client):
     assert b"data-sort=" not in response.data
 
 
+def test_deals_analysis_selection_recomputes_rollups_without_hiding_deals(client):
+    alpha = Deal(
+        company_name="Alpha Select",
+        fund_number="Fund Select",
+        status="Fully Realized",
+        equity_invested=100,
+        realized_value=180,
+        unrealized_value=0,
+        investment_date=date(2020, 1, 1),
+        exit_date=date(2024, 1, 1),
+    )
+    beta = Deal(
+        company_name="Beta Excluded",
+        fund_number="Fund Select",
+        status="Unrealized",
+        equity_invested=50,
+        realized_value=0,
+        unrealized_value=60,
+        investment_date=date(2021, 1, 1),
+    )
+    db.session.add_all([_with_active_scope(alpha), _with_active_scope(beta)])
+    db.session.commit()
+
+    response = client.get(f"/deals/analysis?excluded_deal={beta.id}")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+
+    assert "Deals Analysis" in html
+    assert "1 of 2 included" in html
+    assert "Alpha Select" in html
+    assert "Beta Excluded" in html
+    assert f'data-deal-id="{beta.id}" data-deal-included="0"' in html
+    assert "deal-include-checkbox" in html
+    assert "All 1 Fund Select Fully Realized Investments" in html
+    assert "All 1 Fund Select Investments" in html
+    assert "All 2 Fund Select Investments" not in html
+
+    normal_response = client.get("/deals")
+    assert normal_response.status_code == 200
+    assert b"All 2 Fund Select Investments" in normal_response.data
+
+
 def test_track_record_page(client):
     response = client.get("/track-record")
     assert response.status_code == 200

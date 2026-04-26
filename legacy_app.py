@@ -261,6 +261,7 @@ WORKFLOW_SIDEBAR_ITEMS = [
     {"endpoint": "dashboard", "label": "Dashboard", "icon": "bi bi-grid-1x2"},
     {"endpoint": "analysis_page", "page_key": "benchmarking", "label": "Benchmarking Analysis", "icon": "bi bi-bar-chart-steps"},
     {"endpoint": "track_record", "label": "Track Record", "icon": "bi bi-table"},
+    {"endpoint": "deals_analysis", "label": "Deal Selector", "icon": "bi bi-ui-checks-grid"},
     {"endpoint": "analysis_page", "page_key": "vca-ebitda", "label": "Value Creation (EBITDA)", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-revenue", "label": "Value Creation (Revenue)", "icon": "bi bi-table"},
     {"endpoint": "analysis_page", "page_key": "vca-addons", "label": "Value Creation (Add-Ons)", "icon": "bi bi-table"},
@@ -394,6 +395,7 @@ ROUTE_BLUEPRINTS = {
     "upload_benchmarks": "uploads",
     "delete_benchmarks": "uploads",
     "deals": "reports",
+    "deals_analysis": "reports",
     "track_record": "reports",
     "download_track_record_pdf": "reports",
     "live_ic_pdf_pack": "reports",
@@ -6827,27 +6829,114 @@ def deals():
         all_deals = filter_ctx["deals"]
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Deals page failed")
+
+    return _render_deals_page(
+        all_deals=all_deals,
+        filter_ctx=filter_ctx,
+        calculation_deals=all_deals,
+        selection_enabled=False,
+        page_title="Deals",
+    )
+
+
+def _parse_deal_id_args(*names):
+    ids = set()
+    for name in names:
+        for raw_value in request.args.getlist(name):
+            for part in str(raw_value or "").split(","):
+                try:
+                    deal_id = int(part.strip())
+                except (TypeError, ValueError):
+                    continue
+                if deal_id > 0:
+                    ids.add(deal_id)
+    return ids
+
+
+def _selected_deals_for_analysis(all_deals):
+    all_deal_ids = {d.id for d in all_deals if d.id is not None}
+    explicit_include_ids = _parse_deal_id_args("include_deal", "included_deal")
+    if explicit_include_ids:
+        included_ids = all_deal_ids & explicit_include_ids
+    else:
+        excluded_ids = _parse_deal_id_args("exclude_deal", "excluded_deal")
+        included_ids = all_deal_ids - excluded_ids
+    return [d for d in all_deals if d.id in included_ids], included_ids
+
+
+def _track_record_funds_by_name(track_record):
+    return {
+        fund.get("fund_name") or "Unknown Fund": fund
+        for fund in track_record.get("funds", [])
+    }
+
+
+def _render_deals_page(all_deals, filter_ctx, calculation_deals, selection_enabled=False, included_deal_ids=None, page_title="Deals"):
     deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
+    calculation_metrics = {
+        d.id: deal_metrics[d.id]
+        for d in calculation_deals
+        if d.id in deal_metrics
+    }
     fund_vintage_lookup = _fund_vintage_lookup_for_scope(
         all_deals,
         membership=filter_ctx.get("active_membership"),
         active_firm=filter_ctx.get("active_firm"),
     )
-    track_record = compute_deal_track_record(all_deals, metrics_by_id=deal_metrics, fund_vintage_lookup=fund_vintage_lookup)
-    rollup_details = compute_deals_rollup_details(all_deals, track_record, metrics_by_id=deal_metrics)
+    display_track_record = None
+    if selection_enabled:
+        display_track_record = compute_deal_track_record(
+            all_deals,
+            metrics_by_id=deal_metrics,
+            fund_vintage_lookup=fund_vintage_lookup,
+        )
+    track_record = compute_deal_track_record(
+        calculation_deals,
+        metrics_by_id=calculation_metrics,
+        fund_vintage_lookup=fund_vintage_lookup,
+    )
+    rollup_details = compute_deals_rollup_details(calculation_deals, track_record, metrics_by_id=calculation_metrics)
     reporting = _reporting_currency_context(filter_ctx.get("active_firm"))
     scale = reporting["money_scale"]
     _scale_deal_metrics(deal_metrics, scale)
     _scale_track_record_payload(track_record, scale)
     _scale_rollup_details_payload(rollup_details, scale)
     deals_by_id = {d.id: d for d in all_deals}
+    included_deal_ids = included_deal_ids if included_deal_ids is not None else {d.id for d in calculation_deals}
     return render_template(
         "deals.html",
         deals=all_deals,
         deal_metrics=deal_metrics,
         track_record=track_record,
+        display_track_record=display_track_record,
+        selected_track_record_funds_by_name=_track_record_funds_by_name(track_record),
         rollup_details=rollup_details,
         deals_by_id=deals_by_id,
+        selection_enabled=selection_enabled,
+        included_deal_ids=included_deal_ids,
+        selected_deal_count=len(calculation_deals),
+        total_deal_count=len(all_deals),
+        deals_page_title=page_title,
+    )
+
+
+@app.route("/deals/analysis")
+@login_required
+def deals_analysis():
+    try:
+        filter_ctx = _build_filtered_deals_context()
+        all_deals = filter_ctx["deals"]
+    except SQLAlchemyError as exc:
+        return _redirect_schema_failure(exc, "Deals analysis page failed")
+
+    selected_deals, included_deal_ids = _selected_deals_for_analysis(all_deals)
+    return _render_deals_page(
+        all_deals=all_deals,
+        filter_ctx=filter_ctx,
+        calculation_deals=selected_deals,
+        selection_enabled=True,
+        included_deal_ids=included_deal_ids,
+        page_title="Deals Analysis",
     )
 
 

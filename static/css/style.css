@@ -1080,6 +1080,57 @@ body.pe-app {
     color: #7e4b08;
     border: 1px solid #c18c45;
 }
+.deals-selection-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    border-left: 4px solid var(--accent);
+}
+.deals-selection-panel h3 {
+    margin-bottom: 4px;
+}
+.deals-selection-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.deal-row-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 66px;
+}
+.deal-include-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.deal-include-checkbox {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.deal-row-excluded td {
+    color: var(--muted);
+    background: #f2f1ed;
+}
+.deal-row-excluded td:not(:first-child) {
+    opacity: 0.66;
+}
+.deal-row-excluded .status-badge {
+    opacity: 0.78;
+}
+.deals-selection-empty td {
+    color: var(--muted);
+    background: #f4f8fc;
+    font-size: 12px;
+    font-style: italic;
+}
 .deals-grouped-table .deals-fund-header td {
     background: #8eb0cf;
     color: #0d2740;
