@@ -22,6 +22,8 @@ from models import (
     db,
 )
 from services.deal_parser import _resolve_or_create_firm
+from services.fx_rates import resolve_rate_to_usd
+from services.utils import DEFAULT_CURRENCY_CODE, normalize_currency_code
 
 # ---------------------------------------------------------------------------
 # Column mapping — flexible header recognition
@@ -649,6 +651,15 @@ def parse_credit_loan_tape(
     parsed_loans = []
     fund_row_counts = defaultdict(int)
     fund_set = set()
+    fx_cache = {}
+
+    def _resolve_credit_fx(currency_code, effective_date):
+        code = normalize_currency_code(currency_code, default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+        fx_date = effective_date or date.today()
+        cache_key = (code, fx_date)
+        if cache_key not in fx_cache:
+            fx_cache[cache_key] = resolve_rate_to_usd(code, fx_date)
+        return code, fx_cache[cache_key]
 
     for idx, row in df.iterrows():
         row_num = idx + 2  # Excel row (1-indexed header + data)
@@ -759,11 +770,24 @@ def parse_credit_loan_tape(
             sector=_clean_str(row.get("sector")),
             geography=_clean_str(row.get("geography")),
             sponsor=_clean_str(row.get("sponsor")),
-            currency=_clean_str(row.get("currency")) or "USD",
+            currency=normalize_currency_code(row.get("currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE,
             firm_id=resolved_firm_id,
             team_id=team_id,
             upload_batch=batch_id,
         )
+
+        fx_effective_date = loan.as_of_date or close_date
+        currency_code, fx_result = _resolve_credit_fx(loan.currency, fx_effective_date)
+        loan.currency = currency_code
+        loan.fx_rate_to_usd = fx_result.get("rate") if fx_result.get("ok") else None
+        if currency_code != DEFAULT_CURRENCY_CODE and loan.fx_rate_to_usd is None:
+            _log_issue(
+                row_num,
+                "error",
+                f"FX lookup failed for {currency_code}->USD on {fx_effective_date.isoformat()}, skipping row",
+                fx_result,
+            )
+            continue
 
         # Cross-populate old/new field pairs for backward compatibility
         if loan.entry_loan_amount is not None and loan.entry_loan_amount > 0 and (
@@ -900,7 +924,7 @@ def parse_credit_loan_tape(
             "fund net returns",
         ):
             fund_perf_count = _parse_fund_performance_sheet(
-                xls, sname, resolved_firm_id, team_id, batch_id, _log_issue
+                xls, sname, resolved_firm_id, team_id, batch_id, _log_issue, _resolve_credit_fx
             )
             break
 
@@ -1063,7 +1087,7 @@ def _normalize_pct(value):
     return value
 
 
-def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue):
+def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, log_issue, resolve_fx=None):
     """Parse the optional Fund Performance sheet for CreditFundPerformance rows.
 
     Expected columns (any combination of the aliases below is accepted):
@@ -1144,6 +1168,20 @@ def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, l
             log_issue(row_num, "warning", "Fund Performance row missing Fund Name, skipping")
             continue
 
+        currency = normalize_currency_code(row.get("currency"), default=DEFAULT_CURRENCY_CODE) or DEFAULT_CURRENCY_CODE
+        report_date = _clean_date(row.get("report_date"))
+        fx_rate = 1.0
+        if resolve_fx is not None:
+            currency, fx_result = resolve_fx(currency, report_date)
+            fx_rate = fx_result.get("rate") if fx_result.get("ok") else None
+            if currency != DEFAULT_CURRENCY_CODE and fx_rate is None:
+                log_issue(
+                    row_num,
+                    "warning",
+                    f"Fund Performance FX lookup failed for {currency}->USD on {(report_date or date.today()).isoformat()}, monetary fields kept native",
+                    fx_result,
+                )
+
         perf = CreditFundPerformance(
             fund_name=fund_name,
             vintage_year=_clean_int(row.get("vintage_year")),
@@ -1156,8 +1194,9 @@ def _parse_fund_performance_sheet(xls, sheet_name, firm_id, team_id, batch_id, l
             called_capital=_clean_float(row.get("called_capital")),
             distributed_capital=_clean_float(row.get("distributed_capital")),
             nav=_clean_float(row.get("nav")),
-            report_date=_clean_date(row.get("report_date")),
-            currency=_clean_str(row.get("currency")) or "USD",
+            report_date=report_date,
+            currency=currency,
+            fx_rate_to_usd=fx_rate,
             firm_id=firm_id,
             team_id=team_id,
             upload_batch=batch_id,

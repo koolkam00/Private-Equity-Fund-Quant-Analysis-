@@ -8,6 +8,7 @@ so the downloaded file matches what was originally uploaded.
 from io import BytesIO
 
 from openpyxl import Workbook
+from sqlalchemy import or_
 
 from models import (
     Deal,
@@ -28,6 +29,12 @@ def _reverse_convert(value, fx_rate):
     if value is None or fx_rate is None or fx_rate == 0 or fx_rate == 1.0:
         return value
     return value / fx_rate
+
+
+def _team_scope(column, team_id):
+    if team_id is None:
+        return column.is_(None)
+    return or_(column.is_(None), column == team_id)
 
 
 def export_firm_to_excel(firm_id, team_id):
@@ -56,8 +63,13 @@ def export_firm_to_excel(firm_id, team_id):
     ]
     ws.append(deal_headers)
 
-    deals = Deal.query.filter_by(firm_id=firm_id).order_by(Deal.fund_number, Deal.company_name).all()
+    deals = (
+        Deal.query.filter(Deal.firm_id == firm_id, _team_scope(Deal.team_id, team_id))
+        .order_by(Deal.fund_number, Deal.company_name)
+        .all()
+    )
     deal_map = {d.id: d for d in deals}
+    deal_ids = list(deal_map.keys())
 
     for d in deals:
         # Reverse-convert USD values back to original native currency
@@ -93,9 +105,17 @@ def export_firm_to_excel(firm_id, team_id):
         ])
 
     # ── Sheet 2: Cashflows ───────────────────────────────────────────
-    cf_rows = DealCashflowEvent.query.filter_by(firm_id=firm_id).order_by(
-        DealCashflowEvent.event_date
-    ).all()
+    cf_rows = []
+    if deal_ids:
+        cf_rows = (
+            DealCashflowEvent.query.filter(
+                DealCashflowEvent.firm_id == firm_id,
+                _team_scope(DealCashflowEvent.team_id, team_id),
+                DealCashflowEvent.deal_id.in_(deal_ids),
+            )
+            .order_by(DealCashflowEvent.event_date)
+            .all()
+        )
     if cf_rows:
         ws_cf = wb.create_sheet("Cashflows")
         ws_cf.append(["Company Name", "Fund", "Event Date", "Event Type", "Amount", "Notes"])
@@ -107,9 +127,17 @@ def export_firm_to_excel(firm_id, team_id):
             ])
 
     # ── Sheet 3: Deal Quarterly ──────────────────────────────────────
-    dq_rows = DealQuarterSnapshot.query.filter_by(firm_id=firm_id).order_by(
-        DealQuarterSnapshot.quarter_end
-    ).all()
+    dq_rows = []
+    if deal_ids:
+        dq_rows = (
+            DealQuarterSnapshot.query.filter(
+                DealQuarterSnapshot.firm_id == firm_id,
+                _team_scope(DealQuarterSnapshot.team_id, team_id),
+                DealQuarterSnapshot.deal_id.in_(deal_ids),
+            )
+            .order_by(DealQuarterSnapshot.quarter_end)
+            .all()
+        )
     if dq_rows:
         ws_dq = wb.create_sheet("Deal Quarterly")
         ws_dq.append([
@@ -125,9 +153,14 @@ def export_firm_to_excel(firm_id, team_id):
             ])
 
     # ── Sheet 4: Fund Quarterly ──────────────────────────────────────
-    fq_rows = FundQuarterSnapshot.query.filter_by(firm_id=firm_id).order_by(
-        FundQuarterSnapshot.fund_number, FundQuarterSnapshot.quarter_end
-    ).all()
+    fq_rows = (
+        FundQuarterSnapshot.query.filter(
+            FundQuarterSnapshot.firm_id == firm_id,
+            _team_scope(FundQuarterSnapshot.team_id, team_id),
+        )
+        .order_by(FundQuarterSnapshot.fund_number, FundQuarterSnapshot.quarter_end)
+        .all()
+    )
     if fq_rows:
         ws_fq = wb.create_sheet("Fund Quarterly")
         ws_fq.append([
@@ -141,9 +174,14 @@ def export_firm_to_excel(firm_id, team_id):
             ])
 
     # ── Sheet 5: Fund Metadata ───────────────────────────────────────
-    fm_rows = FundMetadata.query.filter_by(firm_id=firm_id).order_by(
-        FundMetadata.fund_number
-    ).all()
+    fm_rows = (
+        FundMetadata.query.filter(
+            FundMetadata.firm_id == firm_id,
+            _team_scope(FundMetadata.team_id, team_id),
+        )
+        .order_by(FundMetadata.fund_number)
+        .all()
+    )
     if fm_rows:
         ws_fm = wb.create_sheet("Fund Metadata")
         ws_fm.append([
@@ -159,9 +197,14 @@ def export_firm_to_excel(firm_id, team_id):
             ])
 
     # ── Sheet 6: Fund Cashflows ──────────────────────────────────────
-    fc_rows = FundCashflow.query.filter_by(firm_id=firm_id).order_by(
-        FundCashflow.fund_number, FundCashflow.event_date
-    ).all()
+    fc_rows = (
+        FundCashflow.query.filter(
+            FundCashflow.firm_id == firm_id,
+            _team_scope(FundCashflow.team_id, team_id),
+        )
+        .order_by(FundCashflow.fund_number, FundCashflow.event_date)
+        .all()
+    )
     if fc_rows:
         ws_fc = wb.create_sheet("Fund Cashflows")
         ws_fc.append(["Fund", "Event Date", "Event Type", "Amount", "NAV After Event", "Currency Code"])
@@ -172,7 +215,16 @@ def export_firm_to_excel(firm_id, team_id):
             ])
 
     # ── Sheet 7: Underwrite ──────────────────────────────────────────
-    uw_rows = DealUnderwriteBaseline.query.filter_by(firm_id=firm_id).all()
+    uw_rows = []
+    if deal_ids:
+        uw_rows = (
+            DealUnderwriteBaseline.query.filter(
+                DealUnderwriteBaseline.firm_id == firm_id,
+                _team_scope(DealUnderwriteBaseline.team_id, team_id),
+                DealUnderwriteBaseline.deal_id.in_(deal_ids),
+            )
+            .all()
+        )
     if uw_rows:
         ws_uw = wb.create_sheet("Underwrite")
         ws_uw.append([

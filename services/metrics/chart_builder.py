@@ -335,6 +335,12 @@ def _row_count_for_source(source, team_id, firm_id, global_filters):
         if firm_id is None:
             return 0
         query = FundQuarterSnapshot.query.filter(FundQuarterSnapshot.firm_id == firm_id)
+        if team_id is None:
+            query = query.filter(FundQuarterSnapshot.team_id.is_(None))
+        else:
+            query = query.filter(
+                (FundQuarterSnapshot.team_id == team_id) | (FundQuarterSnapshot.team_id.is_(None))
+            )
         if global_filters.get("fund"):
             query = query.filter(FundQuarterSnapshot.fund_number == global_filters["fund"])
         return query.count()
@@ -521,6 +527,12 @@ def _load_rows_fund_quarterly(team_id, firm_id, global_filters):
     if firm_id is None:
         return []
     query = FundQuarterSnapshot.query.filter(FundQuarterSnapshot.firm_id == firm_id)
+    if team_id is None:
+        query = query.filter(FundQuarterSnapshot.team_id.is_(None))
+    else:
+        query = query.filter(
+            (FundQuarterSnapshot.team_id == team_id) | (FundQuarterSnapshot.team_id.is_(None))
+        )
     if global_filters.get("fund"):
         query = query.filter(FundQuarterSnapshot.fund_number == global_filters["fund"])
     rows = query.order_by(FundQuarterSnapshot.quarter_end.asc(), FundQuarterSnapshot.fund_number.asc()).all()

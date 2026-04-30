@@ -227,8 +227,14 @@
             if (!firm) return;
             const pill = document.createElement('span');
             pill.className = 'firm-tag-pill';
-            pill.innerHTML = firm.name + '<button type="button" class="firm-tag-remove" aria-label="Remove ' + firm.name + '">&times;</button>';
-            pill.querySelector('button').addEventListener('click', () => {
+            pill.appendChild(document.createTextNode(firm.name));
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'firm-tag-remove';
+            removeButton.setAttribute('aria-label', 'Remove ' + firm.name);
+            removeButton.textContent = '\u00d7';
+            pill.appendChild(removeButton);
+            removeButton.addEventListener('click', () => {
                 selectedIds.delete(id);
                 renderPills();
                 syncHiddenInputs();

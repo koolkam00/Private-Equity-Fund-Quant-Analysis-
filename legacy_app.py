@@ -4,6 +4,7 @@ import re
 import secrets
 import hashlib
 import json
+import uuid
 from io import BytesIO
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -3751,7 +3752,7 @@ def _handle_upload(parse_func, redirect_route):
         flash("Invalid file type. Please upload an .xlsx or .xls file.", "danger")
         return redirect(url_for("upload"))
 
-    filename = secure_filename(file.filename)
+    filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(file_path)
 
@@ -3891,6 +3892,7 @@ def _handle_upload(parse_func, redirect_route):
         if result["success"] == 0 and not result.get("errors"):
             flash("No records found in the file.", "warning")
     except Exception as exc:
+        db.session.rollback()
         logger.exception("Error processing upload")
         flash(f"Error processing file: {str(exc)}", "danger")
     finally:
@@ -4061,7 +4063,8 @@ def _serialize_chart_builder_template(row):
 
 
 def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class="", metrics_by_id=None):
-    metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in filtered_deals}
+    as_of_date = resolve_analysis_as_of_date(filtered_deals)
+    metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d, as_of_date=as_of_date) for d in filtered_deals}
     firm_id = filtered_deals[0].firm_id if filtered_deals else None
     fund_vintage_years = build_fund_vintage_lookup(filtered_deals, team_id=team_id, firm_id=firm_id)
 
@@ -4223,7 +4226,8 @@ def _build_dashboard_payload(filtered_deals, team_id=None, benchmark_asset_class
 
 
 def _analysis_route_payload(page, filtered_deals, firm_id=None, team_id=None, benchmark_asset_class="", metrics_by_id=None):
-    metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d) for d in filtered_deals}
+    as_of_date = resolve_analysis_as_of_date(filtered_deals)
+    metrics_by_id = metrics_by_id or {d.id: compute_deal_metrics(d, as_of_date=as_of_date) for d in filtered_deals}
 
     if page == "executive-summary":
         rank_by = (request.args.get("rank_by", "") or "moic").strip()
@@ -4485,7 +4489,7 @@ def _benchmark_dataset_for_team(team_id):
     }
 
 
-def _delete_upload_batch_for_firm(firm_id, batch_id):
+def _delete_upload_batch_for_firm(firm_id, batch_id, team_id=None):
     batch_id = (batch_id or "").strip()
     if firm_id is None or not batch_id:
         return {
@@ -4525,42 +4529,52 @@ def _delete_upload_batch_for_firm(firm_id, batch_id):
         deal_quarter_scope = DealQuarterSnapshot.upload_batch == batch_id
         underwrite_scope = DealUnderwriteBaseline.upload_batch == batch_id
 
+    cashflow_query = DealCashflowEvent.query.filter(DealCashflowEvent.firm_id == firm_id, cashflow_scope)
+    deal_quarter_query = DealQuarterSnapshot.query.filter(DealQuarterSnapshot.firm_id == firm_id, deal_quarter_scope)
+    underwrite_query = DealUnderwriteBaseline.query.filter(DealUnderwriteBaseline.firm_id == firm_id, underwrite_scope)
+    fund_quarter_query = FundQuarterSnapshot.query.filter(
+        FundQuarterSnapshot.firm_id == firm_id,
+        FundQuarterSnapshot.upload_batch == batch_id,
+    )
+    fund_metadata_query = FundMetadata.query.filter(
+        FundMetadata.firm_id == firm_id,
+        FundMetadata.upload_batch == batch_id,
+    )
+    fund_cashflow_query = FundCashflow.query.filter(
+        FundCashflow.firm_id == firm_id,
+        FundCashflow.upload_batch == batch_id,
+    )
+    public_market_query = PublicMarketIndexLevel.query.filter(PublicMarketIndexLevel.upload_batch == batch_id)
+    upload_issue_query = UploadIssue.query.filter(
+        UploadIssue.firm_id == firm_id,
+        UploadIssue.upload_batch == batch_id,
+    )
+    deal_query = Deal.query.filter(
+        Deal.firm_id == firm_id,
+        Deal.upload_batch == batch_id,
+    )
+
+    if team_id is not None:
+        cashflow_query = cashflow_query.filter(DealCashflowEvent.team_id == team_id)
+        deal_quarter_query = deal_quarter_query.filter(DealQuarterSnapshot.team_id == team_id)
+        underwrite_query = underwrite_query.filter(DealUnderwriteBaseline.team_id == team_id)
+        fund_quarter_query = fund_quarter_query.filter(FundQuarterSnapshot.team_id == team_id)
+        fund_metadata_query = fund_metadata_query.filter(FundMetadata.team_id == team_id)
+        fund_cashflow_query = fund_cashflow_query.filter(FundCashflow.team_id == team_id)
+        public_market_query = public_market_query.filter(PublicMarketIndexLevel.team_id == team_id)
+        upload_issue_query = upload_issue_query.filter(UploadIssue.team_id == team_id)
+        deal_query = deal_query.filter(Deal.team_id == team_id)
+
     deleted_counts = {
-        "cashflows": DealCashflowEvent.query.filter(
-            DealCashflowEvent.firm_id == firm_id,
-            cashflow_scope,
-        ).delete(synchronize_session=False),
-        "deal_quarterly": DealQuarterSnapshot.query.filter(
-            DealQuarterSnapshot.firm_id == firm_id,
-            deal_quarter_scope,
-        ).delete(synchronize_session=False),
-        "underwrite": DealUnderwriteBaseline.query.filter(
-            DealUnderwriteBaseline.firm_id == firm_id,
-            underwrite_scope,
-        ).delete(synchronize_session=False),
-        "fund_quarterly": FundQuarterSnapshot.query.filter(
-            FundQuarterSnapshot.firm_id == firm_id,
-            FundQuarterSnapshot.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
-        "fund_metadata": FundMetadata.query.filter(
-            FundMetadata.firm_id == firm_id,
-            FundMetadata.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
-        "fund_cashflows": FundCashflow.query.filter(
-            FundCashflow.firm_id == firm_id,
-            FundCashflow.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
-        "public_market_benchmarks": PublicMarketIndexLevel.query.filter(
-            PublicMarketIndexLevel.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
-        "upload_issues": UploadIssue.query.filter(
-            UploadIssue.firm_id == firm_id,
-            UploadIssue.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
-        "deals": Deal.query.filter(
-            Deal.firm_id == firm_id,
-            Deal.upload_batch == batch_id,
-        ).delete(synchronize_session=False),
+        "cashflows": cashflow_query.delete(synchronize_session=False),
+        "deal_quarterly": deal_quarter_query.delete(synchronize_session=False),
+        "underwrite": underwrite_query.delete(synchronize_session=False),
+        "fund_quarterly": fund_quarter_query.delete(synchronize_session=False),
+        "fund_metadata": fund_metadata_query.delete(synchronize_session=False),
+        "fund_cashflows": fund_cashflow_query.delete(synchronize_session=False),
+        "public_market_benchmarks": public_market_query.delete(synchronize_session=False),
+        "upload_issues": upload_issue_query.delete(synchronize_session=False),
+        "deals": deal_query.delete(synchronize_session=False),
     }
     db.session.commit()
     return deleted_counts
@@ -4755,15 +4769,15 @@ def accept_invite(token):
         if email != invite.email.lower():
             flash("Email must match the invited address.", "danger")
             return render_template("accept_invite.html", invite=invite, team=team_obj)
-        if len(password) < 8:
-            flash("Password must be at least 8 characters.", "danger")
-            return render_template("accept_invite.html", invite=invite, team=team_obj)
-        if password != password_confirm:
-            flash("Password confirmation does not match.", "danger")
-            return render_template("accept_invite.html", invite=invite, team=team_obj)
 
         user = User.query.filter_by(email=email).first()
         if user is None:
+            if len(password) < 8:
+                flash("Password must be at least 8 characters.", "danger")
+                return render_template("accept_invite.html", invite=invite, team=team_obj)
+            if password != password_confirm:
+                flash("Password confirmation does not match.", "danger")
+                return render_template("accept_invite.html", invite=invite, team=team_obj)
             user = User(
                 email=email,
                 password_hash=generate_password_hash(password),
@@ -4773,7 +4787,9 @@ def accept_invite(token):
             db.session.add(user)
             db.session.flush()
         else:
-            user.password_hash = generate_password_hash(password)
+            if not current_user.is_authenticated or current_user.id != user.id:
+                flash("That account already exists. Sign in as the invited user to accept this invite.", "warning")
+                return redirect(url_for("login", next=url_for("accept_invite", token=token)))
             user.last_login_at = _utc_now_naive()
 
         existing_membership = TeamMembership.query.filter_by(team_id=invite.team_id, user_id=user.id).first()
@@ -4877,19 +4893,16 @@ def add_team_member_direct():
     if not email or "@" not in email:
         flash("A valid email is required.", "danger")
         return redirect(url_for("team"))
-    if len(password) < 8:
-        flash("Password must be at least 8 characters.", "danger")
-        return redirect(url_for("team"))
     if role not in TEAM_ALLOWED_ROLES:
         role = TEAM_ROLE_MEMBER
 
     existing_user = User.query.filter_by(email=email).first()
     if existing_user is not None:
-        # User exists — reactivate and add to team if not already a member
-        existing_user.is_active = True
-        existing_user.password_hash = generate_password_hash(password)
         user = existing_user
     else:
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "danger")
+            return redirect(url_for("team"))
         user = User(
             email=email,
             password_hash=generate_password_hash(password),
@@ -4903,7 +4916,7 @@ def add_team_member_direct():
     ).first()
     if existing_membership is not None:
         existing_membership.role = role
-        flash(f"{email} already on team — role updated to {role} and account reactivated.", "success")
+        flash(f"{email} already on team — role updated to {role}.", "success")
     else:
         db.session.add(
             TeamMembership(team_id=membership.team_id, user_id=user.id, role=role)
@@ -4993,6 +5006,8 @@ def delete_firm(firm_id):
     """Delete a firm and ALL associated data across every table."""
     try:
         membership = _require_team_scope()
+        if not _is_team_admin(membership):
+            abort(403)
         team_id = membership.team_id
         accessible_ids = {f.id for f in _accessible_firms_for_team(team_id)}
         if firm_id not in accessible_ids:
@@ -5011,6 +5026,92 @@ def delete_firm(firm_id):
         # FK ordering in a single explicit sequence.
         from sqlalchemy import text as sa_text
         conn = db.session.connection()
+        other_team_access_count = TeamFirmAccess.query.filter(
+            TeamFirmAccess.firm_id == firm_id,
+            TeamFirmAccess.team_id != team_id,
+        ).count()
+
+        if other_team_access_count:
+            # Shared firms are global records. Remove only this team's scoped
+            # data and access; do not delete the firm or other teams' rows.
+            conn.execute(sa_text(
+                "DELETE FROM credit_loan_snapshots WHERE credit_loan_id IN "
+                "(SELECT id FROM credit_loans WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM credit_loans WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM credit_fund_performance WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+
+            conn.execute(sa_text(
+                "DELETE FROM deal_cashflow_events WHERE deal_id IN "
+                "(SELECT id FROM deals WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM deal_quarter_snapshots WHERE deal_id IN "
+                "(SELECT id FROM deals WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM deal_underwrite_baselines WHERE deal_id IN "
+                "(SELECT id FROM deals WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM deals WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+
+            conn.execute(sa_text(
+                "DELETE FROM fund_quarter_snapshots WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM fund_metadata WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM fund_cashflows WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+
+            conn.execute(sa_text(
+                "DELETE FROM memo_generation_claims WHERE run_id IN "
+                "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_generation_sections WHERE run_id IN "
+                "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_jobs WHERE run_id IN "
+                "(SELECT id FROM memo_generation_runs WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_generation_runs WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_style_exemplars WHERE document_id IN "
+                "(SELECT id FROM memo_documents WHERE firm_id = :fid AND team_id = :tid)"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_document_chunks WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM memo_documents WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+
+            conn.execute(sa_text(
+                "DELETE FROM upload_issues WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            conn.execute(sa_text(
+                "DELETE FROM team_firm_access WHERE firm_id = :fid AND team_id = :tid"
+            ), {"fid": firm_id, "tid": team_id})
+            db.session.commit()
+            if session.get("active_firm_id") == firm_id:
+                session.pop("active_firm_id", None)
+            flash(
+                f"Removed this team's access to '{firm_name}' and deleted only this team's scoped data. "
+                "Other teams still have access to the shared firm.",
+                "success",
+            )
+            return redirect(url_for("firms"))
 
         # Credit cascade
         conn.execute(sa_text(
@@ -6120,7 +6221,10 @@ def data_cuts_export():
 
     try:
         filter_ctx = _build_filtered_deals_context()
-        metrics_by_id = filter_ctx.get("metrics_by_id") or {d.id: compute_deal_metrics(d) for d in filter_ctx["deals"]}
+        metrics_by_id = filter_ctx.get("metrics_by_id") or {
+            d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+            for d in filter_ctx["deals"]
+        }
 
         primary_dim = request.args.get("dim", "sector")
         secondary_dim = request.args.get("dim2", "")
@@ -6236,7 +6340,8 @@ def data_cuts_summary_pdf():
         filter_ctx = _build_filtered_deals_context()
         deals = filter_ctx["deals"]
         metrics_by_id = filter_ctx.get("metrics_by_id") or {
-            d.id: compute_deal_metrics(d) for d in deals
+            d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+            for d in deals
         }
 
         all_cuts = {}
@@ -6467,7 +6572,10 @@ def chart_builder_template_delete_api(template_id):
 def ic_memo(fund_name=None):
     try:
         filter_ctx = _build_filtered_deals_context(fund_override=fund_name)
-        metrics_by_id = {d.id: compute_deal_metrics(d) for d in filter_ctx["deals"]}
+        metrics_by_id = filter_ctx.get("metrics_by_id") or {
+            d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+            for d in filter_ctx["deals"]
+        }
         payload = compute_ic_memo_payload(
             filter_ctx["deals"],
             metrics_by_id=metrics_by_id,
@@ -6661,7 +6769,7 @@ def upload():
 @app.route("/upload/batches/<batch_id>/delete", methods=["POST"])
 @login_required
 def delete_upload_batch(batch_id):
-    _require_team_scope()
+    membership = _require_team_scope()
     active_firm = _resolve_active_firm_for_team()
     if active_firm is None:
         flash("No active firm selected. Choose a firm first.", "warning")
@@ -6673,7 +6781,7 @@ def delete_upload_batch(batch_id):
         return redirect(url_for("upload"))
 
     try:
-        deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch)
+        deleted = _delete_upload_batch_for_firm(active_firm.id, normalized_batch, team_id=membership.team_id)
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Upload batch delete failed", endpoint="upload")
 
@@ -6768,7 +6876,7 @@ def upload_benchmarks():
         flash("Invalid benchmark file type. Please upload an .xlsx or .xls file.", "danger")
         return redirect(url_for("upload"))
 
-    filename = secure_filename(file.filename)
+    filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(file_path)
 
@@ -6872,7 +6980,10 @@ def _track_record_funds_by_name(track_record):
 
 
 def _render_deals_page(all_deals, filter_ctx, calculation_deals, selection_enabled=False, included_deal_ids=None, page_title="Deals"):
-    deal_metrics = {d.id: compute_deal_metrics(d) for d in all_deals}
+    deal_metrics = {
+        d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+        for d in all_deals
+    }
     calculation_metrics = {
         d.id: deal_metrics[d.id]
         for d in calculation_deals
@@ -6949,7 +7060,10 @@ def track_record():
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Track record page failed")
 
-    metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
+    metrics_by_id = filter_ctx.get("metrics_by_id") or {
+        d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+        for d in all_deals
+    }
     fund_vintage_lookup = _fund_vintage_lookup_for_scope(
         all_deals,
         membership=filter_ctx.get("active_membership"),
@@ -6970,7 +7084,10 @@ def download_track_record_pdf():
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "Track record PDF failed")
 
-    metrics_by_id = {d.id: compute_deal_metrics(d) for d in all_deals}
+    metrics_by_id = filter_ctx.get("metrics_by_id") or {
+        d.id: compute_deal_metrics(d, as_of_date=filter_ctx.get("display_as_of_date"))
+        for d in all_deals
+    }
     fund_vintage_lookup = _fund_vintage_lookup_for_scope(
         all_deals,
         membership=filter_ctx.get("active_membership"),
@@ -7175,7 +7292,7 @@ def live_ic_pdf_pack():
         return redirect(url_for("dashboard"))
 
     try:
-        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+        all_deals = build_deal_scope_query(team_id=membership.team_id, firm_id=active_firm.id).all()
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "IC PDF link pack failed")
 
@@ -7272,12 +7389,12 @@ def download_ic_pdf_pack():
             session[benchmark_session_key] = ""
 
     try:
-        all_deals = Deal.query.filter_by(firm_id=active_firm.id).all()
+        all_deals = build_deal_scope_query(team_id=membership.team_id, firm_id=active_firm.id).all()
     except SQLAlchemyError as exc:
         return _redirect_schema_failure(exc, "IC PDF pack download failed")
 
-    metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in all_deals}
     as_of_date = resolve_analysis_as_of_date(all_deals)
+    metrics_by_id = {deal.id: compute_deal_metrics(deal, as_of_date=as_of_date) for deal in all_deals}
     fund_vintage_lookup = _fund_vintage_lookup_for_scope(all_deals, membership=membership, active_firm=active_firm)
 
     track_record_payload = compute_deal_track_record(all_deals, metrics_by_id=metrics_by_id, fund_vintage_lookup=fund_vintage_lookup)

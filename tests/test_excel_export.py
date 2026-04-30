@@ -6,7 +6,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app import app, db
-from models import Deal, DealCashflowEvent, Firm, FundMetadata
+from models import Deal, DealCashflowEvent, Firm, FundMetadata, Team, TeamFirmAccess
 
 
 def test_export_firm_excel_returns_xlsx(client):
@@ -101,6 +101,44 @@ def test_export_firm_excel_inaccessible_firm(client):
 
     resp = client.get(f"/firms/{other_id}/export-excel")
     assert resp.status_code == 302  # redirect
+
+
+def test_export_firm_excel_excludes_other_team_rows(client):
+    with app.app_context():
+        firm = Firm.query.filter_by(slug="test-firm").first()
+        active_team = Team.query.filter_by(slug="test-team").first()
+        other_team = Team(name="Other Export Team", slug="other-export-team")
+        db.session.add(other_team)
+        db.session.flush()
+        db.session.add(TeamFirmAccess(team_id=other_team.id, firm_id=firm.id))
+        db.session.add_all(
+            [
+                Deal(
+                    company_name="Visible Team Deal",
+                    fund_number="Fund I",
+                    equity_invested=10.0,
+                    firm_id=firm.id,
+                    team_id=active_team.id,
+                ),
+                Deal(
+                    company_name="Other Team Deal",
+                    fund_number="Fund I",
+                    equity_invested=20.0,
+                    firm_id=firm.id,
+                    team_id=other_team.id,
+                ),
+            ]
+        )
+        db.session.commit()
+        firm_id = firm.id
+
+    resp = client.get(f"/firms/{firm_id}/export-excel")
+    assert resp.status_code == 200
+    wb = load_workbook(BytesIO(resp.data))
+    rows = [[c.value for c in row] for row in wb["Deals"].iter_rows(min_row=2)]
+    company_names = {row[1] for row in rows}
+    assert "Visible Team Deal" in company_names
+    assert "Other Team Deal" not in company_names
 
 
 def test_export_firm_excel_requires_login(anonymous_client):

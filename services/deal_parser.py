@@ -1252,45 +1252,59 @@ def _fund_filter_expr(column, fund_name):
     return column == fund_name
 
 
-def _replace_existing_fund_data(firm_id, fund_names):
+def _team_filter(column, team_id):
+    return column.is_(None) if team_id is None else column == team_id
+
+
+def _replace_existing_fund_data(firm_id, fund_names, team_id=None):
     replaced = {}
     for fund_name in sorted(fund_names, key=lambda v: (v is None, v or "")):
         fund_display = fund_name or "Unknown Fund"
+        deal_query = db.session.query(Deal.id).filter(
+            Deal.firm_id == firm_id,
+            _fund_filter_expr(Deal.fund_number, fund_name),
+            _team_filter(Deal.team_id, team_id),
+        )
         deal_ids = [
             row[0]
-            for row in db.session.query(Deal.id)
-            .filter(Deal.firm_id == firm_id, _fund_filter_expr(Deal.fund_number, fund_name))
-            .all()
+            for row in deal_query.all()
         ]
         if deal_ids:
             DealCashflowEvent.query.filter(
                 DealCashflowEvent.firm_id == firm_id,
+                _team_filter(DealCashflowEvent.team_id, team_id),
                 DealCashflowEvent.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
             DealQuarterSnapshot.query.filter(
                 DealQuarterSnapshot.firm_id == firm_id,
+                _team_filter(DealQuarterSnapshot.team_id, team_id),
                 DealQuarterSnapshot.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
             DealUnderwriteBaseline.query.filter(
                 DealUnderwriteBaseline.firm_id == firm_id,
+                _team_filter(DealUnderwriteBaseline.team_id, team_id),
                 DealUnderwriteBaseline.deal_id.in_(deal_ids),
             ).delete(synchronize_session=False)
 
         FundQuarterSnapshot.query.filter(
             FundQuarterSnapshot.firm_id == firm_id,
             _fund_filter_expr(FundQuarterSnapshot.fund_number, fund_name),
+            _team_filter(FundQuarterSnapshot.team_id, team_id),
         ).delete(synchronize_session=False)
         FundMetadata.query.filter(
             FundMetadata.firm_id == firm_id,
             _fund_filter_expr(FundMetadata.fund_number, fund_name),
+            _team_filter(FundMetadata.team_id, team_id),
         ).delete(synchronize_session=False)
         FundCashflow.query.filter(
             FundCashflow.firm_id == firm_id,
             _fund_filter_expr(FundCashflow.fund_number, fund_name),
+            _team_filter(FundCashflow.team_id, team_id),
         ).delete(synchronize_session=False)
         deleted_deals = Deal.query.filter(
             Deal.firm_id == firm_id,
             _fund_filter_expr(Deal.fund_number, fund_name),
+            _team_filter(Deal.team_id, team_id),
         ).delete(synchronize_session=False)
         replaced[fund_display] = deleted_deals
 
@@ -1700,7 +1714,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
         fin_currency_by_row = group["fin_currency_by_row"]  # {row_idx: ISO code}
 
         # Resolve FX rates: performance currency (once per firm)
-        perf_fx = resolve_rate_to_usd(perf_currency, date.today())
+        perf_fx = resolve_rate_to_usd(perf_currency, upload_as_of_date)
         perf_rate = perf_fx.get("rate") if perf_fx.get("ok") else None
 
         # Resolve FX rates: distinct financial metric currencies (cached per currency)
@@ -1710,14 +1724,14 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             if fin_code == perf_currency:
                 fin_fx_by_currency[fin_code] = perf_fx  # reuse
             else:
-                fin_fx_by_currency[fin_code] = resolve_rate_to_usd(fin_code, date.today())
+                fin_fx_by_currency[fin_code] = resolve_rate_to_usd(fin_code, upload_as_of_date)
         # Also resolve the default (perf_currency) for rows without explicit fin currency
         if perf_currency not in fin_fx_by_currency:
             fin_fx_by_currency[perf_currency] = perf_fx
 
         firm = _resolve_or_create_firm(group["firm_name"], base_currency=perf_currency)
         _ensure_team_firm_access(team_id, firm.id, created_by_user_id=uploader_user_id)
-        fx_meta = _refresh_firm_fx_metadata(firm, upload_date=date.today())
+        fx_meta = _refresh_firm_fx_metadata(firm, upload_date=upload_as_of_date)
         firm_contexts[lookup_key] = {
             "firm_name": group["firm_name"],
             "firm_id": firm.id,
@@ -1735,33 +1749,25 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             "conversion_warnings": [],
         }
 
-    if replace_mode == "replace_fund":
-        for lookup_key in sorted(firm_contexts.keys()):
-            context = firm_contexts[lookup_key]
-            uploaded_funds = set()
-            if "fund_number" in df.columns:
-                for row_idx in context["row_indices"]:
-                    uploaded_funds.add(clean_str(df.at[row_idx, "fund_number"]))
-            else:
-                uploaded_funds.add(None)
-            context["replaced_funds"] = _replace_existing_fund_data(context["firm_id"], uploaded_funds)
-        db.session.flush()
-        db.session.expunge_all()
-
     existing_keys_by_firm = {}
     for context in firm_contexts.values():
         firm_id = context["firm_id"]
-        existing_keys_by_firm[firm_id] = {
-            (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
-            for d in Deal.query.filter_by(firm_id=firm_id).all()
-            if d.company_name
-        }
+        if replace_mode == "replace_fund":
+            existing_keys_by_firm[firm_id] = set()
+        else:
+            existing_query = Deal.query.filter(Deal.firm_id == firm_id, _team_filter(Deal.team_id, team_id))
+            existing_keys_by_firm[firm_id] = {
+                (d.company_name.strip().lower(), (d.fund_number or "").strip().lower())
+                for d in existing_query.all()
+                if d.company_name
+            }
 
     success = 0
     errors = []
     bridge_complete = 0
     duplicates_skipped = 0
     quarantined_count = 0
+    parsed_deals = []
 
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -1948,7 +1954,7 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             else:
                 bridge_complete += 1
 
-            db.session.add(deal)
+            parsed_deals.append(deal)
             success += 1
             context["success_count"] += 1
         except Exception as exc:
@@ -1956,6 +1962,26 @@ def parse_deals(file_path, team_id, uploader_user_id=None, replace_mode="replace
             errors.append(msg)
             quarantined_count += 1
             _record_issue(issue_report_id, batch_id, team_id, firm_id, row_num, str(company).strip(), "error", msg, row_payload)
+
+    if replace_mode == "replace_fund" and parsed_deals:
+        for lookup_key in sorted(firm_contexts.keys()):
+            context = firm_contexts[lookup_key]
+            uploaded_funds = {
+                clean_str(deal.fund_number)
+                for deal in parsed_deals
+                if deal.firm_id == context["firm_id"]
+            }
+            if uploaded_funds:
+                context["replaced_funds"] = _replace_existing_fund_data(
+                    context["firm_id"],
+                    uploaded_funds,
+                    team_id=team_id,
+                )
+        db.session.flush()
+        db.session.expunge_all()
+
+    for deal in parsed_deals:
+        db.session.add(deal)
 
     db.session.flush()
     firm_name_to_id = {lookup_key: context["firm_id"] for lookup_key, context in firm_contexts.items()}

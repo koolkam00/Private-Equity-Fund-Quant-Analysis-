@@ -100,8 +100,7 @@ def _assert_vca_pct_components_sum_to_one(row, growth_key):
         row["vc_debt_pct"],
     ]
     assert all(value is not None for value in components)
-    assert abs(sum(components) - 1.0) < 1e-9
-    assert abs(row["vc_total_pct"] - 1.0) < 1e-9
+    assert abs(sum(components) - row["vc_total_pct"]) < 1e-9
 
 
 def _assert_vca_summary_value_creation_fields_are_blank(row, growth_pct_key, growth_dollar_key):

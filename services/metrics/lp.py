@@ -52,17 +52,20 @@ def _metadata_by_fund(team_id, firm_id, fund_names):
     return {row.fund_number: row for row in rows}
 
 
-def _fund_quarter_rows(firm_id, fund_names):
+def _fund_quarter_rows(team_id, firm_id, fund_names):
     if firm_id is None or not fund_names:
         return []
-    return (
-        FundQuarterSnapshot.query.filter(
-            FundQuarterSnapshot.firm_id == firm_id,
-            FundQuarterSnapshot.fund_number.in_(fund_names),
-        )
-        .order_by(FundQuarterSnapshot.fund_number.asc(), FundQuarterSnapshot.quarter_end.asc())
-        .all()
+    query = FundQuarterSnapshot.query.filter(
+        FundQuarterSnapshot.firm_id == firm_id,
+        FundQuarterSnapshot.fund_number.in_(fund_names),
     )
+    if team_id is None:
+        query = query.filter(FundQuarterSnapshot.team_id.is_(None))
+    else:
+        query = query.filter(
+            (FundQuarterSnapshot.team_id == team_id) | (FundQuarterSnapshot.team_id.is_(None))
+        )
+    return query.order_by(FundQuarterSnapshot.fund_number.asc(), FundQuarterSnapshot.quarter_end.asc()).all()
 
 
 def _fund_cashflow_rows(team_id, firm_id, fund_names):
@@ -172,14 +175,14 @@ def _sort_lp_fund_rows(fund_rows, deals, team_id=None, firm_id=None, fund_metada
 
 def compute_lp_liquidity_quality_analysis(deals, firm_id=None, team_id=None, as_of_date=None):
     fund_names = _fund_names_from_deals(deals)
-    quarter_rows = _fund_quarter_rows(firm_id, fund_names)
+    quarter_rows = _fund_quarter_rows(team_id, firm_id, fund_names)
     by_fund_quarters = defaultdict(list)
     for row in quarter_rows:
         by_fund_quarters[row.fund_number].append(row)
 
     latest_by_fund = _latest_fund_rows_by_fund(quarter_rows)
     valuation_quality = compute_valuation_quality_analysis(deals, as_of_date=as_of_date)
-    metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in deals}
+    metrics_by_id = {deal.id: compute_deal_metrics(deal, as_of_date=as_of_date) for deal in deals}
     aged_deals = []
     tail_nav_total = 0.0
     total_nav_from_deals = 0.0
@@ -536,7 +539,7 @@ def compute_public_market_comparison_analysis(deals, team_id=None, firm_id=None,
     fund_names = _fund_names_from_deals(deals)
     metadata_by_fund = _metadata_by_fund(team_id, firm_id, fund_names)
     cashflow_rows = _fund_cashflow_rows(team_id, firm_id, fund_names)
-    quarter_rows = _fund_quarter_rows(firm_id, fund_names)
+    quarter_rows = _fund_quarter_rows(team_id, firm_id, fund_names)
     latest_quarter_by_fund = _latest_fund_rows_by_fund(quarter_rows)
     benchmark_codes = set()
     for metadata in metadata_by_fund.values():
@@ -1042,7 +1045,7 @@ def compute_reporting_quality_analysis(
     fund_names = _fund_names_from_deals(deals)
     deals_by_fund = _deal_groups_by_fund(deals)
     metadata_by_fund = _metadata_by_fund(team_id, firm_id, fund_names)
-    fund_quarter_rows = _fund_quarter_rows(firm_id, fund_names)
+    fund_quarter_rows = _fund_quarter_rows(team_id, firm_id, fund_names)
     fund_cashflow_rows = _fund_cashflow_rows(team_id, firm_id, fund_names)
     latest_quarter_by_fund = _latest_fund_rows_by_fund(fund_quarter_rows)
     by_fund_quarters = defaultdict(list)
@@ -1572,7 +1575,7 @@ def compute_liquidity_forecast_analysis(
 ):
     as_of = as_of_date or resolve_analysis_as_of_date(deals)
     fund_names = _fund_names_from_deals(deals)
-    quarter_rows = _fund_quarter_rows(firm_id, fund_names)
+    quarter_rows = _fund_quarter_rows(team_id, firm_id, fund_names)
     cashflow_rows = _fund_cashflow_rows(team_id, firm_id, fund_names)
     by_fund_quarters = defaultdict(list)
     by_fund_cashflows = defaultdict(list)

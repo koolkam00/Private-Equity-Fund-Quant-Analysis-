@@ -97,6 +97,14 @@ def _credit_resolve_scalar(values, tolerance=1e-9):
     return {"value": base, "conflict": False}
 
 
+def _credit_effective_fx(loan):
+    currency = (getattr(loan, "currency", None) or "USD").strip().upper()
+    rate = getattr(loan, "fx_rate_to_usd", None)
+    if currency in {"", "USD"}:
+        return rate if rate and rate > 0 else 1.0
+    return rate if rate and rate > 0 else 0.0
+
+
 def compute_credit_loan_metrics(loan, as_of_date=None):
     """Compute per-loan return and risk metrics for a single CreditLoan.
 
@@ -451,7 +459,7 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
     fund_set = set()
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
         issue = (loan.issue_size or 0.0) * fx
 
@@ -506,7 +514,7 @@ def compute_credit_portfolio_analytics(loans, metrics_by_id=None):
     has_new_fields = False
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         weight = _credit_position_amount(loan, fx)
 
         committed = (getattr(loan, 'committed_amount', None) or 0.0) * fx
@@ -633,7 +641,7 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
     rating_dist = defaultdict(int)
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
         weight = _credit_position_amount(loan, fx)
 
@@ -701,7 +709,7 @@ def compute_credit_risk_metrics(loans, metrics_by_id=None):
     total_current_collateral = 0.0
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         weight = _credit_position_amount(loan, fx)
 
         cur_coll = getattr(loan, "current_collateral", None)
@@ -1340,7 +1348,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     weighted_loan_count = 0
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         weight = _credit_current_invested_weight(loan, fx)
         if weight > 0:
             total_current_invested_capital += weight
@@ -1506,7 +1514,7 @@ def compute_credit_fundamentals(loans, metrics_by_id=None, *, snapshots_by_loan=
     loans_with_loan_revenue = 0
     loans_with_loan_ebitda = 0
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         rev_entry = _credit_metric_field_value(
             loan, ("entry_revenue", "ttm_revenue_entry"), fx=1.0, use_fx=False
         )
@@ -1820,7 +1828,7 @@ def compute_credit_underwrite_outcome(loans, metrics_by_id=None, *, snapshots_by
     cushion_metric = FUNDAMENTAL_METRIC_DEFS_BY_KEY["equity_cushion"]
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         estimated_irr = _credit_numeric(getattr(loan, "estimated_irr_at_entry", None))
         actual_gross_irr, actual_gross_irr_source = _credit_actual_gross_irr(
             loan, snapshots_by_loan=snapshots_by_loan
@@ -2238,7 +2246,7 @@ def compute_credit_watchlist(
     for loan in loans:
         scored = _score_loan(loan, snapshots_by_loan, metrics_by_id, sponsor_history)
 
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
 
         rows.append({
@@ -2307,7 +2315,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
     by_fund = defaultdict(lambda: {"interest": 0, "fees": 0, "pik": 0, "price": 0, "basis": 0, "count": 0})
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         m = metrics_by_id.get(loan.id, {})
 
         interest = (loan.cumulative_interest_income or 0.0) * fx
@@ -2342,7 +2350,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
     has_new_yield = False
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         entry_amt = _credit_position_amount(loan, fx)
         cm = getattr(loan, 'cash_margin', None)
         pm = getattr(loan, 'pik_margin', None)
@@ -2382,7 +2390,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
     yield_total_hold = 0.0
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
         yield_total_hold += hold
         rate_type = (getattr(loan, "fixed_or_floating", None) or "").lower()
@@ -2415,7 +2423,7 @@ def compute_credit_yield_attribution(loans, metrics_by_id=None):
     for loan in loans:
         if (getattr(loan, "fixed_or_floating", None) or "").lower() != "floating":
             continue
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
         floating_loans_count += 1
         floating_hold_total += hold
@@ -2586,7 +2594,7 @@ def compute_credit_concentration(loans, metrics_by_id=None):
     del metrics_by_id
 
     def _components(loan):
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         values = _credit_track_value_components(loan, fx)
         invested = _credit_position_amount(loan, fx)
         realized_value = values["realized_value"]
@@ -3511,7 +3519,7 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
     status_index = {status: idx for idx, status in enumerate(CREDIT_TRACK_RECORD_STATUS_ORDER)}
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold_size = _credit_hold_amount(loan, fx)
         invested = _credit_position_amount(loan, fx)
         values = _credit_track_value_components(loan, fx)
@@ -3616,6 +3624,9 @@ def compute_credit_track_record(loans, metrics_by_id=None, *, fund_performance=N
         # Fund size: prefer Fund Performance, but fall back to the loan sheet.
         fund_perf = fund_performance.get(fund)
         perf_fund_size = getattr(fund_perf, "fund_size", None) if fund_perf is not None else None
+        perf_fx = getattr(fund_perf, "fx_rate_to_usd", None) if fund_perf is not None else None
+        if perf_fund_size is not None and perf_fx is not None and perf_fx > 0:
+            perf_fund_size *= perf_fx
         fund_size_meta = _credit_resolve_scalar(
             [row.get("fund_size") for row in fund_rows] + [perf_fund_size]
         )
@@ -4194,7 +4205,7 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
     totals_bucket = _credit_dc_new_bucket()
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         primary_val = _credit_dc_resolve_dim(loan, primary_dim)
         _credit_dc_add(groups[primary_val], loan, fx)
         _credit_dc_add(totals_bucket, loan, fx)
@@ -4264,7 +4275,7 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
                     row[sec_label] = _credit_dc_finalize(sec_label, bucket)
                     for loan in loans:
                         if loan.id in bucket["_loan_ids"]:
-                            _credit_dc_add(col_totals[sec_label], loan, loan.fx_rate_to_usd or 1.0)
+                            _credit_dc_add(col_totals[sec_label], loan, _credit_effective_fx(loan))
                 else:
                     row[sec_label] = None
 
@@ -4275,7 +4286,7 @@ def compute_credit_data_cuts(loans, metrics_by_id=None, primary_dim="sector", se
                     if ov_bucket:
                         for loan in loans:
                             if loan.id in ov_bucket["_loan_ids"]:
-                                fx = loan.fx_rate_to_usd or 1.0
+                                fx = _credit_effective_fx(loan)
                                 _credit_dc_add(other_bucket, loan, fx)
                                 _credit_dc_add(col_totals["Other"], loan, fx)
                 if other_bucket["loan_count"] > 0:
@@ -4358,7 +4369,7 @@ def compute_credit_pricing_trends(loans, metrics_by_id=None, *, primary_dim="sec
     total_bucket = _credit_pricing_empty_bucket()
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         current_invested_capital = _credit_current_invested_weight(loan, fx)
         fee_upfront_raw = _credit_numeric(getattr(loan, "fee_upfront", None))
         fee_upfront = fee_upfront_raw if fee_upfront_raw is not None else None
@@ -4592,7 +4603,7 @@ def compute_credit_loan_structure(loans, metrics_by_id=None):
     rows = []
 
     for loan in loans:
-        fx = loan.fx_rate_to_usd or 1.0
+        fx = _credit_effective_fx(loan)
         hold = _credit_position_amount(loan, fx)
         total_hold += hold
         m = metrics_by_id.get(loan.id, {})

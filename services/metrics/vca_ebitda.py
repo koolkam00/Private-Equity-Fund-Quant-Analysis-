@@ -314,15 +314,14 @@ def _normalize_displayed_vca_percentages(row):
         row["vc_total_pct"] = None
         return row
 
-    raw_units = []
+    component_pcts = []
     for value in component_dollars:
         ratio = safe_divide(0.0 if value is None else value, gross_profit)
-        raw_units.append((ratio or 0.0) * DISPLAY_PERCENT_UNITS)
+        component_pcts.append(ratio)
 
-    reconciled_units = _reconciled_display_percent_units(raw_units)
-    for (_, pct_key), units in zip(component_keys, reconciled_units):
-        row[pct_key] = units / DISPLAY_PERCENT_UNITS
-    row["vc_total_pct"] = 1.0
+    for (_, pct_key), ratio in zip(component_keys, component_pcts):
+        row[pct_key] = ratio
+    row["vc_total_pct"] = sum(ratio for ratio in component_pcts if ratio is not None)
     return row
 
 

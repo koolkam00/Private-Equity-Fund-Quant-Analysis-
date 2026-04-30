@@ -227,6 +227,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
     has_non_missing_revenue_method = False
     total_equity = 0.0
     total_value_created = 0.0
+    attributed_value_created = 0.0
 
     for d in deals:
         warnings = []
@@ -234,17 +235,21 @@ def compute_bridge_aggregate(deals, basis="fund"):
         eq = d.equity_invested or 0
         total_equity += eq
 
+        deal_value_created = 0.0
         if basis == "fund":
-            total_value_created += (d.realized_value or 0) + (d.unrealized_value or 0) - eq
+            deal_value_created = (d.realized_value or 0) + (d.unrealized_value or 0) - eq
+            total_value_created += deal_value_created
         else:
             # For company basis aggregate, use bridge-provided company value when available.
             if bridge.get("company_value_created") is not None:
-                total_value_created += bridge.get("company_value_created")
+                deal_value_created = bridge.get("company_value_created")
+                total_value_created += deal_value_created
 
         if not bridge.get("ready"):
             continue
 
         ready_count += 1
+        attributed_value_created += deal_value_created
         method = bridge.get("calculation_method")
         if method == "ebitda_multiple_fallback":
             has_missing_revenue_fallback = True
@@ -281,7 +286,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
 
     moic = {k: (safe_divide(v, total_equity) if total_equity > 0 else None) for k, v in sums.items()}
     pct = {
-        k: (safe_divide(v, total_value_created) if abs(total_value_created) > EPS else None)
+        k: (safe_divide(v, attributed_value_created) if abs(attributed_value_created) > EPS else None)
         for k, v in sums.items()
     }
 
@@ -306,7 +311,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
                 "label": DISPLAY_DRIVER_LABELS.get(key, key),
                 "dollar": dollar,
                 "moic": safe_divide(dollar, total_equity) if dollar is not None else None,
-                "pct": safe_divide(dollar, total_value_created) if dollar is not None else None,
+                "pct": safe_divide(dollar, attributed_value_created) if dollar is not None else None,
             }
         )
 
@@ -337,6 +342,7 @@ def compute_bridge_aggregate(deals, basis="fund"):
         },
         "display_drivers": display_drivers,
         "total_value_created": total_value_created,
+        "attributed_value_created": attributed_value_created,
         "total_equity": total_equity,
         "start_end": start_end,
     }

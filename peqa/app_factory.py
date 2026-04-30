@@ -92,23 +92,22 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
     legacy_binder.register(app, get_blueprints(), ROUTE_BLUEPRINTS)
 
-    # Auto-run schema updates on first request so deploys pick up new
-    # columns without needing a manual `db-upgrade` CLI step.
-    # Using before_request instead of create_app() body to avoid
-    # failures during CLI commands (preDeployCommand, db-upgrade).
-    _schema_applied = {"done": False}
+    if app.config.get("AUTO_SCHEMA_UPDATE"):
+        # Development/test fallback only. Production deploys should run the
+        # explicit db-upgrade command before web traffic reaches the app.
+        _schema_applied = {"done": False}
 
-    @app.before_request
-    def _auto_schema_update():
-        if _schema_applied["done"]:
-            return
-        _schema_applied["done"] = True
-        try:
-            from models import ensure_schema_updates
-            db.create_all()
-            ensure_schema_updates()
-            app.logger.info("Schema updates applied on first request")
-        except Exception as e:
-            app.logger.error("Auto schema update FAILED: %s", e, exc_info=True)
+        @app.before_request
+        def _auto_schema_update():
+            if _schema_applied["done"]:
+                return
+            _schema_applied["done"] = True
+            try:
+                from models import ensure_schema_updates
+                db.create_all()
+                ensure_schema_updates()
+                app.logger.info("Schema updates applied on first request")
+            except Exception as e:
+                app.logger.error("Auto schema update FAILED: %s", e, exc_info=True)
 
     return app

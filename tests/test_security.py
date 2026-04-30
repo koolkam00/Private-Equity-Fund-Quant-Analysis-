@@ -1,6 +1,6 @@
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from models import Firm, Team, TeamFirmAccess, TeamMembership, User, db
+from models import Deal, Firm, Team, TeamFirmAccess, TeamMembership, User, db
 from peqa.app_factory import create_app
 
 
@@ -161,3 +161,64 @@ def test_chart_builder_query_rate_limit_applies_after_sixty_posts(tmp_path):
         )
 
     assert limited.status_code == 429
+
+
+def test_direct_add_existing_user_does_not_reset_password(tmp_path):
+    app = _build_app(tmp_path, csrf_enabled=False)
+    auth_scope = _seed_authenticated_scope(app, user_id=5001)
+
+    with app.app_context():
+        existing = User(
+            email="existing@example.com",
+            password_hash=generate_password_hash("original-password"),
+            is_active=True,
+        )
+        db.session.add(existing)
+        db.session.commit()
+
+    with app.test_client() as client:
+        _login_session(client, auth_scope)
+        response = client.post(
+            "/team/members/add",
+            data={"email": "existing@example.com", "password": "new-password", "role": "member"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    with app.app_context():
+        existing = User.query.filter_by(email="existing@example.com").one()
+        assert check_password_hash(existing.password_hash, "original-password")
+        assert TeamMembership.query.filter_by(team_id=auth_scope["team_id"], user_id=existing.id).count() == 1
+
+
+def test_delete_shared_firm_removes_only_current_team_scope(tmp_path):
+    app = _build_app(tmp_path, csrf_enabled=False)
+    auth_scope = _seed_authenticated_scope(app, user_id=6001)
+
+    with app.app_context():
+        firm = db.session.get(Firm, auth_scope["firm_id"])
+        other_team = Team(name="Other Firm Team", slug="other-firm-team")
+        db.session.add(other_team)
+        db.session.flush()
+        db.session.add(TeamFirmAccess(team_id=other_team.id, firm_id=firm.id))
+        db.session.add_all(
+            [
+                Deal(company_name="Current Team Deal", fund_number="Fund I", firm_id=firm.id, team_id=auth_scope["team_id"]),
+                Deal(company_name="Other Team Deal", fund_number="Fund I", firm_id=firm.id, team_id=other_team.id),
+            ]
+        )
+        db.session.commit()
+        other_team_id = other_team.id
+        firm_id = firm.id
+
+    with app.test_client() as client:
+        _login_session(client, auth_scope)
+        response = client.post(f"/firms/{firm_id}/delete", follow_redirects=False)
+
+    assert response.status_code == 302
+    with app.app_context():
+        assert db.session.get(Firm, firm_id) is not None
+        assert TeamFirmAccess.query.filter_by(team_id=auth_scope["team_id"], firm_id=firm_id).count() == 0
+        assert TeamFirmAccess.query.filter_by(team_id=other_team_id, firm_id=firm_id).count() == 1
+        assert Deal.query.filter_by(company_name="Current Team Deal").count() == 0
+        assert Deal.query.filter_by(company_name="Other Team Deal").count() == 1

@@ -168,6 +168,77 @@ def test_parse_deals_valid(app_context):
         os.remove(file_path)
 
 
+def test_parse_deals_uses_upload_as_of_date_for_fx(app_context, monkeypatch):
+    team = create_team("FX As Of Team")
+    calls = []
+
+    def _tracking_resolver(currency_code, as_of_date):
+        calls.append((currency_code, as_of_date))
+        return {
+            "ok": True,
+            "rate": 1.10 if (currency_code or "").upper() == "EUR" else 1.0,
+            "effective_date": as_of_date,
+            "source": "Test",
+            "warning": None,
+            "currency_code": (currency_code or "USD").upper(),
+        }
+
+    monkeypatch.setattr("services.deal_parser.resolve_rate_to_usd", _tracking_resolver)
+    data = _with_firm_name(
+        {
+            "Company Name": ["Historical FX Co"],
+            "Fund": ["Fund FX"],
+            "Performance Currency": ["EUR"],
+            "Equity Invested": [100.0],
+        },
+        "Historical FX Firm",
+    )
+    data["As Of Date"] = [date(2024, 3, 31)]
+    file_path = create_temp_excel(data)
+    try:
+        result = parse_deals(file_path, team_id=team.id)
+        assert result["success"] == 1
+        assert ("EUR", date(2024, 3, 31)) in calls
+    finally:
+        os.remove(file_path)
+
+
+def test_replace_fund_does_not_delete_existing_data_when_upload_has_no_valid_rows(app_context):
+    team = create_team("Replace Safety Team")
+    firm_name = "Replace Safety Firm"
+    good_data = _with_firm_name(
+        {
+            "Company Name": ["KeepCo"],
+            "Fund": ["Fund I"],
+            "Equity Invested": [100.0],
+        },
+        firm_name,
+    )
+    good_path = create_temp_excel(good_data)
+    try:
+        initial = parse_deals(good_path, team_id=team.id, replace_mode="replace_fund")
+        assert initial["success"] == 1
+    finally:
+        os.remove(good_path)
+
+    bad_data = _with_firm_name(
+        {
+            "Company Name": [None],
+            "Fund": ["Fund I"],
+            "Equity Invested": [200.0],
+        },
+        firm_name,
+    )
+    bad_path = create_temp_excel(bad_data)
+    try:
+        result = parse_deals(bad_path, team_id=team.id, replace_mode="replace_fund")
+        assert result["success"] == 0
+        assert result["quarantined_count"] == 1
+        assert Deal.query.filter_by(company_name="KeepCo", team_id=team.id).count() == 1
+    finally:
+        os.remove(bad_path)
+
+
 def test_parse_deals_requires_firm_name_column(app_context):
     team = create_team()
     data = {

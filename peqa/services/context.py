@@ -196,7 +196,7 @@ def build_analysis_context(
         filters,
     ).all()
     display_as_of_date = resolve_analysis_as_of_date(deals)
-    metrics_by_id = {deal.id: compute_deal_metrics(deal) for deal in deals}
+    metrics_by_id = {deal.id: compute_deal_metrics(deal, as_of_date=display_as_of_date) for deal in deals}
 
     return AnalysisContext(
         membership=membership,

@@ -158,9 +158,9 @@ def parse_benchmarks(file_path, team_id, replace_mode="replace_all"):
             errors.append(f"Row {row_num}: Value must be numeric.")
             continue
 
-        strategy = clean_str(raw.get("strategy"))
-        region = clean_str(raw.get("region"))
-        size_bucket = clean_str(raw.get("size_bucket"))
+        strategy = clean_str(raw.get("strategy")) or ""
+        region = clean_str(raw.get("region")) or ""
+        size_bucket = clean_str(raw.get("size_bucket")) or ""
 
         key = (
             asset_class.strip().lower(),
@@ -200,8 +200,8 @@ def parse_benchmarks(file_path, team_id, replace_mode="replace_all"):
             "upload_batch": upload_batch,
             "rows_loaded": 0,
             "asset_classes": sorted({row[0] for row in seen.keys()}),
-            "vintage_min": min((row[1] for row in seen.keys()), default=None),
-            "vintage_max": max((row[1] for row in seen.keys()), default=None),
+            "vintage_min": min((row[4] for row in seen.keys()), default=None),
+            "vintage_max": max((row[4] for row in seen.keys()), default=None),
         }
 
     if not rows:

@@ -1,3 +1,5 @@
+import os
+
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager, current_user
@@ -16,5 +18,8 @@ def _user_or_ip():
 login_manager = LoginManager()
 csrf = CSRFProtect()
 migrate = Migrate()
-limiter = Limiter(key_func=_user_or_ip, default_limits=[], storage_uri="memory://")
-
+limiter = Limiter(
+    key_func=_user_or_ip,
+    default_limits=[],
+    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+)

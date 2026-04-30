@@ -39,6 +39,7 @@ class Config:
     SESSION_COOKIE_SECURE = IS_PRODUCTION
     WTF_CSRF_TIME_LIMIT = None
     RATELIMIT_HEADERS_ENABLED = True
+    AUTO_SCHEMA_UPDATE = _env_flag("AUTO_SCHEMA_UPDATE", default=not IS_PRODUCTION)
 
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
     MAX_CONTENT_LENGTH = _max_content_length_mb * 1024 * 1024
