@@ -1019,13 +1019,17 @@ body.pe-app {
 .track-record-template td:last-child {
     border-right: none;
 }
-.track-record-template thead th {
+.track-record-template thead th,
+.track-record-template .tr-column-header th {
     background: #1f4d78;
     color: #e8f0f8;
     font-weight: 700;
     text-transform: none;
     font-size: 12px;
     border-bottom: 1px solid #163757;
+}
+.track-record-template .tr-column-header th {
+    border-top: none;
 }
 .track-record-template .tr-fund-header td {
     background: #8eb0cf;

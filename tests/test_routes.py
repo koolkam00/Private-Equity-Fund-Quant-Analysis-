@@ -763,6 +763,43 @@ def test_track_record_page_renders_template_columns_and_net_performance(client):
     assert b"DPI" in response.data
 
 
+def test_track_record_page_repeats_column_header_for_each_fund(client):
+    db.session.add_all(
+        [
+            _with_active_scope(
+                Deal(
+                    company_name="Header Alpha Co",
+                    fund_number="Fund Header A",
+                    status="Unrealized",
+                    investment_date=date(2022, 1, 1),
+                    equity_invested=100,
+                    unrealized_value=120,
+                )
+            ),
+            _with_active_scope(
+                Deal(
+                    company_name="Header Beta Co",
+                    fund_number="Fund Header B",
+                    status="Fully Realized",
+                    investment_date=date(2020, 1, 1),
+                    exit_date=date(2024, 1, 1),
+                    equity_invested=100,
+                    realized_value=150,
+                )
+            ),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/track-record")
+
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert html.count('class="tr-column-header"') == 2
+    assert html.find("Fund Header A") < html.find("Header Alpha Co")
+    assert html.find("Fund Header B") < html.find("Header Beta Co")
+
+
 def test_track_record_page_sorts_funds_by_vintage_year(client):
     membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
     assert membership is not None

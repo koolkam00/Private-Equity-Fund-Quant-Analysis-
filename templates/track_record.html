@@ -1,5 +1,24 @@
 {% extends "base.html" %}
 {% from "_macros.html" import fmt_currency, fmt_date_monyy, fmt_multiple, fmt_pct_1dp, fmt_years_1dp  with context %}
+{% macro track_record_header_cells() -%}
+<th scope="col">#</th>
+<th scope="col">Company</th>
+<th scope="col">Status</th>
+<th scope="col">Investment Date</th>
+<th scope="col">Exit Date</th>
+<th scope="col" class="num">Hold Period</th>
+<th scope="col" class="num">Ownership</th>
+<th scope="col" class="num">% of Total Invested</th>
+<th scope="col" class="num">% of Fund Size</th>
+<th scope="col" class="num">Total Invested</th>
+<th scope="col" class="num">Realized Value</th>
+<th scope="col" class="num">Unrealized Value</th>
+<th scope="col" class="num">Total Value</th>
+<th scope="col" class="num">Gross IRR</th>
+<th scope="col" class="num">Gross MOIC</th>
+<th scope="col" class="num">Realized Gross MOIC</th>
+<th scope="col" class="num">Unrealized Gross MOIC</th>
+{%- endmacro %}
 {% block title %}Deal Level Track Record — PE Portfolio Lab{% endblock %}
 {% block page_title %}Deal Level Track Record{% endblock %}
 {% block page_actions %}
@@ -18,23 +37,7 @@
         <table class="track-record-template">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>Company</th>
-                    <th>Status</th>
-                    <th>Investment Date</th>
-                    <th>Exit Date</th>
-                    <th class="num">Hold Period</th>
-                    <th class="num">Ownership</th>
-                    <th class="num">% of Total Invested</th>
-                    <th class="num">% of Fund Size</th>
-                    <th class="num">Total Invested</th>
-                    <th class="num">Realized Value</th>
-                    <th class="num">Unrealized Value</th>
-                    <th class="num">Total Value</th>
-                    <th class="num">Gross IRR</th>
-                    <th class="num">Gross MOIC</th>
-                    <th class="num">Realized Gross MOIC</th>
-                    <th class="num">Unrealized Gross MOIC</th>
+                    {{ track_record_header_cells() }}
                 </tr>
             </thead>
             <tbody>
@@ -45,6 +48,9 @@
                         {% if fund.fund_size is not none %} ({{ fmt_currency(fund.fund_size) }}){% endif %}
                         {% if fund.fund_size_conflict %}<span class="track-conflict-note">Fund size conflict</span>{% endif %}
                     </td>
+                </tr>
+                <tr class="tr-column-header">
+                    {{ track_record_header_cells() }}
                 </tr>
 
                 {% for row in fund.rows %}
