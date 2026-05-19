@@ -438,8 +438,16 @@ def test_dashboard_benchmark_selector_and_labels(client):
     db.session.add(_with_active_scope(deal))
     membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
     assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).order_by(TeamFirmAccess.id.asc()).first()
+    assert access is not None
     db.session.add_all(
         [
+            FundMetadata(
+                team_id=membership.team_id,
+                firm_id=access.firm_id,
+                fund_number="Fund Bench",
+                vintage_year=2018,
+            ),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.17),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.21),
@@ -800,7 +808,7 @@ def test_track_record_page_repeats_column_header_for_each_fund(client):
     assert html.find("Fund Header B") < html.find("Header Beta Co")
 
 
-def test_track_record_page_sorts_funds_by_vintage_year(client):
+def test_track_record_page_sorts_funds_by_earliest_investment_year(client):
     membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
     assert membership is not None
     access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).order_by(TeamFirmAccess.id.asc()).first()
@@ -843,7 +851,7 @@ def test_track_record_page_sorts_funds_by_vintage_year(client):
     response = client.get("/track-record")
     assert response.status_code == 200
     html = response.data.decode("utf-8")
-    assert html.find("Fund Zeta") < html.find("Fund Alpha")
+    assert html.find("Fund Alpha") < html.find("Fund Zeta")
 
 
 def test_track_record_page_marks_negative_values_red(client):
@@ -1203,6 +1211,60 @@ def test_dashboard_fund_summary_table(client):
     assert b"14.0%" in response.data
     assert b"1.80x" in response.data
     assert b"0.40x" in response.data
+
+
+def test_dashboard_fund_summary_vintage_uses_earliest_fund_investment_year(client):
+    membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
+    assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).order_by(TeamFirmAccess.id.asc()).first()
+    assert access is not None
+    db.session.add(
+        FundMetadata(
+            team_id=membership.team_id,
+            firm_id=access.firm_id,
+            fund_number="Fund Vintage Source",
+            vintage_year=2015,
+        )
+    )
+    db.session.add_all(
+        [
+            _with_active_scope(
+                Deal(
+                    company_name="Vintage Source Early",
+                    fund_number="Fund Vintage Source",
+                    status="Unrealized",
+                    investment_date=date(2020, 1, 1),
+                    equity_invested=100,
+                    unrealized_value=120,
+                    net_irr=0.12,
+                    net_moic=1.2,
+                    net_dpi=0.1,
+                )
+            ),
+            _with_active_scope(
+                Deal(
+                    company_name="Vintage Source Later",
+                    fund_number="Fund Vintage Source",
+                    status="Fully Realized",
+                    investment_date=date(2022, 1, 1),
+                    equity_invested=80,
+                    realized_value=130,
+                    net_irr=0.16,
+                    net_moic=1.6,
+                    net_dpi=0.8,
+                )
+            ),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    match = re.search(r"<td>Fund Vintage Source</td>\s*<td class=\"num\">(?P<vintage>[^<]+)</td>", html)
+    assert match is not None
+    assert match.group("vintage") == "2020"
 
 
 def test_dashboard_fund_summary_sorted_by_vintage_year(client):
@@ -2115,8 +2177,16 @@ def test_analysis_benchmarking_api_payload_shape(client):
     db.session.add(_with_active_scope(deal))
     membership = TeamMembership.query.order_by(TeamMembership.id.asc()).first()
     assert membership is not None
+    access = TeamFirmAccess.query.filter_by(team_id=membership.team_id).order_by(TeamFirmAccess.id.asc()).first()
+    assert access is not None
     db.session.add_all(
         [
+            FundMetadata(
+                team_id=membership.team_id,
+                firm_id=access.firm_id,
+                fund_number="Fund Bench API",
+                vintage_year=2018,
+            ),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="lower_quartile", value=0.12),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="median", value=0.17),
             BenchmarkPoint(team_id=membership.team_id, asset_class="Buyout", vintage_year=2019, metric="net_irr", quartile="upper_quartile", value=0.21),
@@ -2144,7 +2214,8 @@ def test_analysis_benchmarking_api_payload_shape(client):
     assert "fund_rows" in payload
     assert "threshold_rows" in payload
     assert payload["meta"]["benchmark_asset_class"] == "Buyout"
-    assert payload["fund_rows"][0]["benchmark_net_irr"]["rank_code"] in {"top5", "q1", "q2", "q3", "q4", "na"}
+    assert payload["fund_rows"][0]["vintage_year"] == 2019
+    assert payload["fund_rows"][0]["benchmark_net_irr"]["rank_code"] in {"top5", "q1", "q2", "q3", "q4"}
 
 
 def test_analysis_benchmarking_page_renders_ic_print_markers(client):

@@ -506,7 +506,7 @@ def test_deal_track_record_groups_and_subtotals():
     assert abs(overall["moic"] - (340.0 / 230.0)) < 1e-9
 
 
-def test_fund_vintage_lookup_prefers_metadata_and_sorts_unknown_last(app_context):
+def test_fund_vintage_lookup_uses_earliest_investment_year_and_sorts_unknown_last(app_context):
     team = Team(name="Vintage Lookup Team", slug="vintage-lookup-team")
     firm = Firm(name="Vintage Lookup Firm", slug="vintage-lookup-firm")
     db.session.add_all([team, firm])
@@ -515,6 +515,7 @@ def test_fund_vintage_lookup_prefers_metadata_and_sorts_unknown_last(app_context
         [
             FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Alpha", vintage_year=2019),
             FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Beta", vintage_year=2018),
+            FundMetadata(team_id=team.id, firm_id=firm.id, fund_number="Fund Gamma", vintage_year=2017),
         ]
     )
     db.session.commit()
@@ -522,20 +523,50 @@ def test_fund_vintage_lookup_prefers_metadata_and_sorts_unknown_last(app_context
     deals = [
         _make_deal(id=1, fund_number="Fund Alpha", year_invested=2022, team_id=team.id, firm_id=firm.id),
         _make_deal(id=2, fund_number="Fund Beta", year_invested=2020, team_id=team.id, firm_id=firm.id),
-        _make_deal(id=3, fund_number="Fund Unknown", year_invested=None, investment_date=None, team_id=team.id, firm_id=firm.id),
+        _make_deal(id=3, fund_number="Fund Gamma", year_invested=None, investment_date=None, team_id=team.id, firm_id=firm.id),
+        _make_deal(id=4, fund_number="Fund Unknown", year_invested=None, investment_date=None, team_id=team.id, firm_id=firm.id),
     ]
     lookup = build_fund_vintage_lookup(deals, team_id=team.id, firm_id=firm.id)
-    assert lookup["Fund Alpha"] == 2019
-    assert lookup["Fund Beta"] == 2018
+    assert lookup["Fund Alpha"] == 2022
+    assert lookup["Fund Beta"] == 2020
+    assert lookup["Fund Gamma"] == 2017
     assert "Fund Unknown" not in lookup
 
     rows = [
         {"fund_number": "Fund Unknown"},
         {"fund_number": "Fund Alpha"},
         {"fund_number": "Fund Beta"},
+        {"fund_number": "Fund Gamma"},
     ]
     ordered = sort_fund_rows_by_vintage(rows, vintage_lookup=lookup)
-    assert [row["fund_number"] for row in ordered] == ["Fund Beta", "Fund Alpha", "Fund Unknown"]
+    assert [row["fund_number"] for row in ordered] == ["Fund Gamma", "Fund Beta", "Fund Alpha", "Fund Unknown"]
+
+
+def test_fund_vintage_lookup_uses_earliest_scoped_deal_when_current_cut_excludes_it(app_context):
+    team = Team(name="Vintage Scope Team", slug="vintage-scope-team")
+    firm = Firm(name="Vintage Scope Firm", slug="vintage-scope-firm")
+    db.session.add_all([team, firm])
+    db.session.flush()
+    early = Deal(
+        company_name="Scope Early",
+        fund_number="Fund Scope",
+        team_id=team.id,
+        firm_id=firm.id,
+        investment_date=date(2018, 1, 1),
+    )
+    later = Deal(
+        company_name="Scope Later",
+        fund_number="Fund Scope",
+        team_id=team.id,
+        firm_id=firm.id,
+        investment_date=date(2021, 1, 1),
+    )
+    db.session.add_all([early, later])
+    db.session.commit()
+
+    lookup = build_fund_vintage_lookup([later], team_id=team.id, firm_id=firm.id)
+
+    assert lookup["Fund Scope"] == 2018
 
 
 def test_deal_track_record_funds_follow_vintage_lookup():
@@ -1924,7 +1955,7 @@ def test_fee_drag_analysis_uses_gross_to_net_gap(app_context):
     assert out["fund_rows"][0]["fund_number"] == "Fund Fee"
 
 
-def test_fee_drag_fund_rows_sorted_by_vintage_year(app_context):
+def test_fee_drag_fund_rows_sorted_by_earliest_investment_year(app_context):
     team = Team(name="Fee Sort Team", slug="fee-sort-team")
     firm = Firm(name="Fee Sort Firm", slug="fee-sort-firm")
     db.session.add_all([team, firm])
@@ -1968,4 +1999,4 @@ def test_fee_drag_fund_rows_sorted_by_vintage_year(app_context):
     db.session.commit()
 
     out = compute_fee_drag_analysis([deal_newer, deal_older], team_id=team.id, firm_id=firm.id)
-    assert [row["fund_number"] for row in out["fund_rows"]] == ["Fund Older", "Fund Newer"]
+    assert [row["fund_number"] for row in out["fund_rows"]] == ["Fund Newer", "Fund Older"]

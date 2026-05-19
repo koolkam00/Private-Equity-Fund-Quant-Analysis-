@@ -141,15 +141,18 @@ def _fund_size_bucket(metadata):
 
 
 def _fund_vintage_year_from_lookup(fund_name, fund_metadata, fund_deals):
+    years = [deal_vintage_year(d) for d in fund_deals]
+    years = [y for y in years if y is not None]
+    if years:
+        return min(years)
+
     metadata = fund_metadata.get(fund_name)
     if metadata is not None and metadata.vintage_year is not None:
         try:
             return int(metadata.vintage_year)
         except (TypeError, ValueError):
             pass
-    years = [deal_vintage_year(d) for d in fund_deals]
-    years = [y for y in years if y is not None]
-    return min(years) if years else None
+    return None
 
 
 def _fund_manager_name(fund_name, fund_metadata):

@@ -45,7 +45,40 @@ def _coerce_vintage_year(value):
 
 def build_fund_vintage_lookup(deals, team_id=None, firm_id=None, fund_names=None, fund_metadata=None):
     lookup = {}
+    deal_list = list(deals or [])
     normalized_funds = {_normalized_fund_name(name) for name in (fund_names or []) if name is not None}
+    deal_funds = {_normalized_fund_name(getattr(deal, "fund_number", None)) for deal in deal_list}
+    query_funds = normalized_funds or deal_funds
+
+    def _apply_deal_vintage(deal):
+        fund_name = _normalized_fund_name(getattr(deal, "fund_number", None))
+        if normalized_funds and fund_name not in normalized_funds:
+            return
+        vintage_year = deal_vintage_year(deal)
+        if vintage_year is None:
+            return
+        existing = lookup.get(fund_name)
+        if existing is None or vintage_year < existing:
+            lookup[fund_name] = vintage_year
+
+    for deal in deal_list:
+        _apply_deal_vintage(deal)
+
+    if team_id is not None and firm_id is not None and query_funds:
+        scoped_deals = Deal.query.filter(Deal.firm_id == firm_id)
+        scoped_deals = scoped_deals.filter(or_(Deal.team_id.is_(None), Deal.team_id == team_id))
+
+        concrete_funds = sorted(name for name in query_funds if name != "Unknown Fund")
+        fund_filters = []
+        if concrete_funds:
+            fund_filters.append(Deal.fund_number.in_(concrete_funds))
+        if "Unknown Fund" in query_funds:
+            fund_filters.append(or_(Deal.fund_number.is_(None), Deal.fund_number == ""))
+        if fund_filters:
+            scoped_deals = scoped_deals.filter(or_(*fund_filters))
+
+        for deal in scoped_deals.all():
+            _apply_deal_vintage(deal)
 
     metadata_map = {}
     if isinstance(fund_metadata, dict):
@@ -71,21 +104,12 @@ def build_fund_vintage_lookup(deals, team_id=None, firm_id=None, fund_names=None
         metadata_map = {_normalized_fund_name(row.fund_number): row for row in rows if row.fund_number}
 
     for fund_name, row in metadata_map.items():
-        vintage_year = _coerce_vintage_year(getattr(row, "vintage_year", None))
-        if vintage_year is not None:
-            lookup[fund_name] = vintage_year
-
-    for deal in deals or []:
-        fund_name = _normalized_fund_name(getattr(deal, "fund_number", None))
         if normalized_funds and fund_name not in normalized_funds:
             continue
         if fund_name in lookup:
             continue
-        vintage_year = deal_vintage_year(deal)
-        if vintage_year is None:
-            continue
-        existing = lookup.get(fund_name)
-        if existing is None or vintage_year < existing:
+        vintage_year = _coerce_vintage_year(getattr(row, "vintage_year", None))
+        if vintage_year is not None:
             lookup[fund_name] = vintage_year
 
     return lookup
